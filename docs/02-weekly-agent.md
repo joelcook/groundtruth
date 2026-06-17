@@ -59,7 +59,7 @@ On Linux, cron:
 
 The dirty-tree refusal and the "stop on the branch" rule are what make it safe to
 run unattended: the agent never destroys context, and a bad night leaves a
-perfect crime scene.
+clean trail for a human to inspect.
 
 ## Idempotency & cost control
 

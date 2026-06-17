@@ -29,9 +29,9 @@ end to end, and build your own if you have the time and the chops.
 | The refresh-pipeline **skeleton** + generic linters | `scripts/` |
 | All concept docs and the "bring your own data" playbook | `docs/`, `CLAUDE.md` |
 
-**Trust commitment:** the open core stays open. No rug-pulls, no relicensing of
-what's already MIT, no crippling the free path to upsell. Adoption *is* the
-marketing, so kneecapping it would be self-defeating.
+**Trust commitment:** the open core stays open. No bait-and-switch, no
+relicensing of what's already MIT, no hollowing out the free path to force an
+upsell. Adoption *is* the marketing, so undermining it would be self-defeating.
 
 ## What's paid
 

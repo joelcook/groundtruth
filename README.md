@@ -90,7 +90,7 @@ immediately — no API key needed for any of this:
 .venv/bin/python scripts/run_evals.py --tier fast     # → 15/15 passed
 ```
 
-## Feel the magic — the MCP server
+## See it answer — the MCP server
 
 The model never imports Python. It talks to an MCP server:
 

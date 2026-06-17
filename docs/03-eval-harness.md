@@ -1,7 +1,7 @@
 # Pillar 3 — An eval harness for an AI system
 
 This is the most undervalued skill in applied AI. Almost nobody builds a real
-eval harness, which means almost everyone ships on vibes and finds out about
+eval harness, which means almost everyone ships on gut feel and finds out about
 regressions from users. An eval set is the artifact that turns *"the bot seems
 fine"* into a number you can defend, gate releases on, and watch over time.
 

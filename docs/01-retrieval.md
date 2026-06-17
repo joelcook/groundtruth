@@ -14,7 +14,7 @@ that line.
 | reached via | `search_wiki`, `read_wiki_page` | `get_fee`, `get_event`, `get_hours`, … |
 | if wrong | mildly unhelpful | real-world harm |
 
-Mixing these is the original sin of "chatbot on our docs." A vector store
+Mixing these is the classic mistake of "chatbot on our docs." A vector store
 retrieves a paragraph that *says* the fine is 25¢/day, and the model repeats it
 with total confidence a year after the policy changed. groundtruth makes that
 structurally impossible: the price lives in a row, the row has a source, and the
@@ -89,7 +89,7 @@ chunks. When you outgrow it, swap the scoring loop for the
 [`sqlite-vec`](https://github.com/asg017/sqlite-vec) extension and keep the same
 table and the same `search_wiki` interface. The point of the design is that the
 *interface* is stable; the *backend* is a detail you upgrade when measurements —
-not vibes — tell you to.
+not guesswork — tell you to.
 
 ## Where to look
 
