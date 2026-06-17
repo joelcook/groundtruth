@@ -26,7 +26,7 @@ It ships as three reusable pieces most teams get wrong or skip:
 |---|---|---|
 | **1** | **Retrieval over something you care about** | A narrative wiki + a hard-fact SQLite database + an optional embedding store, behind one tool surface. |
 | **2** | **An agent that does weekly work** | A scheduled, multi-step pipeline that re-scrapes, rebuilds, recompiles, gates, and opens a PR — with real state and failure modes. |
-| **3** | **An eval harness** | The launch gate that turns "seems fine" into a number. The most undervalued thing in the repo. |
+| **3** | **An eval harness** | Grades the **retrieval path** (`must_call_tool`), not just the answer text — across hard-fact, narrative (LLM-judge), out-of-scope, and contradiction cases, with deterministic-replay and live-model tiers plus regression tracking. The most undervalued thing in the repo. |
 
 This repo is wired up as a tiny **public-library** example so you can run it in
 two minutes. Then you delete the library and [hand it to Claude with your own
