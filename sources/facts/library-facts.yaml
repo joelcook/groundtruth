@@ -1,0 +1,210 @@
+# Frozen fact evidence for the example domain (Maplewood Public Library).
+#
+# Think of this file as the structured output of a scraper: the immutable
+# evidence layer. You do not hand-tune the database; you edit the evidence here
+# (or re-run a crawler that writes it) and then `scripts/build_db.py` projects
+# it into db/groundtruth.db. Every row names the source page it came from, so
+# every fact in the running system can be traced back to a human-verifiable URL.
+#
+# When you adopt groundtruth: delete this file, write your own crawler (or hand-
+# author evidence like this), and update build_db.py's loaders to match.
+
+branches:
+  - id: central
+    name: Maplewood Central Library
+    address: 100 Library Plaza, Maplewood
+    phone: "555-0100"
+    region: downtown
+    source_path: sources/pages/locations-and-hours.md
+    source_url: https://example.org/locations/central
+  - id: eastside
+    name: Eastside Branch
+    address: 4120 Oak Avenue, Maplewood
+    phone: "555-0140"
+    region: east
+    source_path: sources/pages/locations-and-hours.md
+    source_url: https://example.org/locations/eastside
+  - id: lakeview
+    name: Lakeview Branch
+    address: 88 Shoreline Drive, Maplewood
+    phone: "555-0170"
+    region: north
+    source_path: sources/pages/locations-and-hours.md
+    source_url: https://example.org/locations/lakeview
+
+# day, opens, closes (24h). Omit opens/closes (or set null) to mean "closed".
+hours:
+  - { branch_id: central, day: monday,    opens: "09:00", closes: "20:00" }
+  - { branch_id: central, day: tuesday,   opens: "09:00", closes: "20:00" }
+  - { branch_id: central, day: wednesday, opens: "09:00", closes: "20:00" }
+  - { branch_id: central, day: thursday,  opens: "09:00", closes: "20:00" }
+  - { branch_id: central, day: friday,    opens: "09:00", closes: "18:00" }
+  - { branch_id: central, day: saturday,  opens: "10:00", closes: "17:00" }
+  - { branch_id: central, day: sunday,    opens: "13:00", closes: "17:00" }
+  - { branch_id: eastside, day: monday,    opens: "10:00", closes: "18:00" }
+  - { branch_id: eastside, day: tuesday,   opens: "10:00", closes: "18:00" }
+  - { branch_id: eastside, day: wednesday, opens: "10:00", closes: "18:00" }
+  - { branch_id: eastside, day: thursday,  opens: "10:00", closes: "18:00" }
+  - { branch_id: eastside, day: friday,    opens: "10:00", closes: "18:00" }
+  - { branch_id: eastside, day: saturday,  opens: "10:00", closes: "17:00" }
+  - { branch_id: eastside, day: sunday,    opens: null,    closes: null }
+  - { branch_id: lakeview, day: monday,    opens: null,    closes: null }
+  - { branch_id: lakeview, day: tuesday,   opens: "10:00", closes: "18:00" }
+  - { branch_id: lakeview, day: wednesday, opens: "10:00", closes: "18:00" }
+  - { branch_id: lakeview, day: thursday,  opens: "10:00", closes: "18:00" }
+  - { branch_id: lakeview, day: friday,    opens: "10:00", closes: "18:00" }
+  - { branch_id: lakeview, day: saturday,  opens: "10:00", closes: "18:00" }
+  - { branch_id: lakeview, day: sunday,    opens: null,    closes: null }
+
+_hours_source:
+  source_path: sources/pages/locations-and-hours.md
+  source_url: https://example.org/locations
+
+events:
+  - title: Toddler Story Time
+    branch_id: central
+    category: story-time
+    date_iso: null
+    date_text: Every Wednesday
+    start_time: "10:30"
+    registration_required: false
+    notes: Ages 1-3 with a caregiver. Songs, rhymes, and picture books.
+  - title: Summer Reading Kickoff
+    branch_id: central
+    category: program
+    date_iso: "2026-06-20"
+    date_text: Saturday, June 20, 2026
+    start_time: "11:00"
+    registration_required: false
+    notes: Sign up for Summer Reading, meet the staff, free snacks.
+  - title: Teen Game Night
+    branch_id: eastside
+    category: workshop
+    date_iso: "2026-06-26"
+    date_text: Friday, June 26, 2026
+    start_time: "18:00"
+    registration_required: false
+    notes: Grades 6-12. Board games and console tournaments.
+  - title: Resume & Job Search Workshop
+    branch_id: central
+    category: workshop
+    date_iso: "2026-06-27"
+    date_text: Saturday, June 27, 2026
+    start_time: "14:00"
+    registration_required: true
+    notes: Bring a laptop or use ours. Seats limited; registration required.
+  - title: Independence Day Closure
+    branch_id: null
+    category: closure
+    date_iso: "2026-07-04"
+    date_text: Saturday, July 4, 2026
+    start_time: null
+    registration_required: false
+    notes: All branches closed for the holiday.
+  - title: Friends of the Library Book Sale
+    branch_id: central
+    category: book-sale
+    date_iso: "2026-07-11"
+    date_text: Saturday, July 11, 2026
+    start_time: "09:00"
+    registration_required: false
+    notes: Gently used books, most under a dollar. Proceeds fund programs.
+
+_events_source:
+  source_path: sources/pages/events-calendar.md
+  source_url: https://example.org/events
+
+programs:
+  - id: summer-reading
+    name: Summer Reading Program
+    audience: all
+    schedule_text: June through August
+    registration_required: true
+    description: Read, log books, and earn prizes. Tracks for kids, teens, and adults.
+  - id: homework-help
+    name: After-School Homework Help
+    audience: kids
+    schedule_text: School-year weekdays, after school
+    registration_required: false
+    description: Drop-in tutoring from volunteers for elementary and middle schoolers.
+  - id: esl-conversation
+    name: ESL Conversation Circle
+    audience: adults
+    schedule_text: Weekly, Thursday evenings
+    registration_required: false
+    description: Informal English conversation practice for adult learners.
+  - id: tech-help
+    name: One-on-One Tech Help
+    audience: adults
+    schedule_text: By appointment
+    registration_required: true
+    description: Book a 45-minute session for help with devices, email, or apps.
+
+_programs_source:
+  source_path: sources/pages/programs.md
+  source_url: https://example.org/programs
+
+fees:
+  - fee_type: printing-bw
+    amount_usd: 0.10
+    unit: per_page
+    refundable: "no"
+    notes: Black-and-white printing and copies.
+  - fee_type: printing-color
+    amount_usd: 0.50
+    unit: per_page
+    refundable: "no"
+    notes: Color printing and copies.
+  - fee_type: replacement-card
+    amount_usd: 2.00
+    unit: per_card
+    refundable: "no"
+    notes: Replacing a lost library card. First card is free.
+  - fee_type: meeting-room
+    amount_usd: 25.00
+    unit: per_hour
+    refundable: "no"
+    notes: Reservable study/meeting rooms. Free for nonprofit community groups.
+  - fee_type: overdue-fine
+    amount_usd: 0.00
+    unit: per_day
+    refundable: "n/a"
+    notes: Maplewood is fine-free as of 2024. No daily overdue fines are charged.
+
+_fees_source:
+  source_path: sources/pages/borrowing-policy.md
+  source_url: https://example.org/policies/borrowing
+
+contacts:
+  - department: reference
+    role: Reference Desk
+    name: null
+    phone: "555-0102"
+    email: ask@example.org
+    branch_id: central
+    notes: Research help, database access, interlibrary loan.
+  - department: youth-services
+    role: Youth Services Desk
+    name: null
+    phone: "555-0103"
+    email: kids@example.org
+    branch_id: central
+    notes: Story times, homework help, kids and teen programs.
+  - department: circulation
+    role: Circulation Desk
+    name: null
+    phone: "555-0101"
+    email: checkout@example.org
+    branch_id: central
+    notes: Library cards, checkouts, holds, renewals.
+  - department: accessibility
+    role: Accessibility Services
+    name: null
+    phone: "555-0108"
+    email: access@example.org
+    branch_id: central
+    notes: Accommodations, accessible formats, home delivery for homebound patrons.
+
+_contacts_source:
+  source_path: sources/pages/contact-us.md
+  source_url: https://example.org/contact

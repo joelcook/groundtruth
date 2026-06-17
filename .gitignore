@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Rebuildable artifacts
+db/embeddings.db
+logs/
+evals/runs/*-fast.json
+evals/runs/*-release.json
+
+# Keep: db/groundtruth.db, evals/runs/*-baseline.json (committed so the demo runs)

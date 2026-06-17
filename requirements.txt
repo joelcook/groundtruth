@@ -1,0 +1,12 @@
+# Core (needed to build, search, serve, and replay evals offline):
+mcp
+uvicorn
+httpx
+PyYAML
+
+# Live evals + LLM recompile (the steps that call Claude):
+anthropic
+
+# Optional: a real embedding model for the semantic backend.
+# The default HashingEmbedder needs nothing; uncomment to use Voyage AI.
+# voyageai

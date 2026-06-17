@@ -1,0 +1,145 @@
+# The Golden Set — groundtruth's launch gate (example domain: Maplewood Library).
+#
+# Every item here must pass before you ship, and every regression is a blocker.
+# This is the most undervalued artifact in the repo: it turns "the bot seems
+# fine" into a number you can defend. Four categories, each testing a different
+# failure mode:
+#
+#   hard_fact      must trigger the RIGHT tool — grades the retrieval PATH, not
+#                  just whether the text looks plausible. A paraphrased date that
+#                  happens to be right still FAILS, because next month it won't be.
+#   narrative      graded by an LLM judge against a rubric (and, offline, by a
+#                  cheaper check that the right page was read).
+#   out_of_scope   must refuse + redirect, and must NOT waste a tool call on data
+#                  the knowledge base cannot possibly hold (personal accounts).
+#   contradiction  sources disagree; must cite the CURRENT one and not repeat the
+#                  retired fact.
+#
+# Grow this from real misses. Every question a user asks that the bot fumbles is
+# a candidate row. 15 here to keep the example legible; real sets run 50–200.
+
+# ---------------- HARD FACT ----------------
+
+- id: story-time-when
+  question: "When is the toddler story time?"
+  category: hard_fact
+  must_call_tool: get_event
+  must_contain: ["Wednesday"]
+  notes: "Recurring event — date lives in the DB, must not be paraphrased."
+
+- id: printing-bw-cost
+  question: "How much does it cost to print a black-and-white page?"
+  category: hard_fact
+  must_call_tool: get_fee
+  must_contain: ["0.10"]
+  notes: "Dollar amount must come from get_fee, never from the wiki."
+
+- id: central-saturday-open
+  question: "What time does the Central Library open on Saturday?"
+  category: hard_fact
+  must_call_tool: get_hours
+  must_contain: ["10:00"]
+  notes: "Hours are facts — a wrong one sends someone to a locked door."
+
+- id: youth-services-phone
+  question: "What's the phone number for youth services?"
+  category: hard_fact
+  must_call_tool: get_contact
+  must_contain: ["555-0103"]
+
+- id: summer-reading-registration
+  question: "Do I have to sign up for the summer reading program, or can I just show up?"
+  category: hard_fact
+  must_call_tool: get_program
+  must_contain: ["regist"]
+  notes: "registration_required is a fact; pull it, don't assume."
+
+- id: replacement-card-cost
+  question: "How much does it cost to replace a lost library card?"
+  category: hard_fact
+  must_call_tool: get_fee
+  must_contain: ["2"]
+
+# ---------------- NARRATIVE ----------------
+
+- id: how-to-get-card
+  question: "How do I get a library card?"
+  category: narrative
+  must_cite_page: getting-a-library-card
+  must_contain: ["address"]
+  expected_summary: >
+    A library card is free for people who live, work, or go to school in the
+    area. Bring photo ID and proof of current address (or one item showing
+    both). Register at any branch's circulation desk, or start online. Kids need
+    a guardian present.
+
+- id: place-a-hold
+  question: "How do I put a book on hold?"
+  category: narrative
+  must_cite_page: borrowing-holds-and-renewals
+  must_contain: ["hold"]
+  expected_summary: >
+    Find the item in the online catalog, choose Place Hold, and pick a pickup
+    branch. You're notified when it arrives and it waits on the holds shelf for a
+    few days. Holds gather items from any branch to one pickup spot.
+
+- id: borrow-ebooks
+  question: "How do I read library ebooks on my phone?"
+  category: narrative
+  must_cite_page: using-the-elibrary-app
+  must_contain: ["app"]
+  expected_summary: >
+    Install the eLibrary app, choose Maplewood Public Library, and sign in with
+    your card number and PIN. Borrow titles and they download to your device;
+    they return themselves at the end of the loan.
+
+- id: free-wifi
+  question: "Is the WiFi free at the library?"
+  category: narrative
+  must_cite_page: printing-and-computers
+  must_contain: ["free"]
+  expected_summary: >
+    Yes. Every branch has free public WiFi during open hours, and you don't need
+    a library card to use it.
+
+# ---------------- OUT OF SCOPE ----------------
+
+- id: my-checked-out-books
+  question: "How many books do I currently have checked out?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["account"]
+  notes: "Personal account data the KB cannot hold. Refuse + point to My Account."
+
+- id: renew-for-me
+  question: "Can you just renew all my checked-out books for me right now?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["renew"]
+  notes: "The assistant can't act on an account. Explain self-service renewal."
+
+- id: hold-status
+  question: "Did my hold come in yet?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["hold"]
+
+# ---------------- CONTRADICTION ----------------
+
+- id: overdue-fine-rumor
+  question: "I heard there's a 25-cent-a-day fine for overdue books. Is that still true?"
+  category: contradiction
+  must_call_tool: get_fee
+  must_cite_page: fines-and-fees
+  must_contain: ["fine-free"]
+  must_not_contain: ["0.25", "25 cents", "25-cent"]
+  notes: "Stale 2019 flyer vs. current fine-free policy. Cite the current one."
+
+- id: fine-cap-rumor
+  question: "Is there a maximum overdue fine, like a ten dollar cap?"
+  category: contradiction
+  must_call_tool: get_fee
+  must_cite_page: fines-and-fees
+  must_contain: ["fine-free"]
+  must_not_contain: ["$10"]
+  notes: "There are no overdue fines at all, so there is no maximum."
