@@ -272,6 +272,26 @@ dangerous fact through a tool, and let automation keep it fresh. The quality
 ceiling is the quality of your sources — so when an answer is wrong, the fix is
 usually upstream, not a hand-edit here.
 
+## Work with me
+
+This repo is the open blueprint. **Doing it for real — on your sources, with your
+constraints, kept correct over time — is the work, and it's what I do.** If your
+organization needs an assistant that won't make up the facts that matter:
+
+- **Done-for-you build** — a grounded assistant on your data in a fixed scope:
+  schema, sources, tools, wiki, prompt, evals, and a deployed MCP endpoint.
+- **"Is your AI lying to your users?" audit** — I point this methodology at an
+  existing bot and report where it hallucinates facts, with an eval set you keep.
+- **Governance retainer** — the corpus and the eval set need care forever. I run
+  the refresh loop, grow the Golden Set from real misses, and keep prod honest.
+- **Training & workshops** — hands-on, with this repo as the lab.
+
+📬 **Get in touch: `<your email / Cal.com link / form>`**
+
+The framework is free forever. What's free vs. paid — and why open-sourcing the
+blueprint *grows* the work rather than giving it away — is spelled out in
+**[docs/open-core.md](docs/open-core.md)**.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). The shape of this (raw sources compiled into an
