@@ -3,7 +3,7 @@ source_url: https://example.org/locations
 scraped_at: 2026-06-10
 ---
 
-# Locations & Hours (Frozen Scrape)
+# Locations & Hours (Source Snapshot)
 
 Maplewood Public Library has three branches: **Central** (downtown), **Eastside**,
 and **Lakeview**. Central keeps the longest hours, including evenings and a short

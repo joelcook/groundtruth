@@ -3,7 +3,7 @@ source_url: https://example.org/contact
 scraped_at: 2026-06-10
 ---
 
-# Contact Us (Frozen Scrape)
+# Contact Us (Source Snapshot)
 
 Reach a specific desk at Central rather than a general line:
 

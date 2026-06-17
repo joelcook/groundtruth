@@ -39,7 +39,7 @@ data](#bring-your-own-data).
 Three layers, each derived from the one before it:
 
 ```
-your sources (frozen evidence: a scrape, an export, hand-authored YAML)
+your sources (captured evidence: a scrape, an export, hand-authored YAML)
       │
       ├─ project (scripts/build_db.py) ─────▶  db/groundtruth.db   hard facts (dates, $, hours, contacts)
       │                                              │
@@ -78,7 +78,7 @@ The database and a recorded eval run are committed, so everything works
 immediately — no API key needed for any of this:
 
 ```bash
-# 1. Rebuild the hard-fact DB from frozen evidence (it's already committed):
+# 1. Rebuild the hard-fact DB from captured evidence (it's already committed):
 .venv/bin/python scripts/build_db.py
 #   built db/groundtruth.db
 #     branches 3 · hours 21 · events 6 · programs 4 · fees 5 · contacts 4
@@ -250,7 +250,7 @@ and starts the MCP server. Put it behind any platform that speaks MCP.
 ## Layout
 
 ```
-sources/      frozen evidence — never hand-edited; the audit trail
+sources/      captured evidence — never hand-edited; the audit trail
 wiki/         compiled, source-cited narrative (no loose facts)
 db/           schema.sql + the committed SQLite projection
 groundtruth/  the library: db, search, embeddings, mcp, evals, observability
@@ -286,7 +286,7 @@ organization needs an assistant that won't make up the facts that matter:
   the refresh loop, grow the Golden Set from real misses, and keep prod honest.
 - **Training & workshops** — hands-on, with this repo as the lab.
 
-📬 **Get in touch: `<your email / Cal.com link / form>`**
+📬 **Get in touch: [joeltcook93@gmail.com](mailto:joeltcook93@gmail.com)**
 
 The framework is free forever. What's free vs. paid — and why open-sourcing the
 blueprint *grows* the work rather than giving it away — is spelled out in

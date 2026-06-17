@@ -4,7 +4,7 @@
 It scans every public wiki page and FAILS if a calendar date (e.g. "July 4,
 2026", including ranges) or a dollar amount ("$0.10") appears in the prose —
 because that is a fact that should have been pulled from a tool at answer time,
-not frozen into a page that quietly goes stale.
+not baked into a page that quietly goes stale.
 
 Allowed, and skipped:
   * YAML frontmatter (dates like last_compiled live there)

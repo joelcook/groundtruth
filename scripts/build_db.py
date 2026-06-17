@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Project frozen fact evidence into the hard-fact database.
+"""Project captured fact evidence into the hard-fact database.
 
     sources/facts/*.yaml   →   db/groundtruth.db
 

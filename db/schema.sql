@@ -5,7 +5,7 @@
 -- dates, dollar amounts, hours, phone numbers, registration requirements.
 --
 -- Two rules make this a *grounded* store rather than just a database:
---   1. Every table carries provenance — source_path (the frozen evidence the
+--   1. Every table carries provenance — source_path (the captured evidence the
 --      row was projected from) and source_url (where a human can verify it).
 --      That is the audit trail; a fact with no source should never exist.
 --   2. The wiki prose is forbidden from restating these values (see

@@ -8,7 +8,7 @@ or from wiki prose; it calls one of these functions (exposed as MCP tools in
 
 Design notes that travel to any domain:
   * Read-only. Nothing here writes. The database is a *projection*, rebuilt from
-    frozen evidence by ``scripts/build_db.py``.
+    captured evidence by ``scripts/build_db.py``.
   * Provenance rides along. Every row carries ``source_path``/``source_url`` so
     the answer can cite where the fact came from.
   * Forgiving inputs, exact outputs. Callers pass fuzzy strings ("central",

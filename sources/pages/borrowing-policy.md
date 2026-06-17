@@ -26,6 +26,6 @@ Printing and photocopying are charged per page. Meeting rooms may be reserved fo
 a fee, except for nonprofit community groups, which use them free of charge.
 Current amounts are maintained in the fee schedule.
 
-> Frozen evidence — this file is what a scraper captured from the official
+> Source snapshot — this file is what a scraper captured from the official
 > policy page. The running system never reads prices from this prose; it reads
 > them from the database built out of the structured fee schedule.

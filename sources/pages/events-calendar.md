@@ -3,7 +3,7 @@ source_url: https://example.org/events
 scraped_at: 2026-06-10
 ---
 
-# Events Calendar (Frozen Scrape)
+# Events Calendar (Source Snapshot)
 
 The structured event rows projected into the database live in
 `sources/facts/library-facts.yaml`. This page is the human-readable evidence a

@@ -3,7 +3,7 @@ source_url: https://example.org/programs
 scraped_at: 2026-06-10
 ---
 
-# Programs & Services (Frozen Scrape)
+# Programs & Services (Source Snapshot)
 
 Maplewood runs year-round programs for every age. The structured rows are in
 `sources/facts/library-facts.yaml`.

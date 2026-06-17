@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recompile stale wiki pages from their frozen sources — governed by review.
+"""Recompile stale wiki pages from their captured sources — governed by review.
 
 This is the one step in the pipeline that *authors* prose with an LLM. It is
 deliberately fenced in:
@@ -33,7 +33,7 @@ WIKI_DIR = REPO_ROOT / "wiki"
 STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "30"))
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-COMPILE_SYSTEM = """You compile a single knowledge-wiki page from frozen source
+COMPILE_SYSTEM = """You compile a single knowledge-wiki page from captured source
 documents. Hard rules:
 - Keep the YAML frontmatter; update last_compiled to today.
 - NO dates or dollar amounts in the prose — those are served by tools at answer
@@ -85,7 +85,7 @@ def compile_page(path: Path) -> str:
     client = anthropic.Anthropic()
     model = os.environ.get("RECOMPILE_MODEL", "claude-opus-4-8")
     user = (f"Current page:\n\n{path.read_text(encoding='utf-8')}\n\n"
-            f"Frozen sources:\n\n" + "\n\n".join(evidence))
+            f"Captured sources:\n\n" + "\n\n".join(evidence))
     resp = client.messages.create(
         model=model, max_tokens=4096,
         system=[{"type": "text", "text": COMPILE_SYSTEM}],
