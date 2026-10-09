@@ -1,0 +1,17 @@
+description: Trash and recycling pickup days by collection zone.
+key: zone
+source:
+  path: sources/pages/trash-and-recycling.md
+  url: https://www.example.gov/trash
+tools:
+  - name: get_pickup
+    kind: lookup
+    arg: zone
+    description: >
+      Trash and recycling pickup days for a collection zone (A, B, C). If the
+      person doesn't know their zone, tell them to look it up by address on the
+      city website.
+rows:
+  - {zone: A, aliases: [zone a, north], trash_day: monday, recycling: every other monday}
+  - {zone: B, aliases: [zone b, central], trash_day: wednesday, recycling: every other wednesday}
+  - {zone: C, aliases: [zone c, south], trash_day: friday, recycling: every other friday}

@@ -1,0 +1,30 @@
+# Ship data without redeploying: after the gates pass on main, build a bundle and
+# attach it to a `data-latest` release. Servers started with
+#   GT_DATA_URL=https://github.com/<you>/<repo>/releases/download/data-latest/groundtruth-data.tar.gz
+# pick it up within GT_DATA_POLL_SECONDS. Opt in with the repo variable GT_PUBLISH_DATA=true.
+name: publish-data
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: ${{ vars.GT_PUBLISH_DATA == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: python -m groundtruth check && python -m groundtruth eval
+      - run: python -m groundtruth bundle
+      - name: upload to the data-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DIR=$(python -c "from groundtruth.project import resolve; print(resolve().build_dir)")
+          gh release view data-latest >/dev/null 2>&1 || gh release create data-latest --title "Latest data" --notes "Rebuilt on every push to main."
+          gh release upload data-latest "$DIR/groundtruth-data.tar.gz" "$DIR/groundtruth-data.sha256" --clobber

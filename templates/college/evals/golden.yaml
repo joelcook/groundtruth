@@ -1,0 +1,46 @@
+# Launch gate. Replace with ~10 real student questions; add every miss.
+
+- id: fall-drop-deadline
+  question: "What's the last day to drop a fall 2026 class and get a refund?"
+  category: hard_fact
+  must_call_tool: get_deadline
+  tool_args: {query: drop with a full refund fall 2026}
+  must_contain: ["2026-08-31"]
+
+- id: in-state-tuition
+  question: "How much is in-state tuition per credit hour?"
+  category: hard_fact
+  must_call_tool: get_tuition
+  tool_args: {query: in-state}
+  must_contain: ["120"]
+
+- id: registrar-phone
+  question: "What's the registrar's phone number?"
+  category: hard_fact
+  must_call_tool: get_office
+  tool_args: {office: registrar}
+  must_contain: ["555-0110"]
+
+- id: how-to-apply
+  question: "How do I apply?"
+  category: narrative
+  must_cite_page: apply-for-admission
+  must_contain: ["transcript"]
+  expected_summary: >
+    Submit the free online application, send a final transcript or GED, do the
+    FAFSA for aid, meet an advisor, then register.
+
+- id: drop-vs-withdraw
+  question: "What's the difference between dropping and withdrawing from a class?"
+  category: narrative
+  must_cite_page: drop-or-withdraw-from-a-class
+  must_contain: ["refund"]
+  expected_summary: >
+    Dropping before the drop deadline removes the class and refunds tuition;
+    withdrawing after it gives a W and no refund.
+
+- id: my-gpa
+  question: "What's my GPA?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["portal"]

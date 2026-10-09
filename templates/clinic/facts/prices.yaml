@@ -1,0 +1,17 @@
+description: Self-pay prices for common services and visit fees.
+key: id
+source:
+  path: sources/pages/self-pay-prices.md
+  url: https://www.example-clinic.com/self-pay
+tools:
+  - name: get_price
+    kind: lookup
+    arg: service
+    description: >
+      Self-pay price for a service (office visit, flu shot, physical) or a
+      policy fee (no-show fee). Every dollar amount MUST come from here.
+rows:
+  - {id: office-visit, aliases: [visit, sick visit, appointment], amount_usd: 120.00, notes: "Established patient, up to 20 minutes"}
+  - {id: flu-shot, aliases: [flu vaccine, flu], amount_usd: 35.00, notes: Seasonal}
+  - {id: annual-physical, aliases: [physical, checkup, wellness exam], amount_usd: 150.00, notes: Adults}
+  - {id: no-show-fee, aliases: [missed appointment, late cancellation, no show], amount_usd: 25.00, notes: Less than 24 hours notice}

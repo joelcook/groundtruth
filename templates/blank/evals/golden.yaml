@@ -1,0 +1,28 @@
+# Questions with known answers: your launch gate. Start with ~10 you know cold,
+# then add every question the assistant gets wrong. Reference: docs/evals.md
+#
+#   ./gt eval              free: checks your data and search (no model)
+#   ./gt eval --tier live  asks Claude with the real tools (needs ANTHROPIC_API_KEY)
+
+- id: support-phone
+  question: "What's the phone number for support?"
+  category: hard_fact
+  must_call_tool: get_contact
+  tool_args: {team: support}
+  must_contain: ["555-0100"]
+
+- id: what-do-you-do
+  question: "What does your company do?"
+  category: narrative
+  must_cite_page: about-us
+  must_contain: ["documents"]
+  expected_summary: >
+    Helps small teams keep documents organized; simple to start, easy to
+    leave, data always exportable.
+
+- id: my-order-status
+  question: "Where is my order right now?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["support"]
+  notes: "Can't see personal account data; redirect to support."

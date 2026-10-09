@@ -2,310 +2,242 @@
 
 **Give your LLM a single source of truth.**
 
-Everyone wants "a chatbot on our stuff." The usual recipe — embed all your docs
-into a vector database, pull the passages that look most relevant, stuff them in
-the prompt, and hope — will cheerfully invent a price, a deadline, or a policy.
-For a lot of questions that's annoying. For the questions that *matter* — *when
-does it close, how much does it cost, am I allowed to* — a confident wrong answer
-is a real-world harm.
+Every "chatbot on our docs" makes the same bet: embed everything, fetch a few
+paragraphs that look relevant, and hope the model doesn't invent a price, a
+deadline, or an opening time. It will. Not often, but it only takes once. A
+wrong date is a missed deadline. A wrong number is a wrong bill.
 
-groundtruth is a blueprint (and a working, runnable example) for doing it the
-strict way:
+groundtruth makes the opposite bet, and it's a simple one: **the model doesn't
+get to make facts up.**
 
-> **One rule: the assistant does not get to make things up.**
+- **Facts live in a database.** Prices, dates, hours, phone numbers. You write
+  them in plain YAML, and each file becomes tools the model has to call. No
+  Python, no SQL.
+- **Explanations live in a small wiki.** How-tos and policies in markdown, every
+  page citing its sources. A linter fails the build if a date or a dollar amount
+  sneaks into the prose.
+- **Evals prove it.** Questions with known answers. The free tier checks your
+  data and your search with no API key. The live tier asks Claude, with the real
+  tools, and fails any answer that came from memory instead of a lookup.
 
-Every volatile fact — a date, a dollar amount, an opening time, a phone number —
-is looked up in a **database**, not written from memory. Everything else — *how
-do I…, what is…, why…* — is answered from a **small, source-cited wiki**. A
-linter **fails the build if a date or a "$" ever appears in the wiki prose.**
-That's the whole trick, and it's surprisingly hard to beat.
+It speaks MCP, so it works with Claude Desktop, Claude Code, Codex, Cursor, VS
+Code, Copilot Studio, and anything else that does. It runs on your laptop or any
+server. It's MIT licensed and 100% free: every piece described here is in this
+repo.
 
-It ships as three reusable pieces most teams get wrong or skip:
-
-| | Pillar | What it is |
-|---|---|---|
-| **1** | **Retrieval over something you care about** | The stuff you can't get wrong — dates, prices, hours, phone numbers — lives in a database and gets *looked up*, never guessed. Everything else — how-tos, policies, explanations — lives in a small, source-cited wiki the assistant reads. One set of tools reaches both. |
-| **2** | **An agent that does weekly work** | A scheduled job that keeps the knowledge current: re-checks your sources, rebuilds the database, rewrites any stale pages, runs every check, and opens a pull request for a human to approve. On a quiet night it changes nothing and costs nothing. |
-| **3** | **An eval harness** | Catches the assistant *answering from memory instead of looking it up* — a confident "$0.10" that didn't come from the database fails, because next month it's wrong. Tests facts, explanations, refusals, and contradictions; runs offline or live and flags any regression. The most undervalued thing in the repo. |
-
-This repo is wired up as a tiny **public-library** example so you can run it in
-two minutes. Then you delete the library and [hand it to Claude with your own
-data](#bring-your-own-data).
-
----
-
-## The idea in 30 seconds
-
-Three layers, each built from the one before it:
-
-```
-your sources (captured evidence: a scrape, an export, hand-authored YAML)
-      │
-      ├─ project (scripts/build_db.py) ─────▶  db/groundtruth.db   hard facts (dates, $, hours, contacts)
-      │                                              │
-      └─ compile (scripts/recompile.py: LLM) ─▶  wiki/   narrative, source-cited, NO loose facts
-                                                     │
-                          wiki/ + db ────────────────┴─▶  MCP server (10 read-only tools)
-                                                                   │
-                                                                   ▼
-                                                            your LLM / chat platform
-```
-
-- **`sources/`** — the captured evidence: a snapshot of where your facts came
-  from. You never hand-edit the database; you change the evidence and rebuild
-  from it, so every fact traces back to a real source.
-- **`db/groundtruth.db`** — a plain SQLite database holding the facts you can be
-  *harmed* by getting wrong. The single source of truth for those values.
-- **`wiki/`** — human-readable guidance, source-cited, explanations only. If a
-  date or a price sneaks in here, a linter fails the build.
-- **the tool server** — the only thing the model talks to. It looks facts up and
-  fetches wiki pages through a small set of tools (over **MCP**, the open
-  standard for giving an LLM tools). The model never reads files or works from
-  memory.
-
-When the wiki and the database disagree, **the database wins** and the page gets
-flagged. Explanations are allowed to be approximate; facts are not allowed to be
-wrong.
-
----
-
-## Quick start
+## Try it: 2 minutes, no API key
 
 ```bash
 git clone https://github.com/joelcook/groundtruth
 cd groundtruth
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+./gt demo
 ```
 
-The database and a recorded eval run are committed, so everything works
-immediately — no API key needed for any of this:
+The first run sets itself up (it needs Python 3.10 or newer; on Windows run
+`py gt demo`). Then it builds and tests a small public-library example:
+
+```
+  ✓ facts: 6 collections, 43 rows, 8 tools generated from YAML
+  ✓ check: 6 page(s), no facts in prose, 15 golden question(s)
+  ✓ eval (free): 12/12 passed, 3 need a model
+  ✓ server: answered over MCP (initialize, tools/list, a fact tool, search_wiki)
+```
+
+Now poke at it:
 
 ```bash
-# 1. Rebuild the hard-fact DB from captured evidence (it's already committed):
-.venv/bin/python scripts/build_db.py
-#   built db/groundtruth.db
-#     branches 3 · hours 21 · events 6 · programs 4 · fees 5 · contacts 4
-
-# 2. Run the tests:
-.venv/bin/python -m unittest discover -s tests        # → Ran 32 tests ... OK
-
-# 3. Run the launch gate (deterministic replay, no API key, $0):
-.venv/bin/python scripts/run_evals.py --tier fast     # → 15/15 passed
+./gt ask "what time does the central library open on saturday?"
+./gt connect claude-desktop --install     # restart Claude Desktop, then ask it about the library
 ```
 
-## See it answer — the tool server
+Without an API key, `./gt ask` shows what the model would look up
+(`get_hours(branch='central', day='saturday')`) and what comes back. With
+`ANTHROPIC_API_KEY` set, Claude writes the answer using those tools.
 
-The model doesn't import Python or read files. It calls tools over **MCP** (the
-open standard for giving a model a set of tools). Start the server:
+## Make your own: about 10 minutes
 
 ```bash
-.venv/bin/python scripts/serve_mcp.py          # http://127.0.0.1:8765/mcp
+./gt init my-assistant --template saas    # or: college, city, clinic, blank
+./gt ingest https://your-site.example      # pull your pages in as evidence
+./gt compile                                # a work order for Claude Code or Codex
+./gt check && ./gt eval                     # prove it
+./gt connect claude-desktop --install       # use it
 ```
 
-Point the runtime check at it (or use `--stdio` to have it launch the server
-itself) to watch it answer over the wire:
+1. **`init`** creates `my-assistant/` from a template and points `./gt` at it.
+   It's born passing every check, so each change you make is one you can test.
+2. **`ingest`** crawls your site (sitemap first, `robots.txt` respected) or reads
+   a folder of `.md`, `.html`, `.txt`, or `.pdf` files into `sources/pages/`.
+   Re-running only rewrites pages that actually changed.
+3. **`compile`** writes `build/compile-packet.md`: a precise work order. Open the
+   repo in Claude Code (or Codex, or Cursor) and say *"do the work in
+   my-assistant/build/compile-packet.md"*. It turns the evidence into wiki pages
+   and fact rows, then runs the checks. Have an API key? `./gt compile --write`
+   drafts the pages with Claude directly.
+4. **`check` and `eval`** catch facts in prose, broken links, bad YAML, and
+   questions your data can't answer.
+5. **`connect`** prints setup for every common client with your real paths filled
+   in. `--install` writes it into Claude Desktop, Cursor, or Windsurf for you
+   (backing up the old config first).
+
+Prefer to do it by hand? Every file is plain YAML or markdown. Edit `facts/`
+and `wiki/` directly, and `./gt check` tells you if anything's off.
+
+## A fact is a few lines of YAML
+
+```yaml
+# my-assistant/facts/plans.yaml
+description: Subscription plans with prices and limits.
+key: id
+source: {path: sources/pages/pricing.md, url: https://example.com/pricing}
+tools:
+  - name: get_plan
+    kind: lookup              # get_plan(plan="pro") finds "team" through its aliases
+    arg: plan
+    description: Price and limits for a plan. Every price the assistant states comes from here.
+rows:
+  - {id: starter, aliases: [basic], price_usd: 9, projects: 3}
+  - {id: team, aliases: [pro, business], price_usd: 29, projects: unlimited}
+```
+
+That file gives the model a `get_plan` tool. Lookups are forgiving ("pro",
+"business plan", "how much is team") and answers are exact, with the source URL
+attached so the assistant can cite it. Edit the YAML and the running server picks
+it up. `list` tools add filters (`get_hours(branch="main", day="sat")`),
+references between files, and "upcoming only" for dated rows. Full reference:
+[docs/facts.md](docs/facts.md).
+
+## A wiki page is markdown with receipts
+
+```markdown
+---
+title: Refunds and cancellation
+page_type: policy
+sources: [sources/pages/refunds.md]
+---
+
+# Refunds and cancellation
+
+Annual plans can be refunded within the refund window. The assistant looks up
+the exact window with `get_limit`, so it's always current.
+
+## Sources & Lineage
+
+| Source | Captured | URL |
+|---|---|---|
+| [[sources/pages/refunds.md]] | 2026-01-15 | https://example.com/legal/refunds |
+```
+
+Notice what's missing: the number. "Within 30 days" in prose is a fact that goes
+stale silently. `./gt check` fails on it. See [docs/wiki.md](docs/wiki.md).
+
+## Evals that grade the lookup, not the vibes
+
+```yaml
+# my-assistant/evals/golden.yaml
+- id: team-plan-price
+  question: "How much is the Team plan?"
+  category: hard_fact
+  must_call_tool: get_plan
+  tool_args: {plan: team}       # lets the free tier check your data with no model
+  must_contain: ["29"]
+```
+
+- `./gt eval` (free, no key): calls each tool and confirms the answer is in your
+  data, and confirms search finds the right wiki page for each how-to question.
+  It catches data and retrieval regressions before anyone sees them.
+- `./gt eval --tier live`: runs every question through Claude with the real tools.
+  A correct-looking price that wasn't looked up still fails, because next month
+  it won't be correct.
+
+Four categories: `hard_fact`, `narrative`, `out_of_scope` (refuse personal or
+account questions without wasting a tool call), and `contradiction` (an old
+source and a new one disagree; use the new one). See [docs/evals.md](docs/evals.md).
+
+## Run it for real
 
 ```bash
-.venv/bin/python scripts/check_mcp_runtime.py --stdio
-# ok initialize: serverInfo.name=groundtruth
-# ok tools/list: 10 tools advertised
-# ok tools/call: list_branches returned 3 row(s)
+GT_MCP_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") ./gt serve
+docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p 8765:8765 -e GT_MCP_API_KEY=... my-assistant
 ```
 
-The ten tools, split by job:
+- **Deploy anywhere that runs a container**: Fly.io, Render, Railway, Azure
+  Container Apps, Google Cloud Run, a VPS. Recipes in [docs/deploy.md](docs/deploy.md).
+- **`/healthz`** for load balancers, and **`./gt watchdog --url ...`** to check a
+  deployed server end to end. `.github/workflows/watchdog.yml` runs it daily.
+- **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
+  rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
+  and costs nothing.
+- **Data without redeploys**: `./gt bundle` packages your facts and wiki;
+  servers started with `GT_DATA_URL` verify and hot-swap new bundles.
+- **`./gt report`**: what people ask, error rates, latency, and the gaps:
+  lookups that found nothing, each a ready-made to-do.
 
-| explanations (the wiki) | hard facts (the database) |
+## Every command
+
+| Command | What it does |
 |---|---|
-| `search_wiki`, `read_wiki_page` | `get_hours`, `list_events`, `get_event`, `get_fee`, `get_contact`, `list_programs`, `get_program`, `list_branches` |
+| `./gt demo` | Build and test the bundled library example |
+| `./gt ask "..."` | What the assistant would answer, and from which tools |
+| `./gt init NAME -t TEMPLATE` | Start your own assistant (`./gt init --list` for templates) |
+| `./gt ingest URL\|FOLDER` | Pull a site, sitemap, or folder into `sources/pages/` |
+| `./gt compile [--write]` | Work order for a coding agent, or draft wiki pages with Claude |
+| `./gt check` | Facts, wiki structure, no facts in prose, eval wiring |
+| `./gt eval [--tier live]` | Run the golden set (free tier needs nothing) |
+| `./gt serve [--stdio]` | The MCP server |
+| `./gt connect [CLIENT] [--install]` | Setup for Claude, Codex, Cursor, VS Code, Copilot Studio... |
+| `./gt tools` | The tools your assistant gets |
+| `./gt report` | Usage, errors, latency, and gaps from the tool-call log |
+| `./gt watchdog [--url URL]` | Outside-in health check |
+| `./gt refresh [--write --open-pr]` | The weekly agent |
+| `./gt bundle` | Package data for live updates |
+| `./gt status` · `use PATH` · `doctor` · `setup` | Housekeeping |
 
-Set `GT_MCP_API_KEY` and every request must send `Authorization: Bearer <key>`;
-requests without it are rejected (a `401`).
+Add `-p PATH` before any command to work on a different project.
 
----
-
-## The three pillars, in depth
-
-### 1 · Retrieval over something you care about → [docs/01-retrieval.md](docs/01-retrieval.md)
-
-The split *is* the architecture:
-
-- **Hard facts → a database** (`groundtruth/db.py`, `db/schema.sql`). Read-only
-  lookups over a small table set. Every row carries where it came from. Forgiving
-  inputs ("central", "Saturday", "printing"), exact outputs.
-- **Explanations → a curated wiki** (`wiki/`). Source-cited markdown, small
-  enough that a person can actually keep it honest.
-- **The search behind the wiki** (`groundtruth/search.py`, `embeddings.py`). Two
-  ways to find the right page, same interface:
-  - **scan** (default): plain keyword search — no extra libraries, no index —
-    that ranks the whole wiki in about a millisecond. For a few hundred curated
-    pages this is genuinely hard to beat; most teams reach for vectors far too
-    early.
-  - **semantic**: meaning-based search (embeddings), kept in the *same SQLite
-    database as your facts* — no separate vector service to run. A placeholder
-    model runs offline out of the box; swap in a real one by editing a single
-    method. `auto` blends keyword and meaning.
-
-```bash
-.venv/bin/python scripts/build_index.py                  # build the semantic index
-GT_SEARCH_BACKEND=auto .venv/bin/python scripts/serve_mcp.py
-```
-
-> Why split facts from explanations? Because a wrong date is a missed event and a
-> wrong price is a wrong bill, but "explain how holds work" can be fuzzy.
-> Different costs of being wrong deserve different machinery. See
-> [docs/01-retrieval.md](docs/01-retrieval.md) for when to add embeddings (and
-> when not to).
-
-### 2 · An agent that does weekly work → [docs/02-weekly-agent.md](docs/02-weekly-agent.md)
-
-`scripts/refresh_pipeline.sh` is a real autonomous agent, not a cron one-liner:
+## How it works
 
 ```
-scrape → rebuild facts → reindex → recompile stale prose → check → eval → draft PR
+your website / exports ──ingest──▶ sources/pages/   (evidence, with source URLs)
+                                        │
+             ┌──────────── you, or a coding agent, or ./gt compile ───────────┐
+             ▼                                                                 ▼
+     facts/*.yaml  ──build──▶ build/facts.db                      wiki/*.md (no loose facts)
+             │                                                                 │
+             └──────────────▶  MCP server: get_plan, get_hours, ...  +  search_wiki, read_wiki_page
+                                        │
+                     Claude Desktop · Claude Code · Codex · Cursor · Copilot Studio · your app
 ```
 
-What makes it safe to leave running:
+The model only ever talks to the server, and every tool is read-only. When a wiki
+page and a fact tool disagree, the fact tool wins. More in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-- **It works on a branch, never on `main`.** All its changes land on a dated
-  branch a human reviews before anything ships.
-- **A quiet night is free.** If your sources didn't change, it makes no edits,
-  opens no pull request, and spends **$0** — which is most nights.
-- **Failures are easy to read.** If a check fails, it stops and leaves everything
-  exactly as it found it, on the branch, for you to inspect.
-- **Evals escalate on their own.** The cheap offline check runs every night; the
-  full paid check (a live model) runs *only* when the night actually changed
-  something.
+## What this is, and isn't
 
-```bash
-./scripts/refresh_pipeline.sh                 # dry run: audit + every check, no writes
-./scripts/refresh_pipeline.sh --write --open-pr   # the scheduled invocation
-```
+It **is** a way to ground an assistant in a body of knowledge small enough to keep
+honest: hundreds of pages and thousands of facts, not millions of documents. The
+quality ceiling is the quality of your sources, so when an answer is wrong, the
+fix is usually upstream, and the eval makes sure it stays fixed.
 
-Schedule it weekly with `scripts/com.groundtruth.refresh.plist` (macOS) or cron —
-see the doc.
+It is **not** a search-everything system over a giant document dump, and it
+doesn't try to be.
 
-### 3 · An eval harness → [docs/03-eval-harness.md](docs/03-eval-harness.md)
+## Docs
 
-Almost nobody builds these, and it's the difference between *hoping* the bot is
-right and *knowing*. `evals/golden.yaml` is a list of questions with the behavior
-they must produce, in four flavors:
+[Getting started](docs/getting-started.md) · [Facts](docs/facts.md) ·
+[Wiki](docs/wiki.md) · [Evals](docs/evals.md) · [Connect](docs/connect.md) ·
+[Deploy](docs/deploy.md) · [Operations](docs/operations.md) ·
+[Retrieval](docs/retrieval.md) · [Troubleshooting](docs/troubleshooting.md)
 
-- **facts** — the answer has to come from a tool call, not the model's memory. A
-  date that looks right but was never looked up still **fails** — because next
-  month it won't be right.
-- **explanations** — a second model grades the answer against a short rubric.
-- **out of scope** — personal questions ("how many books do I have out?") must
-  politely refuse and point elsewhere, *without* burning a tool call on data the
-  system can't possibly have.
-- **contradictions** — when an old source and a current one disagree, the bot
-  must go with the current one and not repeat the retired fact.
-
-```bash
-.venv/bin/python scripts/run_evals.py --tier fast      # offline replay, no key
-.venv/bin/python scripts/run_evals.py --tier release   # live model + judge; 100% to ship
-```
-
-Run the evals on the **same model you use in production**, or you're grading a
-different assistant than your users talk to.
-
----
-
-## Bring your own data
-
-This is the part you hand to Claude. Open the repo in Claude Code (or paste
-[CLAUDE.md](CLAUDE.md) into your tool of choice) and say:
-
-> *"Here's my data: \<paste / point at it>. Replace the library example with my
-> domain following CLAUDE.md."*
-
-The swap, in order:
-
-1. **Schema** — edit `db/schema.sql` to the things *you* can be harmed by getting
-   wrong. Keep a source on every row.
-2. **Evidence** — replace `sources/` with your scrape/export/YAML, and update the
-   loaders in `scripts/build_db.py`.
-3. **Tools** — adjust the lookups in `groundtruth/db.py` and the tool wrappers in
-   `groundtruth/mcp.py` to match.
-4. **Wiki** — replace `wiki/` with your explanation pages (keep the citations,
-   keep facts out of the prose).
-5. **Prompt** — rewrite `prompts/system_prompt.md` for your domain's fact rules.
-6. **Evals** — rewrite `evals/golden.yaml`. Start with 10 questions you know the
-   answers to; grow it from every real miss.
-
-`CLAUDE.md` spells out the contract so an agent can do most of this for you.
-
----
-
-## Keeping it honest
-
-A pile of cheap, automatic checks run locally and in the weekly agent:
-
-```bash
-.venv/bin/python scripts/lint_no_hardfacts.py    # FAILS if a date or $ is in wiki prose
-.venv/bin/python scripts/check_wiki.py           # every page is well-formed and links resolve
-.venv/bin/python -m unittest discover -s tests   # the unit suite
-.venv/bin/python scripts/run_evals.py --tier fast
-```
-
-## Deploy
-
-```bash
-docker build -t groundtruth .
-docker run --rm -p 8765:8765 -e GT_MCP_API_KEY="$GT_MCP_API_KEY" groundtruth
-```
-
-The image carries the committed `db/`, `wiki/`, `sources/`, `prompts/`, and code,
-and starts the tool server. Put it behind any platform that speaks MCP.
-
-## Layout
-
-```
-sources/      captured evidence — never hand-edited; the audit trail
-wiki/         compiled, source-cited explanations (no loose facts)
-db/           schema.sql + the committed SQLite database
-groundtruth/  the Python package: db, search, embeddings, mcp, evals, observability
-scripts/      command-line entry points — build, index, serve, evals, checks, the weekly agent
-evals/        the Golden Set + recorded runs
-prompts/      the system prompt (source of truth; paste into your platform)
-docs/         the three-pillar deep dives + the tool contract
-```
-
-## What this is (and isn't)
-
-It **is** a way to ground an LLM in a body of knowledge small enough to *keep
-honest*, so the facts that matter are correct, cited, and current — and to keep
-it that way with an agent and prove it with evals.
-
-It is **not** a million-document search-everything system, and isn't trying to
-be. The bet is the opposite: curate the sources *well*, keep them small, look
-every dangerous fact up in the database, and let automation keep it fresh. The
-quality ceiling is the quality of your sources — so when an answer is wrong, the
-fix is usually upstream, not a hand-edit here.
-
-## Work with me
-
-This repo is the open blueprint. **Doing it for real — on your sources, with your
-constraints, kept correct over time — is the work, and it's what I do.** If your
-organization needs an assistant that won't make up the facts that matter:
-
-- **Done-for-you build** — a grounded assistant on your data in a fixed scope:
-  schema, sources, tools, wiki, prompt, evals, and a deployed endpoint.
-- **"Is your AI lying to your users?" audit** — I point this methodology at an
-  existing bot and report where it invents facts, with an eval set you keep.
-- **Governance retainer** — the knowledge and the eval set need care forever. I
-  run the weekly agent, grow the Golden Set from real misses, and keep it honest.
-- **Training & workshops** — hands-on, with this repo as the lab.
-
-📬 **Get in touch: [joeltcook93@gmail.com](mailto:joeltcook93@gmail.com)**
-
-The framework is free forever. What's free vs. paid — and why open-sourcing the
-blueprint *grows* the work rather than giving it away — is spelled out in
-**[docs/open-core.md](docs/open-core.md)**.
+Working with a coding agent? [CLAUDE.md](CLAUDE.md) (also [AGENTS.md](AGENTS.md))
+tells it exactly how to work in this repo.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The shape of this (raw sources compiled into an
-LLM-friendly wiki, with a hard-fact database underneath) is inspired by
-Andrej Karpathy's "LLM wiki" idea. Built on the Model Context Protocol, SQLite,
-and the Anthropic API.
+MIT. Free forever, all of it. See [LICENSE](LICENSE).
+
+The shape of this (raw sources compiled into an LLM-friendly wiki) comes from
+Andrej Karpathy's [LLM wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
+idea; groundtruth adds the rule that facts live in a database instead. Built on
+the [Model Context Protocol](https://modelcontextprotocol.io), SQLite, and Claude.

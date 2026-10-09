@@ -1,0 +1,22 @@
+# Daily outside-in check of your deployed server. A failed run is the alert
+# (GitHub emails you). Set the repo variable GT_WATCHDOG_URL to your /mcp URL,
+# and the secret GT_MCP_API_KEY if the server uses one.
+name: watchdog
+on:
+  schedule:
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+jobs:
+  watchdog:
+    if: ${{ vars.GT_WATCHDOG_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: python -m groundtruth watchdog --url "$GT_WATCHDOG_URL" --max-age-hours 192
+        env:
+          GT_WATCHDOG_URL: ${{ vars.GT_WATCHDOG_URL }}
+          GT_MCP_API_KEY: ${{ secrets.GT_MCP_API_KEY }}

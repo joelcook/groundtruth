@@ -1,12 +1,8 @@
-# Core (needed to build, search, serve, and replay evals offline):
-mcp
-uvicorn
-httpx
-PyYAML
-
-# Live evals + LLM recompile (the steps that call Claude):
-anthropic
-
-# Optional: a real embedding model for the semantic backend.
-# The default HashingEmbedder needs nothing; uncomment to use Voyage AI.
-# voyageai
+# Same as pyproject.toml. ./gt installs these for you on first run.
+mcp>=1.27,<2
+uvicorn>=0.30
+httpx>=0.27
+PyYAML>=6
+beautifulsoup4>=4.12
+markdownify>=0.13
+anthropic>=1.13

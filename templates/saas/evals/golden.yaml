@@ -1,0 +1,54 @@
+# Launch gate. Replace these with ~10 real questions; add every miss after launch.
+
+- id: team-plan-price
+  question: "How much is the Team plan?"
+  category: hard_fact
+  must_call_tool: get_plan
+  tool_args: {plan: team}
+  must_contain: ["29"]
+
+- id: refund-window
+  question: "How long do I have to ask for a refund on an annual plan?"
+  category: hard_fact
+  must_call_tool: get_limit
+  tool_args: {name: refund window}
+  must_contain: ["30"]
+
+- id: trial-length
+  question: "How long is the free trial?"
+  category: hard_fact
+  must_call_tool: get_limit
+  tool_args: {name: free trial}
+  must_contain: ["14"]
+
+- id: chat-hours
+  question: "When is live chat support available?"
+  category: hard_fact
+  must_call_tool: get_support
+  tool_args: {channel: chat}
+  must_contain: ["8:00"]
+
+- id: reset-password
+  question: "I forgot my password, what do I do?"
+  category: narrative
+  must_cite_page: reset-your-password
+  must_contain: ["forgot password"]
+  expected_summary: >
+    Use Forgot password on the sign-in page, enter your work email, follow the
+    emailed link. SSO users reset with their identity provider.
+
+- id: monthly-refund
+  question: "Can I get a refund on a monthly plan?"
+  category: narrative
+  must_cite_page: refunds-and-cancellation
+  must_contain: ["monthly"]
+  expected_summary: >
+    No. Monthly plans aren't refundable, but you can cancel any time and keep
+    access until the end of the paid period. Annual plans can be refunded
+    within the refund window.
+
+- id: my-invoice
+  question: "How much was my last invoice?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["billing"]

@@ -1,109 +1,91 @@
-# CLAUDE.md — working in (and adopting) groundtruth
+# Working in groundtruth (for coding agents)
 
-This file governs how an agent works in this repo. It has two jobs: keep the
-knowledge base honest, and help a new owner **replace the example domain with
-their own**. If you are an LLM reading this: follow it exactly.
+This file tells an agent (Claude Code, Codex, Cursor...) how to work in this
+repo. `AGENTS.md` is the same file. Follow it exactly.
 
 ## What this repo is
 
-A grounded knowledge base for an LLM. Two assets, one rule:
+A framework for grounding an LLM assistant in a body of knowledge:
 
-- `sources/` — immutable evidence (a scrape/export/hand-authored YAML). Never
-  hand-edit facts elsewhere; edit the evidence and re-project.
-- `db/groundtruth.db` — SQLite projection of **hard facts** (dates, dollars,
-  hours, contacts). Built by `scripts/build_db.py`. Read-only at runtime.
-- `wiki/` — compiled **narrative** pages, source-cited, no loose facts.
-- `groundtruth/` — the runtime library (`db`, `search`, `embeddings`, `mcp`,
-  `evals`, `observability`).
-- `evals/golden.yaml` — the launch gate.
+- **Code** lives in `groundtruth/` (the Python package) and `./gt` (the CLI).
+  You rarely need to touch it to build an assistant.
+- **Projects** are folders with a `groundtruth.yaml`. Each one is a separate
+  assistant. `examples/library/` is the demo; `templates/` are starting points;
+  the active project is named in `groundtruth.project` (`./gt status` shows it).
+
+Inside a project:
+
+| Path | Holds | Rules |
+|---|---|---|
+| `facts/*.yaml` | Exact facts (prices, dates, hours, contacts, limits) and the tools that serve them | Every row has a source. Format: `docs/facts.md` |
+| `wiki/**/*.md` | Explanations (how-to, policy, "what is") | Frontmatter + `## Sources & Lineage`. **No dates or dollar amounts in prose.** Format: `docs/wiki.md` |
+| `sources/pages/*.md` | Evidence, written by `./gt ingest` | Never edit by hand |
+| `prompts/system_prompt.md` | The assistant's instructions | Keep the fact-routing table in sync with `facts/` |
+| `evals/golden.yaml` | Questions with known answers | Format: `docs/evals.md` |
+| `build/`, `logs/`, `reports/` | Generated | Never edit, never commit |
 
 ## The one rule: facts come from tools
 
-The assistant MUST NOT state any of these from memory or from wiki prose:
+The assistant must never state a date, time, dollar amount, phone number, email,
+hours, deadline, or limit from memory or from wiki prose. Those live in
+`facts/*.yaml` and are served by tools. In wiki prose, name the tool instead:
+"the assistant looks up the current fee with `get_fee`." If a wiki page and a
+fact tool disagree, the tool is right and the page is stale.
 
-| fact | tool |
-|---|---|
-| a date / time of an event | `get_event`, `list_events` |
-| whether/when a place is open | `get_hours` |
-| any dollar amount | `get_fee` |
-| a phone number or email | `get_contact` |
-| whether a program needs registration | `get_program`, `list_programs` |
-
-If a wiki page disagrees with a tool, **the tool is right** and the page is
-stale — cite the tool and flag the page.
-
-**Enforcement.** `scripts/lint_no_hardfacts.py` fails the build if a calendar
-date or a `$` amount appears in wiki prose (outside frontmatter and the
-`## Sources & Lineage` table). If a value genuinely must stay in prose (a stable,
-illustrative figure), justify it inline on the same or previous line:
-
-```
-<!-- fact-ok: why this value is safe to hard-code -->
-```
-
-Use it sparingly. The default is: route the fact through a tool.
-
-## Wiki conventions
-
-- YAML frontmatter on every page: `title, page_type, last_compiled, compiled_by,
-  sources, related, audience, status, tags`.
-- `page_type` ∈ {journey, process, policy, entity, comparison, internal}.
-- Every page ends with a `## Sources & Lineage` table (the audit trail).
-- Use `[[wikilinks]]` for cross-references; link to evidence as
-  `[[sources/path/to/file.md]]`.
-- Pages in `wiki/internal/` are never surfaced by the public tools.
-- Recompiles are review-gated: `scripts/recompile.py` writes only with `--write`,
-  and the refresh pipeline lands changes on a `refresh/<date>` branch for a human
-  to merge. Direct human edits to `wiki/` are welcome.
-
-## Before you claim a change is done, run the gates
+## The gates: run before you say you're done
 
 ```bash
-.venv/bin/python scripts/check_wiki.py
-.venv/bin/python scripts/lint_no_hardfacts.py
-.venv/bin/python -m unittest discover -s tests
-.venv/bin/python scripts/run_evals.py --tier fast
+./gt check     # facts valid, wiki structure, no facts in prose, golden set wired correctly
+./gt eval      # free, no model: tools return the expected facts, search finds the pages
+python -m unittest discover -s tests    # only if you changed code in groundtruth/
 ```
 
-All four must be green. If you changed the prompt, tools, or content, run
-`scripts/run_evals.py --tier release` (needs `ANTHROPIC_API_KEY`).
+Both `./gt` commands must pass. `./gt -p PATH ...` targets a specific project.
+If you changed the prompt, tools, or content and an `ANTHROPIC_API_KEY` is
+available, also run `./gt eval --tier live` and report the result.
 
----
+## Common jobs
 
-## Adopting groundtruth for a new domain (the swap)
+### "Here's my site / my documents. Build the assistant."
 
-When the owner says *"here's my data, let's build this,"* do this in order and
-run the gates after each step.
+1. `./gt init NAME --template TEMPLATE` (pick the closest: `./gt init --list`).
+2. `./gt ingest URL_OR_FOLDER` to capture the evidence.
+3. `./gt compile` writes `NAME/build/compile-packet.md`. Do what it says:
+   - Exact things become rows in `facts/*.yaml`. Reuse a template file's shape;
+     add a file per kind of thing; give every tool a sharp `description`.
+   - Explanations become wiki pages: one topic per page, the words people use in
+     `title` and `tags`, sources listed, lineage table at the bottom.
+   - Update `prompts/system_prompt.md`'s routing table to match the tools.
+   - Replace the template's example questions in `evals/golden.yaml`: a
+     `hard_fact` item (with `must_call_tool`, `tool_args`, `must_contain`) per
+     tool, and a `narrative` item (with `must_cite_page`) per page.
+   - Delete the template's example rows and pages that don't apply.
+4. Run the gates. Fix everything. Then `./gt ask "..."` a few real questions.
 
-1. **Model the facts that are dangerous to get wrong.** Edit `db/schema.sql`.
-   Replace the library tables with your entities (e.g. for a SaaS help center:
-   `plans`, `limits`, `releases`, `contacts`). Keep `source_path` + `source_url`
-   on every table — provenance is non-negotiable.
+### "Do the work in build/compile-packet.md"
 
-2. **Bring the evidence.** Replace `sources/` with the owner's scrape, export, or
-   hand-authored YAML. Update the loaders in `scripts/build_db.py` to read it.
-   Rebuild: `python scripts/build_db.py`.
+Read the packet, do every item, run the gates, and summarize what you added and
+anything in the sources you couldn't place.
 
-3. **Expose the facts.** Update the query functions in `groundtruth/db.py` and
-   the thin tool wrappers in `groundtruth/mcp.py`. Keep tools read-only, with
-   forgiving inputs and exact outputs. Keep the docstrings sharp — the model
-   reads them to decide which tool to call. Update `EXPECTED_TOOLS` in
-   `scripts/check_mcp_runtime.py` and `TOOL_DISPATCH` in `groundtruth/evals.py`.
+### "The assistant got X wrong"
 
-4. **Write the narrative.** Replace `wiki/` with the owner's how/why/process
-   pages. Keep frontmatter + lineage. Keep facts OUT of prose — refer to tools.
-   Tune the `SYNONYMS` map in `groundtruth/search.py` to the owner's vocabulary.
+1. Add X to `evals/golden.yaml` first, and watch `./gt eval` fail (or, for
+   model behavior, `./gt eval --tier live --only ID`).
+2. Fix the cause upstream: a missing or wrong fact row, an alias, a page title,
+   a synonym in `groundtruth.yaml`, or the prompt.
+3. Watch it pass. Run the full gates.
 
-5. **Rewrite the prompt.** `prompts/system_prompt.md` is the contract: which
-   facts route to which tools, how to refuse out-of-scope questions, tone.
+### Changing the code in `groundtruth/`
 
-6. **Write the eval set.** `evals/golden.yaml`. Start with ~10 questions whose
-   answers you know cold, one per category. Then **grow it from every real
-   miss** — that is the whole discipline. Record a baseline run so `--tier fast`
-   works offline (or just run `--tier full` once with a key).
+Keep it dependency-light and readable; every module starts with a docstring
+explaining why it exists. Add a test in `tests/` for any behavior you change.
+Don't add per-domain logic to the code: domains belong in project YAML.
 
-7. **Delete the library.** Remove leftover Maplewood references in docs and the
-   README header. Update the example commands' expected output.
+## Don'ts
 
-Keep the architecture; replace the data. The framework is the engine — the
-owner brings the fuel.
+- Don't put facts in wiki prose. Don't use `<!-- fact-ok -->` to dodge the rule;
+  it's for genuinely stable, illustrative values, with a reason.
+- Don't edit `sources/`; re-run `./gt ingest`.
+- Don't commit `build/`, `logs/`, `reports/`, or `evals/runs/*-tools.json`.
+- Don't invent facts to make an eval pass. If the evidence doesn't say it, the
+  fact doesn't exist yet: tell the human.

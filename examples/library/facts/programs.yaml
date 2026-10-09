@@ -1,0 +1,43 @@
+description: Ongoing programs and services, including whether you must register.
+key: id
+source:
+  path: sources/pages/programs.md
+  url: https://example.org/programs
+tools:
+  - name: get_program
+    kind: lookup
+    arg: name_or_id
+    description: >
+      Look up one program ("summer reading", "tech help"), including whether
+      registration is required.
+  - name: list_programs
+    kind: list
+    filters:
+      - field: audience
+        wildcards: [all]     # an "all" program shows up for every audience
+    description: List programs, optionally for one audience (kids, teens, adults).
+rows:
+  - id: summer-reading
+    name: Summer Reading Program
+    audience: all
+    schedule: June through August
+    registration_required: true
+    description: Read, log books, and earn prizes. Tracks for kids, teens, and adults.
+  - id: homework-help
+    name: After-School Homework Help
+    audience: kids
+    schedule: School-year weekdays, after school
+    registration_required: false
+    description: Drop-in tutoring from volunteers for elementary and middle schoolers.
+  - id: esl-conversation
+    name: ESL Conversation Circle
+    audience: adults
+    schedule: Weekly, Thursday evenings
+    registration_required: false
+    description: Informal English conversation practice for adult learners.
+  - id: tech-help
+    name: One-on-One Tech Help
+    audience: adults
+    schedule: By appointment
+    registration_required: true
+    description: Book a 45-minute session for help with devices, email, or apps.

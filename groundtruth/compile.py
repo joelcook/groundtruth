@@ -1,0 +1,342 @@
+"""``./gt compile``: turn evidence into wiki pages and fact rows.
+
+Two ways to run it:
+
+    ./gt compile            writes build/compile-packet.md: a precise work order for
+                            a coding agent. Open the repo in Claude Code (or Codex,
+                            Cursor...) and say "do build/compile-packet.md". It lists
+                            new sources no page covers yet, pages whose sources
+                            changed, the rules, and how to verify. No API key needed.
+
+    ./gt compile --write    does the wiki part itself with Claude: drafts a page for
+                            each uncovered source and refreshes each stale page.
+                            Needs ANTHROPIC_API_KEY. Writes files only; review them
+                            (git diff) and run ./gt check.
+
+Facts stay a human (or agent) decision: the packet tells the agent exactly how to
+add rows to facts/*.yaml, and ./gt check verifies them.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from groundtruth import checks, facts
+from groundtruth.project import Project
+
+STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "180"))
+
+
+@dataclass
+class SourceInfo:
+    path: Path
+    rel: str
+    title: str
+    url: str | None
+    captured: dt.date | None
+
+
+def _frontmatter(path: Path) -> dict:
+    meta, _ = checks.split_frontmatter(path.read_text(encoding="utf-8"))
+    return meta or {}
+
+
+def _date(value) -> dt.date | None:
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def sources(project: Project) -> list[SourceInfo]:
+    if not project.pages_dir.exists():
+        return []
+    out = []
+    for path in sorted(project.pages_dir.rglob("*.md")):
+        meta = _frontmatter(path)
+        captured = _date(meta.get("captured") or meta.get("scraped_at"))
+        if captured is None:
+            captured = dt.date.fromtimestamp(path.stat().st_mtime)
+        out.append(SourceInfo(path=path, rel=project.rel(path), url=meta.get("source_url"),
+                              title=str(meta.get("title") or path.stem.replace("-", " ").title()),
+                              captured=captured))
+    return out
+
+
+def cited_sources(project: Project) -> set[str]:
+    """Every source path referenced by a wiki page or a facts file."""
+    cited: set[str] = set()
+    for page in checks.wiki_pages(project):
+        for s in _frontmatter(page).get("sources") or []:
+            cited.add(str(s).strip("[]").split("|")[0])
+    try:
+        for c in facts.load(project):
+            if c.source_path:
+                cited.add(c.source_path)
+            for r in c.rows:
+                if r.get("source_path"):
+                    cited.add(str(r["source_path"]))
+    except facts.FactsError:
+        pass
+    return cited
+
+
+def _retired(path: Path) -> bool:
+    meta = _frontmatter(path)
+    return meta.get("canonical") is False or str(meta.get("status", "")).lower() in {"retired", "superseded", "archived"}
+
+
+def uncovered(project: Project) -> list[SourceInfo]:
+    """Sources no wiki page or facts file cites yet (retired/superseded sources excluded)."""
+    cited = cited_sources(project)
+    return [s for s in sources(project) if s.rel not in cited and not _retired(s.path)]
+
+
+def stale_pages(project: Project) -> list[tuple[Path, str]]:
+    by_rel = {s.rel: s for s in sources(project)}
+    today = dt.date.today()
+    out = []
+    for page in checks.wiki_pages(project):
+        if "internal" in page.relative_to(project.wiki_dir).parts:
+            continue
+        meta = _frontmatter(page)
+        compiled = _date(meta.get("last_compiled"))
+        if compiled is None:
+            out.append((page, "no last_compiled date"))
+            continue
+        newer = [s for s in (meta.get("sources") or [])
+                 if (src := by_rel.get(str(s))) and src.captured and src.captured > compiled]
+        if newer:
+            out.append((page, f"source changed since {compiled}: {', '.join(map(str, newer))}"))
+        elif (today - compiled).days > STALE_DAYS:
+            out.append((page, f"compiled {(today - compiled).days} days ago"))
+    return out
+
+
+# ===================================================================== the packet
+
+
+RULES = """\
+1. **Facts never go in wiki prose.** Dates, times, dollar amounts, phone numbers,
+   emails, hours, deadlines, limits: put them in `facts/*.yaml` and refer to the
+   tool in prose ("the assistant looks up the current price with `get_fee`").
+   `./gt check` fails if a date or `$` amount appears in a wiki page.
+2. **Every fact row has a source.** Use the file-level `source: {path, url}` or a
+   per-row `source_url`. Point at the `sources/pages/...` file it came from.
+3. **Every wiki page has frontmatter and a lineage table:**
+   ```markdown
+   ---
+   title: How to reset your password
+   page_type: process        # journey | process | policy | entity | comparison | faq | guide
+   last_compiled: {today}
+   compiled_by: <you>
+   sources:
+     - sources/pages/password-help.md
+   status: published
+   tags: [password, login, account]
+   ---
+
+   # How to reset your password
+   ...plain, friendly prose, 8th-grade reading level...
+
+   ## Sources & Lineage
+
+   | Source | Captured | URL |
+   |---|---|---|
+   | [[sources/pages/password-help.md]] | <captured date> | <source_url> |
+   ```
+4. **Link pages** with `[[slug]]`. Put pages under `wiki/<page_type>s/` (e.g.
+   `wiki/processes/reset-password.md`) and list new pages in `wiki/index.md`.
+5. **Don't edit `sources/`.** It's the evidence; `./gt ingest` owns it.
+6. **Add eval questions** to `evals/golden.yaml` for what you added: a `hard_fact`
+   item (with `must_call_tool`, `tool_args`, `must_contain`) for each new fact
+   tool, and a `narrative` item (`must_cite_page`) for each new page.
+"""
+
+FACTS_HOWTO = """\
+A collection is one YAML file. Copy this shape:
+
+```yaml
+# facts/plans.yaml
+description: Subscription plans with prices and limits.
+key: id                       # unique per row
+source: {path: sources/pages/pricing.md, url: https://example.org/pricing}
+tools:
+  - name: get_plan            # lowercase_snake_case, unique across collections
+    kind: lookup              # lookup(<arg>) does a forgiving text match
+    arg: plan
+    description: Price and limits for a plan. Every price the assistant states MUST come from here.
+  - name: list_plans
+    kind: list                # list with optional filters
+    filters: [billing]
+    description: List all plans, optionally by billing period.
+rows:
+  - {id: starter, name: Starter, aliases: [basic], price_usd: 9, billing: monthly, projects: 3}
+```
+
+Dated rows: add `date_field: date` with ISO `YYYY-MM-DD` values, and `upcoming: true`
+on a list tool to get "upcoming only". Full reference: docs/facts.md.
+"""
+
+
+def _where(project: Project) -> str:
+    from groundtruth.project import REPO_ROOT
+    try:
+        return str(project.root.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(project.root)
+
+
+def packet(project: Project) -> Path:
+    today = dt.date.today().isoformat()
+    new = uncovered(project)
+    stale = stale_pages(project)
+    try:
+        collections = facts.load(project)
+        coll_lines = [f"- `{Path(c.file).name}`: {c.description or c.name} "
+                      f"({len(c.rows)} rows; tools: {', '.join(t.name for t in c.tools)})" for c in collections]
+    except facts.FactsError as exc:
+        coll_lines = ["- (facts currently fail validation:)"] + [f"  - {p}" for p in exc.problems]
+    pages = [project.rel(p) for p in checks.wiki_pages(project)]
+
+    lines = [
+        f"# Compile packet: {project.name}",
+        "",
+        f"Generated {today} by `./gt compile`. You are a coding agent working in this repo.",
+        f"The project lives in `{_where(project)}/`. Work only inside it.",
+        "",
+        "## Goal",
+        "",
+        "Turn the evidence in `sources/pages/` into (a) source-cited wiki pages for how/why",
+        "questions and (b) fact rows in `facts/*.yaml` for anything exact. Then prove it",
+        "with the checks below.",
+        "",
+        "## Work list",
+        "",
+    ]
+    if new:
+        lines += [f"### New sources nothing covers yet ({len(new)})", "",
+                  "For each: decide what's a fact (goes in `facts/`) and what's explanation (a wiki",
+                  "page). Several related sources can share one page.", ""]
+        lines += [f"- `{s.rel}`: {s.title}" + (f" ({s.url})" if s.url else "") for s in new]
+        lines.append("")
+    if stale:
+        lines += [f"### Pages whose sources changed ({len(stale)})", "",
+                  "Re-read the sources, update the prose, bump `last_compiled`, and update any",
+                  "facts the change affects.", ""]
+        lines += [f"- `{project.rel(p)}`: {why}" for p, why in stale]
+        lines.append("")
+    if not new and not stale:
+        lines += ["Nothing to do: every source is covered and no page is stale. Run `./gt ingest`",
+                  "to pull fresh evidence first.", ""]
+    lines += [
+        "## Rules",
+        "",
+        RULES.replace("{today}", today),
+        "## Facts files",
+        "",
+        "Current collections:",
+        "",
+        *(coll_lines or ["- (none yet)"]),
+        "",
+        FACTS_HOWTO,
+        "## Existing wiki pages",
+        "",
+        *([f"- `{p}`" for p in pages] or ["- (none yet)"]),
+        "",
+        "## When you're done",
+        "",
+        "Run these from the repo root and fix everything they report:",
+        "",
+        "```bash",
+        "./gt check      # facts, wiki structure, no facts in prose, golden set",
+        "./gt eval       # free: tools return the expected facts, search finds the pages",
+        "```",
+        "",
+        "Then summarize what you added and anything in the sources you couldn't place.",
+        "",
+    ]
+    out = project.build_dir / "compile-packet.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines), encoding="utf-8")
+    return out
+
+
+# ===================================================================== compiling with Claude
+
+
+SYSTEM = """You write one page of a knowledge wiki from captured source documents.
+Hard rules:
+- Output ONLY the page markdown, starting with the YAML frontmatter.
+- NO dates, times, dollar amounts, phone numbers, or emails in the prose. Those are
+  served by fact tools at answer time; mention the tool instead (for example
+  "the assistant looks up the current fee with `get_fee`"). Available fact tools
+  are listed in the request.
+- Frontmatter keys: title, page_type, last_compiled, compiled_by, sources, status, tags.
+- End with a '## Sources & Lineage' table: | Source | Captured | URL |.
+- Link related pages with [[slug]] using only slugs from the list provided.
+- Plain, friendly, 8th-grade reading level. Lead with the answer."""
+
+
+def _tool_lines(project: Project) -> str:
+    try:
+        return "\n".join(f"- {t.name}: {t.description}" for c in facts.load(project) for t in c.tools) or "(none)"
+    except facts.FactsError:
+        return "(facts invalid)"
+
+
+def _write_page(project: Project, text: str, target: Path) -> list[str]:
+    text = text.strip()
+    text = re.sub(r"\A```(?:markdown)?\s*\n(.*)\n```\s*\Z", r"\1", text, flags=re.DOTALL)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text.strip() + "\n", encoding="utf-8")
+    return [f"{project.rel(target)}:{ln} {kind} {val!r}" for ln, kind, val in checks.hard_facts_in(target)]
+
+
+def compile_with_claude(project: Project, *, limit: int = 20) -> tuple[list[str], list[str]]:
+    """Draft pages for uncovered sources and refresh stale ones. Returns (written, lint problems)."""
+    from groundtruth import llm
+
+    today = dt.date.today().isoformat()
+    tools = _tool_lines(project)
+    slugs = sorted({p.stem for p in checks.wiki_pages(project)})
+    written: list[str] = []
+    problems: list[str] = []
+
+    for src in uncovered(project)[:limit]:
+        prompt = (f"Today is {today}. compiled_by: {llm.model()}.\n\nFact tools:\n{tools}\n\n"
+                  f"Existing page slugs: {', '.join(slugs) or '(none)'}\n\n"
+                  f"Write a new page from this source (sources: [{src.rel}]).\n\n"
+                  f"### {src.rel}\n{src.path.read_text(encoding='utf-8')}")
+        text = llm.complete(SYSTEM, prompt)
+        meta, _ = checks.split_frontmatter(text.strip().removeprefix("```markdown").strip())
+        ptype = str((meta or {}).get("page_type") or "guide").lower()
+        folder = {"policy": "policies", "entity": "entities", "faq": "faq"}.get(ptype, f"{ptype}s")
+        target = project.wiki_dir / folder / f"{src.path.stem}.md"
+        problems += _write_page(project, text, target)
+        written.append(project.rel(target))
+
+    for page, why in stale_pages(project)[:limit]:
+        meta = _frontmatter(page)
+        evidence = []
+        for s in meta.get("sources") or []:
+            sp = project.root / str(s).strip("[]").split("|")[0]
+            if sp.exists():
+                evidence.append(f"### {s}\n{sp.read_text(encoding='utf-8')}")
+        prompt = (f"Today is {today}. compiled_by: {llm.model()}. This page is stale ({why}).\n\n"
+                  f"Fact tools:\n{tools}\n\nExisting page slugs: {', '.join(slugs)}\n\n"
+                  f"Current page:\n\n{page.read_text(encoding='utf-8')}\n\nSources:\n\n" + "\n\n".join(evidence))
+        problems += _write_page(project, llm.complete(SYSTEM, prompt), page)
+        written.append(project.rel(page))
+    return written, problems
+
+
+def status(project: Project) -> dict:
+    return {"uncovered": [s.rel for s in uncovered(project)],
+            "stale": [(project.rel(p), why) for p, why in stale_pages(project)]}
+

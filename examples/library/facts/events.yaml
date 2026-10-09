@@ -1,0 +1,68 @@
+# Dated things. `date` is ISO (YYYY-MM-DD) so "upcoming only" works; leave it
+# out for recurring events and describe the schedule in `when`.
+description: Events, closures, and sales, with exact dates and start times.
+key: title
+date_field: date
+source:
+  path: sources/pages/events-calendar.md
+  url: https://example.org/events
+tools:
+  - name: get_event
+    kind: lookup
+    arg: query
+    description: >
+      Find specific events by name or type ("story time", "book sale",
+      "closure"). Use for any "when is <event>" question. Dates are facts:
+      never guess them.
+  - name: list_events
+    kind: list
+    filters:
+      - field: category
+    upcoming: true
+    description: List events (story-time, workshop, closure, book-sale, program), soonest first.
+rows:
+  - title: Toddler Story Time
+    branch: central
+    category: story-time
+    when: Every Wednesday
+    start_time: "10:30"
+    registration_required: false
+    notes: Ages 1-3 with a caregiver. Songs, rhymes, and picture books.
+  - title: Summer Reading Kickoff
+    branch: central
+    category: program
+    date: "2026-06-20"
+    when: Saturday, June 20, 2026
+    start_time: "11:00"
+    registration_required: false
+    notes: Sign up for Summer Reading, meet the staff, free snacks.
+  - title: Teen Game Night
+    branch: eastside
+    category: workshop
+    date: "2026-06-26"
+    when: Friday, June 26, 2026
+    start_time: "18:00"
+    registration_required: false
+    notes: Grades 6-12. Board games and console tournaments.
+  - title: Resume & Job Search Workshop
+    branch: central
+    category: workshop
+    date: "2026-06-27"
+    when: Saturday, June 27, 2026
+    start_time: "14:00"
+    registration_required: true
+    notes: Bring a laptop or use ours. Seats limited; registration required.
+  - title: Independence Day Closure
+    category: closure
+    date: "2026-07-04"
+    when: Saturday, July 4, 2026
+    registration_required: false
+    notes: All branches closed for the holiday.
+  - title: Friends of the Library Book Sale
+    branch: central
+    category: book-sale
+    date: "2026-07-11"
+    when: Saturday, July 11, 2026
+    start_time: "09:00"
+    registration_required: false
+    notes: Gently used books, most under a dollar. Proceeds fund programs.

@@ -1,0 +1,15 @@
+description: City offices with phone, address, and hours.
+key: office
+source:
+  path: sources/pages/offices.md
+  url: https://www.example.gov/contact
+tools:
+  - name: get_office
+    kind: lookup
+    arg: office
+    description: Phone, address, and hours for a city office (city hall, permits, utilities, parks).
+rows:
+  - {office: city-hall, aliases: [city hall, clerk, mayor], phone: "555-0120", address: 1 Main Street, hours: "Weekdays 8:00-17:00"}
+  - {office: permits, aliases: [building, planning, permit office], phone: "555-0121", address: "1 Main Street, Suite 200", hours: "Weekdays 8:00-16:30"}
+  - {office: utilities, aliases: [water, water bill, billing, sewer], phone: "555-0122", address: 40 River Road, hours: "Weekdays 7:30-17:00"}
+  - {office: parks, aliases: [recreation, pavilion, park], phone: "555-0123", address: 200 Park Avenue, hours: "Daily 9:00-18:00"}

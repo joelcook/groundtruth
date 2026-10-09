@@ -1,0 +1,28 @@
+# groundtruth project config. Everything about *your* assistant lives in this
+# folder: facts/, wiki/, sources/, prompts/, evals/. The code never needs editing.
+
+name: Maplewood Public Library
+
+# One or two sentences. Becomes the MCP server's instructions, so every chat
+# client knows what this assistant covers.
+about: >
+  A public library system with three branches. Answers questions about hours,
+  events, programs, borrowing, fees, and getting a library card.
+
+# Words people type -> words your pages use. Earn each entry from a real miss.
+search:
+  synonyms:
+    card: [registration, signup, register]
+    fine: [fines, overdue, late, fee]
+    print: [printing, copy, copies]
+    ebook: [ebooks, audiobook, digital, app, elibrary]
+    hold: [holds, reserve, request]
+    renew: [renewal, renewals]
+    wifi: [internet, computer, computers]
+    pin: [password, login, sign]
+
+# Where `./gt ingest` (and the weekly refresh) pulls evidence from.
+# URLs, sitemap.xml links, or folders. Empty for the demo: its sources are
+# hand-written pages in sources/pages/.
+ingest:
+  sources: []

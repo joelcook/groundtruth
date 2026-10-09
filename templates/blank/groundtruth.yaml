@@ -1,0 +1,16 @@
+name: "{{NAME}}"
+template_description: The smallest working assistant. One facts file, one wiki page, three eval questions.
+
+# One or two sentences: who this assistant serves and what it covers.
+# It becomes the instructions every connected chat client sees.
+about: >
+  Answers questions about {{NAME}}: what we do, how to reach us, and how things work.
+
+search:
+  # Words people type -> words your pages use. Add one each time search misses.
+  synonyms:
+    contact: [reach, call, email, phone]
+
+ingest:
+  # URLs, sitemap.xml links, or folders. `./gt ingest` and the weekly refresh pull these.
+  sources: []

@@ -1,0 +1,31 @@
+# A facts file: one kind of exact thing people ask about. Replace the example
+# rows with yours, and add more files (prices.yaml, hours.yaml...) the same way.
+# Reference: docs/facts.md
+description: How to reach each team, by phone and email.
+key: team
+source:
+  path: sources/pages/contact.md
+  url: https://example.com/contact
+tools:
+  - name: get_contact
+    kind: lookup
+    arg: team
+    description: >
+      Phone, email, and hours for a team (support, sales, billing). Contact
+      details are facts: always look them up, never guess.
+rows:
+  - team: support
+    aliases: [help, customer service, technical support]
+    phone: "555-0100"
+    email: support@example.com
+    hours: Weekdays 9:00-17:00
+  - team: sales
+    aliases: [pricing, demo, quote]
+    phone: "555-0101"
+    email: sales@example.com
+    hours: Weekdays 9:00-17:00
+  - team: billing
+    aliases: [invoice, payment, refund]
+    phone: "555-0102"
+    email: billing@example.com
+    hours: Weekdays 9:00-16:00

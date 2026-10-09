@@ -1,0 +1,40 @@
+description: Phone numbers and emails by department.
+key: department
+source:
+  path: sources/pages/contact-us.md
+  url: https://example.org/contact
+tools:
+  - name: get_contact
+    kind: lookup
+    arg: department
+    description: >
+      Phone and email by department (reference, youth services, circulation,
+      accessibility). Contact details are facts and must cite a source.
+rows:
+  - department: reference
+    role: Reference Desk
+    phone: "555-0102"
+    email: ask@example.org
+    branch: central
+    notes: Research help, database access, interlibrary loan.
+  - department: youth-services
+    aliases: [youth, kids, children, teens]
+    role: Youth Services Desk
+    phone: "555-0103"
+    email: kids@example.org
+    branch: central
+    notes: Story times, homework help, kids and teen programs.
+  - department: circulation
+    aliases: [checkout, library cards, holds, renewals]
+    role: Circulation Desk
+    phone: "555-0101"
+    email: checkout@example.org
+    branch: central
+    notes: Library cards, checkouts, holds, renewals.
+  - department: accessibility
+    aliases: [accommodations, homebound]
+    role: Accessibility Services
+    phone: "555-0108"
+    email: access@example.org
+    branch: central
+    notes: Accommodations, accessible formats, home delivery for homebound patrons.

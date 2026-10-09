@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "groundtruth"
+version = "2.0.0"
+description = "Give your LLM a single source of truth: facts from a database, explanations from a source-cited wiki, served over MCP, proven by evals."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Joel Cook" }]
+dependencies = [
+  "mcp>=1.27,<2",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+  "PyYAML>=6",
+  "beautifulsoup4>=4.12",
+  "markdownify>=0.13",
+  "anthropic>=1.13",
+]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4"]
+voyage = ["voyageai>=0.2"]
+
+[project.scripts]
+gt = "groundtruth.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/joelcook/groundtruth"
+
+[tool.setuptools]
+packages = ["groundtruth"]

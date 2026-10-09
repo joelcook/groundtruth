@@ -1,0 +1,26 @@
+description: Support channels with hours and typical response times.
+key: channel
+source:
+  path: sources/pages/support.md
+  url: https://example.com/support
+tools:
+  - name: get_support
+    kind: lookup
+    arg: channel
+    description: How to reach support (chat, email, phone), with hours and response times.
+rows:
+  - channel: chat
+    aliases: [live chat, help, support]
+    how: In-app chat, bottom-right corner
+    hours: Weekdays 8:00-20:00 Eastern
+    typical_response: Under 5 minutes
+  - channel: email
+    aliases: [ticket]
+    how: support@example.com
+    hours: 24/7
+    typical_response: Within 1 business day
+  - channel: phone
+    aliases: [call]
+    how: "555-0150"
+    hours: Weekdays 9:00-17:00 Eastern, Team and Enterprise plans
+    typical_response: Live

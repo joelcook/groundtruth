@@ -1,0 +1,33 @@
+# Library branches. `aliases` lets people say "main" or "downtown" and still
+# land on the right row.
+description: Library branches with address, phone, and region.
+key: id
+source:
+  path: sources/pages/locations-and-hours.md
+  url: https://example.org/locations
+tools:
+  - name: list_branches
+    kind: list
+    description: List every library branch with its address, phone, and region.
+rows:
+  - id: central
+    name: Maplewood Central Library
+    aliases: [main, downtown, central library]
+    address: 100 Library Plaza, Maplewood
+    phone: "555-0100"
+    region: downtown
+    source_url: https://example.org/locations/central
+  - id: eastside
+    name: Eastside Branch
+    aliases: [east]
+    address: 4120 Oak Avenue, Maplewood
+    phone: "555-0140"
+    region: east
+    source_url: https://example.org/locations/eastside
+  - id: lakeview
+    name: Lakeview Branch
+    aliases: [lake, north]
+    address: 88 Shoreline Drive, Maplewood
+    phone: "555-0170"
+    region: north
+    source_url: https://example.org/locations/lakeview

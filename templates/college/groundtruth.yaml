@@ -1,0 +1,16 @@
+name: "{{NAME}}"
+template_description: A college or university. Term deadlines, tuition, office contacts, admissions and registration guides.
+
+about: >
+  The student assistant for {{NAME}}. Answers questions about deadlines,
+  tuition and fees, admissions, registration, and which office to contact.
+
+search:
+  synonyms:
+    drop: [withdraw, withdrawal, drop]
+    apply: [admission, admissions, application, enroll]
+    tuition: [cost, price, fees, fee]
+    class: [course, classes, courses]
+
+ingest:
+  sources: []   # e.g. https://www.example.edu/sitemap.xml

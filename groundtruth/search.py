@@ -4,6 +4,9 @@ This answers the *how/why/what* questions — the ones where being approximately
 right is fine. (The *exact* questions go to ``groundtruth.db``.) It returns
 source-cited snippets the model can ground an explanation in.
 
+Synonyms (the words people type vs. the words your pages use) live in your
+project's ``groundtruth.yaml`` under ``search.synonyms``.
+
 Two backends, one interface:
   * **scan** (default) — a dependency-free lexical scorer that holds the whole
     wiki in memory and ranks it in ~1 ms. For a few hundred curated pages this
@@ -13,7 +16,7 @@ Two backends, one interface:
 
 ``auto`` blends both: semantic recall for "I phrased it differently than the
 page did" queries, with the lexical score as a stabilizer. Build the index with
-``python scripts/build_index.py``; without it, ``auto`` degrades to ``scan``.
+``./gt build --index``; without it, ``auto`` degrades to ``scan``.
 
 See docs/01-retrieval.md for when each is the right call.
 """
@@ -22,6 +25,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,10 +33,9 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WIKI_DIR = REPO_ROOT / "wiki"
+from groundtruth.project import Project, resolve
 
-PUBLIC_PAGE_TYPES = {"journey", "process", "policy", "entity", "comparison"}
+PUBLIC_PAGE_TYPES = {"journey", "process", "policy", "entity", "comparison", "faq", "guide"}
 SKIP_FILENAMES = {"index.md", "log.md", "gaps.md"}
 MAX_SNIPPET_CHARS = 600
 
@@ -46,22 +49,6 @@ STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "do", "does",
     "for", "from", "get", "how", "i", "if", "in", "is", "it", "my", "of", "on",
     "or", "the", "this", "to", "what", "when", "where", "who", "why", "with", "you",
-}
-
-# Domain-specific query expansion. THIS IS THE ONE PART YOU TUNE PER CORPUS:
-# map the words your users type to the words your pages actually use. Keep it
-# small and earn each entry from a real miss. (Example: library domain.)
-SYNONYMS = {
-    "card": {"card", "registration", "signup", "register"},
-    "fine": {"fine", "fines", "overdue", "late", "fee"},
-    "fines": {"fine", "fines", "overdue", "late", "fee"},
-    "print": {"print", "printing", "copy", "copies"},
-    "ebook": {"ebook", "ebooks", "audiobook", "digital", "app", "elibrary"},
-    "ebooks": {"ebook", "ebooks", "audiobook", "digital", "app", "elibrary"},
-    "hold": {"hold", "holds", "reserve", "request"},
-    "renew": {"renew", "renewal", "renewals"},
-    "wifi": {"wifi", "internet", "computer", "computers"},
-    "pin": {"pin", "password", "login", "sign"},
 }
 
 
@@ -117,19 +104,30 @@ def _stem(token: str) -> str:
     return token
 
 
-def _query_terms(query: str) -> list[str]:
+def _query_terms(query: str, synonyms: dict[str, set[str]] | None = None) -> list[str]:
+    synonyms = synonyms or {}
     terms = set(_tokens(query))
     for t in list(terms):
-        terms |= SYNONYMS.get(t, set())
+        terms |= synonyms.get(t, set())
         terms.add(_stem(t))
     return sorted(t for t in terms if t and t not in STOPWORDS)
 
 
-def _load_public_pages() -> list[WikiPage]:
+def _wiki_signature(wiki_dir: Path) -> tuple:
+    if not wiki_dir.exists():
+        return ()
+    return tuple(sorted((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in wiki_dir.rglob("*.md")))
+
+
+_page_cache: dict[str, tuple[float, tuple, list[WikiPage]]] = {}
+
+
+def _parse_pages(project: Project) -> list[WikiPage]:
+    wiki_dir = project.wiki_dir
     pages: list[WikiPage] = []
-    for path in sorted(WIKI_DIR.rglob("*.md")):
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        if path.name in SKIP_FILENAMES or "internal" in path.relative_to(WIKI_DIR).parts:
+    for path in sorted(wiki_dir.rglob("*.md")):
+        rel = "wiki/" + path.relative_to(wiki_dir).as_posix()
+        if path.name in SKIP_FILENAMES or "internal" in path.relative_to(wiki_dir).parts:
             continue
         meta, body = _split_frontmatter(path.read_text(encoding="utf-8"))
         page_type = str(meta.get("page_type") or "").strip().lower()
@@ -151,6 +149,23 @@ def _load_public_pages() -> list[WikiPage]:
             path_tokens=Counter(_tokens(path.stem.replace("-", " "))),
             body_tokens=Counter(_tokens(plain_body)),
         ))
+    return pages
+
+
+def load_pages(project: Project | None = None) -> list[WikiPage]:
+    """Every public wiki page, parsed. Cached; re-read when any page changes."""
+    project = project or resolve()
+    key = str(project.wiki_dir)
+    now = time.monotonic()
+    cached = _page_cache.get(key)
+    if cached and now - cached[0] < 1.0:
+        return cached[2]
+    sig = _wiki_signature(project.wiki_dir)
+    if cached and cached[1] == sig:
+        _page_cache[key] = (now, sig, cached[2])
+        return cached[2]
+    pages = _parse_pages(project)
+    _page_cache[key] = (now, sig, pages)
     return pages
 
 
@@ -222,8 +237,9 @@ def _result(page: WikiPage, query: str, terms: list[str], backend: str,
 
 # ---------------------------------------------------------------- backends
 
-def _search_scan(query: str, limit: int, pages: list[WikiPage]) -> list[dict]:
-    terms = _query_terms(query)
+def _search_scan(query: str, limit: int, pages: list[WikiPage],
+                 synonyms: dict[str, set[str]] | None = None) -> list[dict]:
+    terms = _query_terms(query, synonyms)
     if not terms:
         return []
     scored = [(_score(p, query, terms), p) for p in pages]
@@ -232,13 +248,13 @@ def _search_scan(query: str, limit: int, pages: list[WikiPage]) -> list[dict]:
     return [_result(p, query, terms, "scan", s) for s, p in scored[:limit]]
 
 
-def _search_semantic(query: str, limit: int, pages: list[WikiPage]) -> list[dict]:
+def _search_semantic(query: str, limit: int, pages: list[WikiPage], project: Project) -> list[dict]:
     from groundtruth import embeddings
-    hits = embeddings.query(query, limit=limit)
+    hits = embeddings.query(project, query, limit=limit)
     if not hits:
         return []
     by_path = {p.rel_path: p for p in pages}
-    terms = _query_terms(query)
+    terms = _query_terms(query, project.synonyms)
     out = []
     for rel_path, score in hits:
         page = by_path.get(rel_path)
@@ -247,16 +263,16 @@ def _search_semantic(query: str, limit: int, pages: list[WikiPage]) -> list[dict
     return out
 
 
-def _search_auto(query: str, limit: int, pages: list[WikiPage]) -> list[dict]:
+def _search_auto(query: str, limit: int, pages: list[WikiPage], project: Project) -> list[dict]:
     """Blend lexical + semantic by reciprocal rank; falls back to scan with no index."""
     from groundtruth import embeddings
-    sem = embeddings.query(query, limit=max(limit * 2, 6))
+    sem = embeddings.query(project, query, limit=max(limit * 2, 6))
     if not sem:
-        return _search_scan(query, limit, pages)
+        return _search_scan(query, limit, pages, project.synonyms)
     by_path = {p.rel_path: p for p in pages}
-    terms = _query_terms(query)
+    terms = _query_terms(query, project.synonyms)
     ranks: dict[str, float] = {}
-    for rank, row in enumerate(_search_scan(query, max(limit * 2, 6), pages), start=1):
+    for rank, row in enumerate(_search_scan(query, max(limit * 2, 6), pages, project.synonyms), start=1):
         ranks[row["path"]] = ranks.get(row["path"], 0.0) + 1.0 / rank
     for rank, (rel_path, _score_val) in enumerate(sem, start=1):
         ranks[rel_path] = ranks.get(rel_path, 0.0) + 1.5 / rank
@@ -271,36 +287,38 @@ def _search_auto(query: str, limit: int, pages: list[WikiPage]) -> list[dict]:
 
 # ---------------------------------------------------------------- public API
 
-def search_wiki(query: str, limit: int = 5) -> list[dict]:
-    """Search the curated wiki for narrative/process/policy context.
+def search_wiki(query: str, limit: int = 5, project: Project | None = None) -> list[dict]:
+    """Search the curated wiki for how/why/process/policy context.
 
-    Use ``groundtruth.db`` tools instead for any exact value (dates, dollars,
-    hours, phone numbers). Backend is chosen by ``GT_SEARCH_BACKEND``
-    (scan | semantic | auto); default scan.
+    Exact values (dates, dollars, hours, phone numbers) come from the fact
+    tools, never from here. Backend: ``GT_SEARCH_BACKEND`` = scan (default) |
+    semantic | auto.
     """
+    project = project or resolve()
     query = (query or "").strip()
     if not query:
         return []
-    limit = max(1, min(int(limit), 10))
-    pages = _load_public_pages()
+    limit = max(1, min(int(limit or 5), 10))
+    pages = load_pages(project)
     backend = os.environ.get("GT_SEARCH_BACKEND", "scan").strip().lower()
     if backend == "semantic":
-        return _search_semantic(query, limit, pages) or _search_scan(query, limit, pages)
+        return _search_semantic(query, limit, pages, project) or _search_scan(query, limit, pages, project.synonyms)
     if backend == "auto":
-        return _search_auto(query, limit, pages)
-    return _search_scan(query, limit, pages)
+        return _search_auto(query, limit, pages, project)
+    return _search_scan(query, limit, pages, project.synonyms)
 
 
 def _normalize(value: str) -> str:
     return (value or "").strip().lower().removeprefix("wiki/").removesuffix(".md").replace("_", "-")
 
 
-def read_wiki_page(path_or_slug: str, max_chars: int = 10000) -> dict | None:
-    """Read one wiki page in full by repo path, wiki-relative path, slug, or title."""
+def read_wiki_page(path_or_slug: str, max_chars: int = 10000, project: Project | None = None) -> dict | None:
+    """Read one wiki page in full by path, slug ("fines-and-fees"), or title."""
+    project = project or resolve()
     needle = _normalize(path_or_slug)
     if not needle:
         return None
-    for page in _load_public_pages():
+    for page in load_pages(project):
         candidates = {
             _normalize(page.rel_path),
             _normalize(Path(page.rel_path).name),
@@ -324,19 +342,9 @@ def read_wiki_page(path_or_slug: str, max_chars: int = 10000) -> dict | None:
     return None
 
 
-def build_search_index() -> int:
-    """Embed every public page's search text into the vector store. Returns count."""
+def build_search_index(project: Project | None = None) -> int:
+    """Embed every public page into the semantic index. Returns the page count."""
     from groundtruth import embeddings
-    pages = _load_public_pages()
-    return embeddings.build_index([(p.rel_path, p.search_text) for p in pages])
-
-
-def search_status() -> dict:
-    """Diagnostics for the retrieval layer."""
-    from groundtruth import embeddings
-    backend = os.environ.get("GT_SEARCH_BACKEND", "scan").strip().lower()
-    return {
-        "configured_backend": backend,
-        "public_page_count": len(_load_public_pages()),
-        "index": embeddings.index_status(),
-    }
+    project = project or resolve()
+    pages = load_pages(project)
+    return embeddings.build_index(project, [(p.rel_path, p.search_text) for p in pages])

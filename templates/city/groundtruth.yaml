@@ -1,0 +1,15 @@
+name: "{{NAME}}"
+template_description: A city or county. Permit and license fees, trash pickup by zone, office hours, how-to guides.
+
+about: >
+  The resident assistant for {{NAME}}. Answers questions about permits and
+  fees, trash and recycling pickup, and which city office to contact.
+
+search:
+  synonyms:
+    trash: [garbage, recycling, pickup, collection, bin]
+    permit: [permits, license, licence, approval]
+    fee: [fees, cost, price]
+
+ingest:
+  sources: []   # e.g. https://www.example.gov/sitemap.xml

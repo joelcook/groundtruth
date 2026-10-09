@@ -1,0 +1,39 @@
+# Money. Every dollar amount the assistant says comes from here.
+description: Fees and fines in US dollars.
+key: fee_type
+source:
+  path: sources/pages/borrowing-policy.md
+  url: https://example.org/policies/borrowing
+tools:
+  - name: get_fee
+    kind: lookup
+    arg: fee_type
+    description: >
+      Fees and fines in dollars (printing, replacement card, meeting room,
+      overdue). Every dollar amount the assistant states MUST come from here.
+rows:
+  - fee_type: printing-bw
+    aliases: [black and white printing, copies, printing]
+    amount_usd: 0.10
+    unit: per page
+    notes: Black-and-white printing and copies.
+  - fee_type: printing-color
+    aliases: [color printing, colour printing, printing]
+    amount_usd: 0.50
+    unit: per page
+    notes: Color printing and copies.
+  - fee_type: replacement-card
+    aliases: [lost card, new card]
+    amount_usd: 2.00
+    unit: per card
+    notes: Replacing a lost library card. First card is free.
+  - fee_type: meeting-room
+    aliases: [room, study room]
+    amount_usd: 25.00
+    unit: per hour
+    notes: Reservable study and meeting rooms. Free for nonprofit community groups.
+  - fee_type: overdue-fine
+    aliases: [late fee, overdue, fine, fines, late]
+    amount_usd: 0.00
+    unit: per day
+    notes: Maplewood is fine-free. No daily overdue fines are charged.

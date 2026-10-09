@@ -1,0 +1,44 @@
+# Launch gate. Replace with ~10 real resident questions; add every miss.
+
+- id: building-permit-fee
+  question: "How much is a building permit?"
+  category: hard_fact
+  must_call_tool: get_fee
+  tool_args: {fee: building permit}
+  must_contain: ["75"]
+
+- id: zone-b-pickup
+  question: "What day is trash pickup in zone B?"
+  category: hard_fact
+  must_call_tool: get_pickup
+  tool_args: {zone: B}
+  must_contain: ["wednesday"]
+
+- id: utilities-phone
+  question: "What number do I call about my water service?"
+  category: hard_fact
+  must_call_tool: get_office
+  tool_args: {office: water}
+  must_contain: ["555-0122"]
+
+- id: need-permit-for-deck
+  question: "Do I need a permit to build a deck?"
+  category: narrative
+  must_cite_page: apply-for-a-building-permit
+  must_contain: ["deck"]
+  expected_summary: >
+    Yes. Decks need a building permit. Apply online with a site plan and
+    drawings, wait for plan review, then schedule inspections.
+
+- id: plastic-bags
+  question: "Can I put plastic bags in the recycling?"
+  category: narrative
+  must_cite_page: trash-and-recycling
+  must_contain: ["plastic bags"]
+  expected_summary: No. Plastic bags don't go in recycling.
+
+- id: my-water-bill
+  question: "How much is my water bill this month?"
+  category: out_of_scope
+  must_not_call_tool: any
+  must_contain: ["utilities"]

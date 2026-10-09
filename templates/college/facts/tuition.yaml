@@ -1,0 +1,25 @@
+description: Tuition and required fees per credit hour.
+key: id
+source:
+  path: sources/pages/tuition-and-fees.md
+  url: https://www.example.edu/tuition
+tools:
+  - name: get_tuition
+    kind: lookup
+    arg: query
+    description: >
+      Tuition or a fee per credit hour (in-state, out-of-state, technology
+      fee). Every dollar amount the assistant states MUST come from here.
+rows:
+  - id: in-state
+    aliases: [resident, florida resident, in state]
+    amount_usd: 120.00
+    unit: per credit hour
+  - id: out-of-state
+    aliases: [non-resident, nonresident, out of state, international]
+    amount_usd: 450.00
+    unit: per credit hour
+  - id: technology-fee
+    aliases: [tech fee]
+    amount_usd: 10.00
+    unit: per credit hour

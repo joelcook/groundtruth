@@ -1,361 +1,299 @@
-"""The eval harness — the launch gate, and the most undervalued thing here.
+"""The eval harness: turns "the bot seems fine" into a number you can defend.
 
-It runs each question in ``evals/golden.yaml`` through Claude with the *exact*
-tool surface the production MCP server exposes, then grades the result. The
-trick that makes "don't make things up" enforceable: for hard facts it grades
-the **tool call**, not the prose. A right-looking date that came from the model's
-memory instead of ``get_event`` fails — because next month that memory is wrong.
+``evals/golden.yaml`` lists questions and the behavior each must produce. Four
+categories, four failure modes:
+
+    hard_fact      the answer must come from the RIGHT TOOL. A right-looking date
+                   that came from the model's memory still fails.
+    narrative      the right wiki page must be found (and, live, a judge grades
+                   the answer against a rubric).
+    out_of_scope   personal/account questions must be refused without wasting a
+                   tool call.
+    contradiction  an old source and a current one disagree; the answer must use
+                   the current one and never repeat the retired fact.
 
 Tiers:
-    fast      replay the latest recorded run; deterministic checks only. No API
-              key, no spend. This is what CI and the nightly agent run by default.
-    full      live model + LLM judge. Needs ANTHROPIC_API_KEY.
-    release   full, over the whole set, 100% required to ship.
 
-Grading by category:
-    hard_fact      must_call_tool (+ must_contain / must_not_contain)
-    narrative      LLM judge vs expected_summary (offline: required page read)
-    out_of_scope   must refuse; must_not_call_tool guards wasted calls
-    contradiction  must cite the current source; must_not_contain the stale fact
-
-Run:  python scripts/run_evals.py --tier fast
+    tools     (default, free) No model. Calls each item's tool with its
+              ``tool_args`` and checks the answer is really in your data, and
+              checks search_wiki finds each item's ``must_cite_page``. Catches
+              data and retrieval regressions. This is the ship gate in CI.
+    replay    (free) Re-grade the latest recorded live run.
+    live      Run every question through Claude with the real tools. Needs
+              ANTHROPIC_API_KEY. Saves a run you can replay later.
+    release   live, whole set, 100% required.
 """
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import json
-import os
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
-import anyio
-import yaml
+from groundtruth import checks, server
+from groundtruth.project import Project
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from groundtruth import db, search  # noqa: E402
-
-GOLDEN_PATH = REPO_ROOT / "evals" / "golden.yaml"
-RUNS_DIR = REPO_ROOT / "evals" / "runs"
-PROMPT_PATH = REPO_ROOT / "prompts" / "system_prompt.md"
-NON_MODEL_ARTIFACT_SUFFIXES = ("-fast",)
-
-DEFAULT_MODEL = os.environ.get("EVAL_MODEL", "claude-sonnet-4-6")
-JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-4-8")
-
-AGENT_SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
-
-# The model talks to these. Same functions the MCP server wraps.
-TOOL_DISPATCH = {
-    "list_branches": db.list_branches,
-    "get_hours": db.get_hours,
-    "list_events": db.list_events,
-    "get_event": db.get_event,
-    "list_programs": db.list_programs,
-    "get_program": db.get_program,
-    "get_fee": db.get_fee,
-    "get_contact": db.get_contact,
-    "search_wiki": search.search_wiki,
-    "read_wiki_page": search.read_wiki_page,
-}
+TIERS = ("tools", "replay", "live", "release")
+LIVE_TIERS = ("live", "release")
 
 
-def get_tool_schemas() -> list[dict]:
-    """Anthropic tool schemas, derived from the MCP server so there is one source
-    of truth: if the server advertises a tool, the eval agent can call it."""
-    from groundtruth.mcp import mcp as server
-
-    tools = anyio.run(server.list_tools)
-    return [
-        {"name": t.name, "description": t.description or "", "input_schema": t.inputSchema}
-        for t in tools
-    ]
+# ===================================================================== matching helpers
 
 
-# ---------- Agent (mirrors what the chatbot does at runtime) ----------
-
-def call_agent(question: str, model: str) -> dict:
-    """One agent turn with tool use until the model stops calling tools."""
-    import anthropic
-
-    client = anthropic.Anthropic()
-    schemas = get_tool_schemas()
-    messages: list[dict] = [{"role": "user", "content": question}]
-    tool_calls: list[dict] = []
-
-    for _ in range(8):
-        resp = client.messages.create(
-            model=model,
-            max_tokens=2048,
-            system=[{"type": "text", "text": AGENT_SYSTEM_PROMPT,
-                     "cache_control": {"type": "ephemeral"}}],
-            tools=schemas,
-            messages=messages,
-        )
-        used = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
-        for b in used:
-            tool_calls.append({"name": b.name, "input": dict(b.input)})
-        if resp.stop_reason != "tool_use" or not used:
-            text = "".join(b.text for b in resp.content
-                           if getattr(b, "type", None) == "text").strip()
-            return {"response": text, "tool_calls": tool_calls}
-        messages.append({"role": "assistant", "content": resp.content})
-        results = []
-        for b in used:
-            try:
-                out = TOOL_DISPATCH[b.name](**b.input)
-            except Exception as exc:
-                out = {"error": str(exc)}
-            results.append({"type": "tool_result", "tool_use_id": b.id,
-                            "content": json.dumps(out, default=str)})
-        messages.append({"role": "user", "content": results})
-
-    return {"response": "[eval-error: tool-use loop cap]", "tool_calls": tool_calls}
-
-
-# ---------- Graders ----------
-
-def grade_hard_fact(item: dict, result: dict) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    called = [tc["name"] for tc in result["tool_calls"]]
-
-    want = item.get("must_call_tool")
-    if want and want not in called:
-        reasons.append(f"required tool {want!r} not called (called: {called or 'none'})")
-
-    forbidden = item.get("must_not_call_tool")
-    if forbidden:
-        if forbidden in ("any", "*"):
-            if called:
-                reasons.append(f"expected no tool calls, but called: {called}")
-        else:
-            names = [forbidden] if isinstance(forbidden, str) else list(forbidden)
-            hit = [n for n in names if n in called]
-            if hit:
-                reasons.append(f"called forbidden tool(s): {hit}")
-
-    text = result["response"].lower()
-    for needle in item.get("must_contain", []):
-        if needle.lower() not in text:
-            reasons.append(f"missing required substring: {needle!r}")
-    for needle in item.get("must_not_contain", []):
-        if needle.lower() in text:
-            reasons.append(f"contains forbidden substring: {needle!r}")
-    return (not reasons, reasons)
+def contains(haystack: str, needle: str) -> bool:
+    """Case-insensitive substring match that also treats "0.10" and 0.1 as equal."""
+    if str(needle).lower() in haystack.lower():
+        return True
+    try:
+        target = float(str(needle).replace("$", "").replace(",", "").strip())
+    except ValueError:
+        return False
+    return any(abs(float(x) - target) < 1e-9 for x in re.findall(r"(?<![\d:])-?\d+(?:\.\d+)?(?![\d:])", haystack))
 
 
 def _norm_page(value: str) -> str:
     return (value or "").strip().lower().removeprefix("wiki/").removesuffix(".md").replace("_", "-")
 
 
-def _page_matches(expected: str, actual: str) -> bool:
+def page_matches(expected: str, actual: str) -> bool:
     e, a = _norm_page(expected), _norm_page(actual)
     return e == a or e.rsplit("/", 1)[-1] == a.rsplit("/", 1)[-1]
 
 
-def grade_required_page_read(item: dict, result: dict) -> list[str]:
-    expected = item.get("must_cite_page")
-    if not expected:
+def _result(item: dict, passed: bool, reasons: list[str], **extra) -> dict:
+    return {"id": item.get("id"), "category": item.get("category"), "passed": passed, "reasons": reasons, **extra}
+
+
+# ===================================================================== tools tier (no model)
+
+
+def _retrieval_check(project: Project, item: dict) -> list[str]:
+    page = item.get("must_cite_page")
+    if not page:
         return []
-    reads = [str(tc["input"].get("path_or_slug", "")) for tc in result["tool_calls"]
-             if tc["name"] == "read_wiki_page"]
-    if not any(_page_matches(expected, r) for r in reads):
-        return [f"required page {expected!r} not read (reads: {[_norm_page(r) for r in reads] or 'none'})"]
+    hits = server.call_tool(project, "search_wiki", {"query": item["question"], "limit": 5}, log=False)
+    paths = [h["path"] for h in hits]
+    if not any(page_matches(page, p) for p in paths):
+        return [f"search_wiki doesn't surface {page!r} for this question "
+                f"(top: {[_norm_page(p) for p in paths[:3]] or 'nothing'}). Add synonyms or improve the page title"]
     return []
 
 
-def grade_text(item: dict, result: dict) -> list[str]:
-    reasons = []
-    text = result["response"].lower()
-    for needle in item.get("must_contain", []):
-        if needle.lower() not in text:
-            reasons.append(f"missing required substring: {needle!r}")
-    for needle in item.get("must_not_contain", []):
-        if needle.lower() in text:
-            reasons.append(f"contains forbidden substring: {needle!r}")
-    return reasons
-
-
-def grade_narrative_fast(item: dict, result: dict) -> tuple[bool, list[str]]:
-    reasons = grade_required_page_read(item, result) + grade_text(item, result)
-    return (not reasons, reasons)
-
-
-JUDGE_SYSTEM_PROMPT = """You are a strict grader for a library-assistant eval set.
-You get the user question, an expected-answer rubric, and the actual response.
-Decide if the response satisfies the rubric:
-- Does it answer what was asked?
-- Does it cover the substantive points (wording may differ)?
-- Does it avoid invented or contradictory facts? The assistant answers from
-  official sources you cannot see, so do not flag plausible operational details
-  (a phone number, a step) unless they contradict the rubric or are clearly made up.
-Output ONLY JSON: {"pass": true|false, "reason": "<one sentence>"}."""
-
-
-def grade_narrative(item: dict, result: dict, model: str) -> tuple[bool, list[str]]:
-    import anthropic
-
-    reasons = grade_text(item, result)
-    if reasons:
-        return (False, reasons)
-    client = anthropic.Anthropic()
-    user = (f"## Question\n{item['question']}\n\n## Rubric\n"
-            f"{item.get('expected_summary', '(none)')}\n\n## Response\n{result['response']}")
-    resp = client.messages.create(
-        model=model, max_tokens=400,
-        system=[{"type": "text", "text": JUDGE_SYSTEM_PROMPT,
-                 "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": user}],
-    )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
-    try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError:
-        return (False, [f"judge returned non-JSON: {text[:160]}"])
-    if not verdict.get("pass"):
-        reasons.append(f"judge: {verdict.get('reason', '(no reason)')}")
-    return (not reasons, reasons)
-
-
-def grade_contradiction(item: dict, result: dict) -> tuple[bool, list[str]]:
-    keys = ("must_call_tool", "must_contain", "must_not_contain", "must_cite_page")
-    if not any(item.get(k) for k in keys):
-        return (False, ["contradiction eval has no assertions"])
-    passed, reasons = grade_hard_fact(item, result)
-    reasons += grade_required_page_read(item, result)
-    return (passed and not reasons, reasons)
-
-
-def grade(item: dict, result: dict, judge_model: str, *, use_judge: bool) -> tuple[bool, list[str]]:
-    cat = item["category"]
-    if cat == "hard_fact":
-        return grade_hard_fact(item, result)
-    if cat == "out_of_scope":
-        return grade_hard_fact(item, result)
-    if cat == "narrative":
-        return grade_narrative(item, result, judge_model) if use_judge else grade_narrative_fast(item, result)
-    if cat == "contradiction":
-        return grade_contradiction(item, result)
-    return (False, [f"unknown category: {cat}"])
-
-
-# ---------- Runner ----------
-
-def is_model_artifact(path: Path) -> bool:
-    return not path.stem.endswith(NON_MODEL_ARTIFACT_SUFFIXES)
-
-
-def latest_run(*, model_only: bool) -> Path | None:
-    if not RUNS_DIR.exists():
-        return None
-    runs = sorted(RUNS_DIR.glob("*.json"))
-    if model_only:
-        runs = [p for p in runs if is_model_artifact(p)]
-    return runs[-1] if runs else None
-
-
-def load_previous() -> dict[str, bool] | None:
-    path = latest_run(model_only=True)
-    if not path:
-        return None
-    return {r["id"]: r["passed"] for r in json.loads(path.read_text())["results"]}
-
-
-def run_live(items: list[dict], model: str, judge_model: str) -> list[dict]:
+def run_tools_tier(project: Project, items: list[dict]) -> list[dict]:
     results = []
     for item in items:
-        print(f"  [{item['id']}] {item['question'][:64]}", file=sys.stderr)
-        try:
-            agent = call_agent(item["question"], model)
-        except Exception as exc:
-            results.append({"id": item["id"], "category": item["category"], "passed": False,
-                            "reasons": [f"agent raised: {exc}"], "tool_calls": [], "response": ""})
+        cat = item.get("category")
+        reasons: list[str] = []
+        payload_text = ""
+        if cat == "out_of_scope":
+            results.append(_result(item, True, ["skipped: needs a model (run --tier live)"], skipped=True))
             continue
-        passed, reasons = grade(item, agent, judge_model, use_judge=True)
-        results.append({"id": item["id"], "category": item["category"], "passed": passed,
-                        "reasons": reasons, "tool_calls": agent["tool_calls"], "response": agent["response"]})
+        tool = item.get("must_call_tool")
+        if tool:
+            args = dict(item.get("tool_args") or {})
+            try:
+                payload = server.call_tool(project, tool, args, log=False)
+                payload_text = json.dumps(payload, default=str)
+            except Exception as exc:  # noqa: BLE001
+                reasons.append(f"{tool}({args}) raised {type(exc).__name__}: {exc}")
+            else:
+                if isinstance(payload, dict) and payload.get("count") == 0:
+                    reasons.append(f"{tool}({args}) returned nothing. {payload.get('hint') or ''}".strip())
+                for needle in item.get("must_contain", []) or []:
+                    if not contains(payload_text, str(needle)):
+                        reasons.append(f"{tool}({args}) result doesn't contain {needle!r}")
+                for needle in item.get("must_not_contain", []) or []:
+                    if str(needle).lower() in payload_text.lower():
+                        reasons.append(f"{tool}({args}) result contains the stale value {needle!r}")
+        reasons += _retrieval_check(project, item)
+        if cat == "narrative" and item.get("must_cite_page") and not tool:
+            page = server.call_tool(project, "read_wiki_page", {"path_or_slug": item["must_cite_page"]}, log=False)
+            content = (page or {}).get("content", "")
+            if not content:
+                reasons.append(f"page {item['must_cite_page']!r} can't be read")
+            for needle in item.get("must_contain", []) or []:
+                if content and not contains(content, str(needle)):
+                    reasons.append(f"page {item['must_cite_page']!r} never mentions {needle!r}")
+        if cat == "hard_fact" and not tool:
+            reasons.append("hard_fact items need must_call_tool")
+        results.append(_result(item, not reasons, reasons, tool_calls=[{"name": tool, "input": item.get("tool_args") or {}}] if tool else []))
     return results
 
 
-def run_replay(items: list[dict], judge_model: str) -> tuple[list[dict], Path | None]:
-    source = latest_run(model_only=True)
-    if not source:
-        miss = [{"id": i["id"], "category": i["category"], "passed": False,
-                 "reasons": ["no recorded run to replay; run --tier full first"],
-                 "tool_calls": [], "response": ""} for i in items]
-        return miss, None
+# ===================================================================== graders (live + replay)
+
+
+def _grade_text(item: dict, text: str) -> list[str]:
+    reasons = []
+    for needle in item.get("must_contain", []) or []:
+        if not contains(text, str(needle)):
+            reasons.append(f"answer is missing {needle!r}")
+    for needle in item.get("must_not_contain", []) or []:
+        if str(needle).lower() in text.lower():
+            reasons.append(f"answer contains {needle!r}")
+    return reasons
+
+
+def _grade_calls(item: dict, calls: list[dict]) -> list[str]:
+    reasons = []
+    called = [c["name"] for c in calls]
+    want = item.get("must_call_tool")
+    if want and want not in called:
+        reasons.append(f"didn't call {want} (called: {called or 'nothing'})")
+    forbidden = item.get("must_not_call_tool")
+    if forbidden in ("any", "*") and called:
+        reasons.append(f"should not call any tool, but called {called}")
+    elif forbidden and forbidden not in ("any", "*"):
+        names = [forbidden] if isinstance(forbidden, str) else list(forbidden)
+        hit = [n for n in names if n in called]
+        if hit:
+            reasons.append(f"called forbidden tool(s) {hit}")
+    page = item.get("must_cite_page")
+    if page:
+        reads = [str(c["input"].get("path_or_slug", "")) for c in calls if c["name"] == "read_wiki_page"]
+        if not any(page_matches(page, r) for r in reads):
+            reasons.append(f"didn't read {page!r} (read: {[_norm_page(r) for r in reads] or 'nothing'})")
+    return reasons
+
+
+def grade(item: dict, response: str, calls: list[dict], *, use_judge: bool) -> tuple[bool, list[str]]:
+    reasons = _grade_calls(item, calls) + _grade_text(item, response)
+    if item.get("category") == "narrative" and use_judge and not reasons and item.get("expected_summary"):
+        from groundtruth import llm
+        ok, why = llm.judge(item["question"], item["expected_summary"], response)
+        if not ok:
+            reasons.append(f"judge: {why}")
+    return (not reasons, reasons)
+
+
+# ===================================================================== live + replay
+
+
+def system_prompt(project: Project) -> str:
+    if project.prompt_path.exists():
+        return project.prompt_path.read_text(encoding="utf-8")
+    return server.instructions(project)
+
+
+def run_live(project: Project, items: list[dict], *, use_judge: bool) -> list[dict]:
+    from groundtruth import llm
+
+    tools = server.tool_specs(project)
+    system = system_prompt(project)
+    results = []
+    for item in items:
+        print(f"  [{item['id']}] {item['question'][:70]}", file=sys.stderr)
+        try:
+            out = llm.agent(item["question"], system, tools,
+                            lambda name, args: server.call_tool(project, name, args, log=False))
+        except Exception as exc:  # noqa: BLE001
+            results.append(_result(item, False, [f"agent failed: {exc}"], tool_calls=[], response=""))
+            continue
+        passed, reasons = grade(item, out["response"], out["tool_calls"], use_judge=use_judge)
+        results.append(_result(item, passed, reasons, tool_calls=out["tool_calls"], response=out["response"]))
+    return results
+
+
+def latest_live_run(project: Project) -> Path | None:
+    if not project.runs_dir.exists():
+        return None
+    runs = sorted(p for p in project.runs_dir.glob("*.json") if not p.stem.endswith(("-tools", "-replay")))
+    return runs[-1] if runs else None
+
+
+def run_replay(project: Project, items: list[dict]) -> tuple[list[dict], Path | None]:
+    source = latest_live_run(project)
+    if source is None:
+        return [_result(i, False, ["no recorded live run to replay; run --tier live once"]) for i in items], None
     rows = {r["id"]: r for r in json.loads(source.read_text())["results"]}
-    print(f"replaying from {source.relative_to(REPO_ROOT)}", file=sys.stderr)
     results = []
     for item in items:
         row = rows.get(item["id"])
-        if not row:
-            results.append({"id": item["id"], "category": item["category"], "passed": False,
-                            "reasons": ["missing in recorded run"], "tool_calls": [], "response": ""})
+        if row is None:
+            results.append(_result(item, False, ["not in the recorded run (new question?)"]))
             continue
-        replay = {"response": row.get("response", ""), "tool_calls": row.get("tool_calls", [])}
-        passed, reasons = grade(item, replay, judge_model, use_judge=False)
-        results.append({"id": item["id"], "category": item["category"], "passed": passed,
-                        "reasons": reasons, "tool_calls": replay["tool_calls"], "response": replay["response"]})
+        passed, reasons = grade(item, row.get("response", ""), row.get("tool_calls", []), use_judge=False)
+        results.append(_result(item, passed, reasons, tool_calls=row.get("tool_calls", []),
+                               response=row.get("response", "")))
     return results, source
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tier", choices=("fast", "full", "release"), default="fast")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--judge-model", default=JUDGE_MODEL)
-    ap.add_argument("--only", help="run a single eval id (not allowed for release)")
-    args = ap.parse_args()
+# ===================================================================== runner
 
-    if not GOLDEN_PATH.exists():
-        print(f"missing {GOLDEN_PATH}", file=sys.stderr)
+
+def run(project: Project, tier: str = "tools", *, only: str | None = None, judge: bool = True,
+        quiet: bool = False) -> int:
+    if tier == "fast":
+        tier = "replay"
+    if tier not in TIERS:
+        print(f"unknown tier {tier!r}; use one of {TIERS}", file=sys.stderr)
         return 2
-    items = yaml.safe_load(GOLDEN_PATH.read_text())
-    if args.only:
-        if args.tier == "release":
-            print("--tier release runs the whole set; drop --only", file=sys.stderr)
+    items = checks.load_golden(project)
+    if not items:
+        print(f"no questions in {project.rel(project.golden_path)}", file=sys.stderr)
+        return 2
+    if only:
+        if tier == "release":
+            print("release runs the whole set; drop --only", file=sys.stderr)
             return 2
-        items = [i for i in items if i["id"] == args.only]
+        items = [i for i in items if i.get("id") == only]
         if not items:
-            print(f"no eval with id {args.only!r}", file=sys.stderr)
+            print(f"no question with id {only!r}", file=sys.stderr)
             return 2
+
+    from groundtruth import facts
+    try:
+        facts.load(project)
+    except facts.FactsError as exc:
+        print(f"your facts have {len(exc.problems)} problem(s); run ./gt check and fix them first:")
+        for p in exc.problems[:10]:
+            print(f"  ✗ {p}")
+        return 1
 
     source = None
-    if args.tier == "fast":
-        prev = None
-        results, source = run_replay(items, args.judge_model)
+    previous = None
+    if tier == "tools":
+        results = run_tools_tier(project, items)
+    elif tier == "replay":
+        results, source = run_replay(project, items)
     else:
-        prev = load_previous()
-        print(f"running {len(items)} eval(s) against {args.model}", file=sys.stderr)
-        results = run_live(items, args.model, args.judge_model)
+        from groundtruth import llm
+        if not llm.available():
+            print("live evals need Claude: set ANTHROPIC_API_KEY (console.anthropic.com) or run "
+                  "`ant auth login`. The free `./gt eval` (tools tier) needs nothing.", file=sys.stderr)
+            return 2
+        prev_path = latest_live_run(project)
+        if prev_path:
+            previous = {r["id"]: r["passed"] for r in json.loads(prev_path.read_text())["results"]}
+        print(f"running {len(items)} question(s) on {llm.model()}", file=sys.stderr)
+        results = run_live(project, items, use_judge=judge)
 
-    passed = sum(1 for r in results if r["passed"])
-    total = len(results)
-    regressions = [r["id"] for r in results
-                   if prev and prev.get(r["id"]) is True and not r["passed"]] if prev else []
+    skipped = [r for r in results if r.get("skipped")]
+    graded = [r for r in results if not r.get("skipped")]
+    passed = sum(1 for r in graded if r["passed"])
+    regressions = [r["id"] for r in graded if previous and previous.get(r["id"]) and not r["passed"]]
 
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = "" if args.tier == "full" else f"-{args.tier}"
-    artifact = RUNS_DIR / f"{dt.datetime.now().strftime('%Y%m%dT%H%M%S')}{suffix}.json"
-    artifact.write_text(json.dumps({
-        "tier": args.tier, "model": args.model,
-        "judge_model": args.judge_model if args.tier != "fast" else None,
-        "source_artifact": str(source.relative_to(REPO_ROOT)) if source else None,
-        "passed": passed, "total": total, "regressions": regressions, "results": results,
-    }, indent=2, default=str))
+    project.runs_dir.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S")
+    suffix = "" if tier in LIVE_TIERS else f"-{tier}"
+    artifact = project.runs_dir / f"{stamp}{suffix}.json"
+    meta: dict[str, Any] = {"tier": tier, "passed": passed, "total": len(graded), "skipped": len(skipped),
+                            "regressions": regressions, "replayed_from": project.rel(source) if source else None}
+    if tier in LIVE_TIERS:
+        from groundtruth import llm
+        meta |= {"model": llm.model(), "judge_model": llm.judge_model() if judge else None}
+    artifact.write_text(json.dumps({**meta, "results": results}, indent=2, default=str))
 
-    print(f"\n{passed}/{total} passed", file=sys.stderr)
-    if regressions:
-        print(f"  REGRESSIONS: {', '.join(regressions)}", file=sys.stderr)
-    for r in results:
-        if not r["passed"]:
-            print(f"  FAIL {r['id']}: {'; '.join(r['reasons'])}", file=sys.stderr)
-    print(f"artifact: {artifact.relative_to(REPO_ROOT)}", file=sys.stderr)
-    return 0 if passed == total else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    if not quiet:
+        for r in graded:
+            if not r["passed"]:
+                print(f"  ✗ {r['id']}: {'; '.join(r['reasons'])}")
+        extra = f" ({len(skipped)} skipped: need a model, run --tier live)" if skipped else ""
+        print(f"{tier}: {passed}/{len(graded)} passed{extra}")
+        if regressions:
+            print(f"  REGRESSIONS since the last live run: {', '.join(regressions)}")
+        if tier == "replay" and source:
+            print(f"  replayed from {project.rel(source)}")
+    return 0 if passed == len(graded) else 1

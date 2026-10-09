@@ -1,0 +1,18 @@
+description: Insurance plans and whether the clinic is in network.
+key: plan
+source:
+  path: sources/pages/insurance.md
+  url: https://www.example-clinic.com/insurance
+tools:
+  - name: get_insurance
+    kind: lookup
+    arg: plan
+    description: >
+      Whether the clinic is in network for an insurance plan. Say the person
+      should confirm coverage with their insurer.
+rows:
+  - {plan: Aetna, status: in network}
+  - {plan: Blue Cross Blue Shield, aliases: [bcbs, blue cross], status: in network}
+  - {plan: Cigna, status: in network}
+  - {plan: Medicare, aliases: [medicare part b], status: in network}
+  - {plan: Medicaid, status: not in network, notes: Ask about our community health partner}

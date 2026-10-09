@@ -1,0 +1,39 @@
+# Opening hours: one row per branch per day, 24-hour times.
+# A day with `closed: true` means the branch is closed all day.
+description: Opening hours for each branch, one row per day.
+key: id
+source:
+  path: sources/pages/locations-and-hours.md
+  url: https://example.org/locations
+tools:
+  - name: get_hours
+    kind: list
+    filters:
+      - field: branch
+        ref: branches        # "main" resolves to central through branches.aliases
+      - field: day
+    description: >
+      Opening hours for a branch, optionally for one day ("saturday", "sun").
+      Use this for any "what time / is it open / when does it close" question.
+rows:
+  - { id: central-mon, branch: central, day: monday,    opens: "09:00", closes: "20:00" }
+  - { id: central-tue, branch: central, day: tuesday,   opens: "09:00", closes: "20:00" }
+  - { id: central-wed, branch: central, day: wednesday, opens: "09:00", closes: "20:00" }
+  - { id: central-thu, branch: central, day: thursday,  opens: "09:00", closes: "20:00" }
+  - { id: central-fri, branch: central, day: friday,    opens: "09:00", closes: "18:00" }
+  - { id: central-sat, branch: central, day: saturday,  opens: "10:00", closes: "17:00" }
+  - { id: central-sun, branch: central, day: sunday,    opens: "13:00", closes: "17:00" }
+  - { id: eastside-mon, branch: eastside, day: monday,    opens: "10:00", closes: "18:00" }
+  - { id: eastside-tue, branch: eastside, day: tuesday,   opens: "10:00", closes: "18:00" }
+  - { id: eastside-wed, branch: eastside, day: wednesday, opens: "10:00", closes: "18:00" }
+  - { id: eastside-thu, branch: eastside, day: thursday,  opens: "10:00", closes: "18:00" }
+  - { id: eastside-fri, branch: eastside, day: friday,    opens: "10:00", closes: "18:00" }
+  - { id: eastside-sat, branch: eastside, day: saturday,  opens: "10:00", closes: "17:00" }
+  - { id: eastside-sun, branch: eastside, day: sunday,    closed: true }
+  - { id: lakeview-mon, branch: lakeview, day: monday,    closed: true }
+  - { id: lakeview-tue, branch: lakeview, day: tuesday,   opens: "10:00", closes: "18:00" }
+  - { id: lakeview-wed, branch: lakeview, day: wednesday, opens: "10:00", closes: "18:00" }
+  - { id: lakeview-thu, branch: lakeview, day: thursday,  opens: "10:00", closes: "18:00" }
+  - { id: lakeview-fri, branch: lakeview, day: friday,    opens: "10:00", closes: "18:00" }
+  - { id: lakeview-sat, branch: lakeview, day: saturday,  opens: "10:00", closes: "18:00" }
+  - { id: lakeview-sun, branch: lakeview, day: sunday,    closed: true }

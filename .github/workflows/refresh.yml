@@ -1,0 +1,30 @@
+# The weekly agent: ingest -> build -> compile -> check -> eval -> pull request.
+# A quiet week opens no PR and costs nothing. Add an ANTHROPIC_API_KEY secret to
+# let it draft wiki pages; without one it attaches a work order instead.
+# Needs: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+name: refresh
+on:
+  schedule:
+    - cron: "0 11 * * 1"   # Mondays 11:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: |
+          git config user.name "groundtruth-bot"
+          git config user.email "groundtruth-bot@users.noreply.github.com"
+      - run: python -m groundtruth refresh --write --open-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

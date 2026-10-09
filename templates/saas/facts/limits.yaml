@@ -1,0 +1,33 @@
+# Numbers that change and must never be paraphrased: windows, caps, lengths.
+description: Account limits and policy numbers (refund window, trial length, upload size).
+key: id
+source:
+  path: sources/pages/refunds.md
+  url: https://example.com/legal/refunds
+tools:
+  - name: get_limit
+    kind: lookup
+    arg: name
+    description: >
+      A policy number or account limit: refund window, free trial length, max
+      upload size, seats on Starter. Never state these from memory.
+rows:
+  - id: refund-window
+    aliases: [refund, money back, refund period]
+    value: 30
+    unit: days
+    applies_to: Annual plans only. Monthly plans are not refundable.
+  - id: trial-length
+    aliases: [free trial, trial]
+    value: 14
+    unit: days
+    applies_to: All new workspaces, no card required.
+    source_url: https://example.com/pricing
+    source_path: sources/pages/pricing.md
+  - id: max-upload-size
+    aliases: [file size, upload limit, attachment size]
+    value: 2
+    unit: GB per file
+    applies_to: All plans.
+    source_url: https://example.com/help/uploads
+    source_path: sources/pages/pricing.md

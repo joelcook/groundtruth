@@ -1,0 +1,44 @@
+# Dated facts are the most dangerous to paraphrase: a wrong date is a missed
+# deadline. `date` is ISO so "upcoming only" works.
+description: Academic calendar deadlines by term.
+key: id
+date_field: date
+source:
+  path: sources/pages/academic-calendar.md
+  url: https://www.example.edu/calendar
+tools:
+  - name: get_deadline
+    kind: lookup
+    arg: query
+    description: >
+      Find a specific deadline ("last day to drop fall 2026", "spring
+      registration"). Dates are facts: always look them up, never guess.
+  - name: list_deadlines
+    kind: list
+    filters: [term]
+    upcoming: true
+    description: Upcoming deadlines, optionally for one term (fall-2026, spring-2027).
+rows:
+  - id: fall-2026-classes-begin
+    term: fall-2026
+    title: Fall 2026 classes begin
+    date: "2026-08-24"
+  - id: fall-2026-drop-with-refund
+    term: fall-2026
+    title: Fall 2026 last day to drop with a full refund
+    aliases: [drop deadline, refund deadline, last day to drop]
+    date: "2026-08-31"
+  - id: fall-2026-withdraw
+    term: fall-2026
+    title: Fall 2026 last day to withdraw (W grade, no refund)
+    aliases: [withdrawal deadline, last day to withdraw]
+    date: "2026-10-30"
+  - id: spring-2027-registration-opens
+    term: spring-2027
+    title: Spring 2027 registration opens
+    aliases: [registration, register]
+    date: "2026-11-02"
+  - id: spring-2027-classes-begin
+    term: spring-2027
+    title: Spring 2027 classes begin
+    date: "2027-01-11"

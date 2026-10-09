@@ -1,0 +1,17 @@
+name: "{{NAME}}"
+template_description: A medical clinic. Locations and hours, self-pay prices, accepted insurance, new-patient and policy guides. Refuses medical advice.
+
+about: >
+  The front-desk assistant for {{NAME}}. Answers questions about locations,
+  hours, insurance, self-pay prices, and visit policies. It does not give
+  medical advice and cannot see patient records.
+
+search:
+  synonyms:
+    appointment: [visit, booking, schedule, book]
+    cancel: [cancellation, reschedule, no-show, missed]
+    insurance: [plan, coverage, network, accepted]
+    new: [first, register, registration]
+
+ingest:
+  sources: []

@@ -1,0 +1,25 @@
+description: Permit and license fees.
+key: id
+source:
+  path: sources/pages/fee-schedule.md
+  url: https://www.example.gov/fees
+tools:
+  - name: get_fee
+    kind: lookup
+    arg: fee
+    description: >
+      Fee for a permit or license (building permit, residential parking permit,
+      dog license). Every dollar amount the assistant states MUST come from here.
+rows:
+  - id: building-permit
+    aliases: [construction permit, remodel permit]
+    amount_usd: 75.00
+    unit: base fee, plus plan review
+  - id: residential-parking-permit
+    aliases: [parking permit, street parking]
+    amount_usd: 25.00
+    unit: per year
+  - id: dog-license
+    aliases: [pet license, dog tag]
+    amount_usd: 15.00
+    unit: per year, spayed or neutered

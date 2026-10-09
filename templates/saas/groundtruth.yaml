@@ -1,0 +1,16 @@
+name: "{{NAME}}"
+template_description: A SaaS help center. Plans and prices, limits like refund windows, support channels, how-to guides.
+
+about: >
+  The help center assistant for {{NAME}}. Answers questions about plans and
+  pricing, account limits, refunds, and how to use the product.
+
+search:
+  synonyms:
+    password: [login, sign, reset, locked]
+    refund: [refunds, money, cancel, cancellation]
+    price: [pricing, cost, plan, plans]
+    seat: [seats, users, members]
+
+ingest:
+  sources: []   # e.g. https://help.example.com/sitemap.xml

@@ -1,0 +1,42 @@
+description: Subscription plans with prices and what each includes.
+key: id
+source:
+  path: sources/pages/pricing.md
+  url: https://example.com/pricing
+tools:
+  - name: get_plan
+    kind: lookup
+    arg: plan
+    description: >
+      Price and limits for one plan (starter, team, enterprise). Every price
+      the assistant states MUST come from here.
+  - name: list_plans
+    kind: list
+    filters: [billing]
+    description: Compare all plans, optionally by billing period (monthly or annual).
+rows:
+  - id: starter
+    name: Starter
+    aliases: [basic, free trial, individual]
+    price_usd: 9
+    billing: monthly
+    per: user
+    projects: 3
+    storage_gb: 10
+  - id: team
+    name: Team
+    aliases: [business, pro]
+    price_usd: 29
+    billing: monthly
+    per: user
+    projects: unlimited
+    storage_gb: 100
+  - id: enterprise
+    name: Enterprise
+    aliases: [custom, sso]
+    price_usd: null
+    price_note: Custom pricing; contact sales
+    billing: annual
+    per: organization
+    projects: unlimited
+    storage_gb: unlimited

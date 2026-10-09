@@ -1,0 +1,9 @@
+.git
+.venv
+**/__pycache__
+**/build
+**/logs
+**/reports
+**/evals/runs/*-tools.json
+**/evals/runs/*-replay.json
+.env

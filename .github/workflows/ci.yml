@@ -1,0 +1,22 @@
+# Every push and PR: unit tests, then ./gt check and the free eval on your project.
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .
+      - run: python -m unittest discover -s tests
+      - name: check your project
+        run: python -m groundtruth check
+      - name: free eval (no API key)
+        run: python -m groundtruth eval

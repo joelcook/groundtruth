@@ -1,0 +1,27 @@
+description: Clinic locations with address, phone, and hours.
+key: id
+source:
+  path: sources/pages/locations.md
+  url: https://www.example-clinic.com/locations
+tools:
+  - name: get_location
+    kind: lookup
+    arg: location
+    description: Address, phone, and hours for a clinic location. Hours are facts; always look them up.
+rows:
+  - id: downtown
+    name: Downtown Clinic
+    aliases: [main, central, downtown clinic]
+    address: 12 Elm Street
+    phone: "555-0130"
+    weekday_hours: "8:00-18:00"
+    saturday_hours: "9:00-13:00"
+    sunday_hours: closed
+  - id: westside
+    name: Westside Clinic
+    aliases: [west, westside clinic]
+    address: 900 Sunset Boulevard
+    phone: "555-0131"
+    weekday_hours: "7:30-17:00"
+    saturday_hours: closed
+    sunday_hours: closed

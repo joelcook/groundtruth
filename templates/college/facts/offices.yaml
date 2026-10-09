@@ -1,0 +1,35 @@
+description: Student service offices with phone, email, location, and hours.
+key: office
+source:
+  path: sources/pages/offices.md
+  url: https://www.example.edu/contact
+tools:
+  - name: get_office
+    kind: lookup
+    arg: office
+    description: Phone, email, location, and hours for an office (registrar, financial aid, admissions, advising).
+rows:
+  - office: registrar
+    aliases: [records, transcripts, registration help]
+    phone: "555-0110"
+    email: registrar@example.edu
+    location: Student Center, Room 101
+    hours: Weekdays 8:00-17:00
+  - office: financial-aid
+    aliases: [financial aid, fafsa, scholarships, aid]
+    phone: "555-0111"
+    email: finaid@example.edu
+    location: Student Center, Room 110
+    hours: Weekdays 8:00-17:00
+  - office: admissions
+    aliases: [apply, application, enrollment]
+    phone: "555-0112"
+    email: admissions@example.edu
+    location: Welcome Center
+    hours: Weekdays 8:00-18:00
+  - office: advising
+    aliases: [advisor, academic advising]
+    phone: "555-0113"
+    email: advising@example.edu
+    location: Library, 2nd floor
+    hours: Weekdays 9:00-17:00

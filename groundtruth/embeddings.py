@@ -12,14 +12,14 @@ Three swappable parts:
     vector path honestly, not to be good. Swap in a real model (one method) and
     everything downstream is unchanged.
   * **VectorStore** — persists vectors next to your facts, in plain SQLite
-    (``db/embeddings.db``). No vector server to run. At scale, swap the cosine
+    (``build/search-index.db`` in your project). No vector server to run. At scale, swap the cosine
     loop for the ``sqlite-vec`` extension and keep the same table.
   * **query()** — embeds the query and returns the nearest page ids.
 
 Why this, and not "just use a vector DB"? Because for a few hundred curated
 pages a brute-force cosine over SQLite is milliseconds, has zero operational
 surface, and keeps your embeddings versioned in the same place as your facts.
-You add infrastructure when the corpus forces you to — see docs/01-retrieval.md.
+You add infrastructure when the corpus forces you to — see docs/retrieval.md.
 """
 from __future__ import annotations
 
@@ -32,8 +32,8 @@ import sqlite3
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-INDEX_PATH = REPO_ROOT / "db" / "embeddings.db"
+from groundtruth.project import Project
+
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -131,8 +131,9 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 # ---------------------------------------------------------------- VectorStore
 
-def _connect(path: Path | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(path or INDEX_PATH)
+def _connect(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS embeddings ("
         "  id TEXT PRIMARY KEY, model TEXT NOT NULL, dim INTEGER NOT NULL, vector TEXT NOT NULL)"
@@ -143,12 +144,13 @@ def _connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def build_index(items: list[tuple[str, str]], embedder: Embedder | None = None) -> int:
+def build_index(project: Project, items: list[tuple[str, str]], embedder: Embedder | None = None) -> int:
     """Embed ``items`` (id, text) and persist them. Returns the number indexed."""
     embedder = embedder or get_embedder()
-    if INDEX_PATH.exists():
-        INDEX_PATH.unlink()
-    conn = _connect()
+    path = project.index_path
+    if path.exists():
+        path.unlink()
+    conn = _connect(path)
     texts = [text for _, text in items]
     vectors = embedder.embed(texts) if texts else []
     for (item_id, _), vec in zip(items, vectors):
@@ -164,13 +166,15 @@ def build_index(items: list[tuple[str, str]], embedder: Embedder | None = None) 
     return len(items)
 
 
-def query(text: str, limit: int = 5, embedder: Embedder | None = None) -> list[tuple[str, float]]:
+def query(project: Project, text: str, limit: int = 5,
+          embedder: Embedder | None = None) -> list[tuple[str, float]]:
     """Return up to ``limit`` (id, cosine_score) nearest neighbors, or [] if no index."""
-    if not INDEX_PATH.exists():
+    path = project.index_path
+    if not path.exists():
         return []
     embedder = embedder or get_embedder()
     qvec = embedder.embed([text])[0]
-    conn = _connect()
+    conn = _connect(path)
     rows = conn.execute("SELECT id, vector FROM embeddings").fetchall()
     conn.close()
     scored = [(rid, _cosine(qvec, json.loads(vec))) for rid, vec in rows]
@@ -178,11 +182,12 @@ def query(text: str, limit: int = 5, embedder: Embedder | None = None) -> list[t
     return [(rid, score) for rid, score in scored[:limit] if score > 0]
 
 
-def index_status() -> dict:
+def index_status(project: Project) -> dict:
     """Diagnostics: is there an index, how big, which model built it."""
-    if not INDEX_PATH.exists():
+    path = project.index_path
+    if not path.exists():
         return {"exists": False, "count": 0, "model": None}
-    conn = _connect()
+    conn = _connect(path)
     count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
     row = conn.execute("SELECT value FROM meta WHERE key='model'").fetchone()
     conn.close()
