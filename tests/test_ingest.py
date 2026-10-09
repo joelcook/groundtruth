@@ -74,5 +74,26 @@ class TestIngest(unittest.TestCase):
         self.assertIn("sha256:", text)
 
 
+
+class TestRemember(unittest.TestCase):
+    def test_keeps_other_ingest_settings(self):
+        p, tmp = copy_project()
+        try:
+            cfg = p.root / "groundtruth.yaml"
+            cfg.write_text(cfg.read_text().replace("ingest:\n  sources: []", "ingest:\n  sources: []\n  max_pages: 12"))
+            from groundtruth import project
+            p = project.load(p.root)
+            with tempfile.TemporaryDirectory() as d:
+                write(Path(d) / "x.md", "# X\n\nSome text about x.\n")
+                ingest.run(p, [d])
+            reloaded = project.load(p.root)
+            self.assertEqual(reloaded.ingest_max_pages, 12)
+            self.assertEqual(reloaded.ingest_sources, [d])
+            self.assertEqual(reloaded.name, "Maplewood Public Library")
+            self.assertIn("synonyms", reloaded.config["search"])
+        finally:
+            tmp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

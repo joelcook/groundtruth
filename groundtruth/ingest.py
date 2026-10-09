@@ -336,15 +336,13 @@ def _remember(project: Project, targets: list[str]) -> None:
     cfg_path = project.root / "groundtruth.yaml"
     text = cfg_path.read_text(encoding="utf-8")
     config = yaml.safe_load(text) or {}
-    ingest = config.get("ingest") or {}
+    ingest = dict(config.get("ingest") or {})
     ingest["sources"] = [*project.ingest_sources, *new]
-    if re.search(r"(?m)^ingest:\s*$", text):
-        text = re.sub(r"(?ms)^ingest:\s*\n(?:[ \t]+.*\n?)*",
-                      "ingest:\n" + "".join(f"  {ln}\n" for ln in
-                                            yaml.safe_dump({"sources": ingest["sources"]}, sort_keys=False)
-                                            .splitlines()), text)
+    block = yaml.safe_dump({"ingest": ingest}, sort_keys=False, allow_unicode=True)
+    pattern = re.compile(r"(?m)^ingest:.*\n(?:(?:[ \t]+.*|[ \t]*)\n)*")
+    if pattern.search(text):
+        text = pattern.sub(lambda _: block, text, count=1)
     else:
-        text = text.rstrip() + "\n\ningest:\n" + "".join(
-            f"  {ln}\n" for ln in yaml.safe_dump({"sources": ingest["sources"]}, sort_keys=False).splitlines())
+        text = text.rstrip() + "\n\n" + block
     cfg_path.write_text(text, encoding="utf-8")
     project.config["ingest"] = ingest
