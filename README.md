@@ -41,8 +41,8 @@ The first run sets itself up (it needs Python 3.10 or newer; on Windows run
 
 ```
   ✓ facts: 6 collections, 43 rows, 8 tools generated from YAML
-  ✓ check: 6 page(s), no facts in prose, 15 golden question(s)
-  ✓ eval (free): 12/12 passed, 3 need a model
+  ✓ check: 6 page(s), no facts in prose, 18 golden question(s)
+  ✓ eval (free): 15/15 passed, 3 need a model
   ✓ server: answered over MCP (initialize, tools/list, a fact tool, search_wiki)
 ```
 
