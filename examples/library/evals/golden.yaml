@@ -69,6 +69,26 @@
   tool_args: {fee_type: replacement card}
   must_contain: ["2"]
 
+- id: branch-list
+  question: "What library branches are there?"
+  category: hard_fact
+  must_call_tool: list_branches
+  must_contain: ["Eastside", "Lakeview"]
+
+- id: upcoming-workshops
+  question: "Are there any workshops coming up?"
+  category: hard_fact
+  must_call_tool: list_events
+  tool_args: {category: workshop}
+  must_contain: ["Resume"]
+
+- id: kids-programs
+  question: "What programs do you have for kids?"
+  category: hard_fact
+  must_call_tool: list_programs
+  tool_args: {audience: kids}
+  must_contain: ["Homework Help"]
+
 # ---------------- NARRATIVE ----------------
 
 - id: how-to-get-card

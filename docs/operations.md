@@ -45,6 +45,9 @@ ingest -> build -> compile -> check -> eval -> pull request
 - It stops at the first failed gate and tells you why.
 - With `ANTHROPIC_API_KEY`, it drafts pages for new sources and refreshes stale
   ones. Without a key, it writes `build/compile-packet.md` and notes it in the PR.
+- Changed sources that facts cite go into the PR as a **Needs your review** list.
+  CI stays red on that PR until someone re-checks the facts and runs
+  `./gt review --done`, so stale facts can't merge quietly.
 
 `.github/workflows/refresh.yml` runs it every Monday. Turn on **Settings > Actions
 > General > Allow GitHub Actions to create and approve pull requests**, and add an

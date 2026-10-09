@@ -1,4 +1,5 @@
 ---
+example: true
 title: Academic calendar
 source_url: https://www.example.edu/calendar
 captured: 2026-01-15

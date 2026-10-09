@@ -42,10 +42,14 @@ Open `my-assistant/README.md`. It's a one-page map of the folder.
 ./gt ingest ~/Downloads/policies/                     # .md .txt .html (and .pdf with ./gt setup --pdf)
 ```
 
-Pages land in `sources/pages/` as markdown, each with its source URL, capture
-date, and a content hash. The targets are saved in `groundtruth.yaml`, so plain
-`./gt ingest` (and the weekly refresh) re-runs them. Unchanged pages are left
-alone.
+Pages land in `sources/pages/` as markdown, each with where it came from (the
+URL for web pages, the original path for local files), a capture date, and a
+content hash. The targets are saved in `groundtruth.yaml`, so plain `./gt
+ingest` (and the weekly refresh) re-runs them. Unchanged pages are left alone.
+
+If a page that your facts or wiki cite comes back changed, `./gt check` fails
+and `./gt review` lists exactly which facts files and pages to re-check. Fix
+what's out of date, then `./gt review --done`.
 
 ## 4. Turn evidence into facts and pages
 
@@ -59,8 +63,13 @@ repo in Claude Code, Codex, or Cursor and say:
 
 > Do the work in my-assistant/build/compile-packet.md
 
-The agent writes `facts/*.yaml` rows and wiki pages, then runs `./gt check` and
-`./gt eval` until they pass.
+The agent writes `facts/*.yaml` rows and wiki pages, replaces the template's
+fictional examples and eval questions, and runs `./gt check` and `./gt eval`
+until they pass. (By hand: `./gt examples --remove` clears every example at once.)
+
+The prompt's routing table (`{{FACT_TOOLS}}` in `prompts/system_prompt.md`) is
+generated from your facts, so new tools show up there on their own. Edit the
+rest of the prompt for your organization: scope, tone, and what to refuse.
 
 With `ANTHROPIC_API_KEY` set, `./gt compile --write` drafts the wiki pages
 itself (facts stay a human or agent call). Review with `git diff`.
@@ -82,7 +91,8 @@ you know the answers to. See [evals.md](evals.md).
 
 ```bash
 ./gt connect                            # every client, with your paths filled in
-./gt connect claude-desktop --install   # or: claude-code, codex, cursor, vscode
+./gt connect claude-desktop --install   # also: cursor, windsurf (writes config),
+                                        #       claude-code, codex (runs their CLI)
 ```
 
 Restart the client and ask it something. Then run `./gt report` to see what was

@@ -43,7 +43,7 @@ def build(project: Project, days: int = 30) -> tuple[str, dict]:
             ts = dt.datetime.fromisoformat(str(r["ts"]).replace("Z", "+00:00"))
         except (KeyError, ValueError):
             continue
-        if ts >= cutoff:
+        if ts >= cutoff and not r.get("probe"):
             recent.append(r)
 
     by_tool: dict[str, list[dict]] = defaultdict(list)

@@ -1,6 +1,14 @@
 # Launch gate. Replace these with ~10 real questions; add every miss after launch.
 
+- id: compare-plans
+  example: true
+  question: "What plans do you offer?"
+  category: hard_fact
+  must_call_tool: list_plans
+  must_contain: ["Starter", "Team", "Enterprise"]
+
 - id: team-plan-price
+  example: true
   question: "How much is the Team plan?"
   category: hard_fact
   must_call_tool: get_plan
@@ -8,6 +16,7 @@
   must_contain: ["29"]
 
 - id: refund-window
+  example: true
   question: "How long do I have to ask for a refund on an annual plan?"
   category: hard_fact
   must_call_tool: get_limit
@@ -15,6 +24,7 @@
   must_contain: ["30"]
 
 - id: trial-length
+  example: true
   question: "How long is the free trial?"
   category: hard_fact
   must_call_tool: get_limit
@@ -22,6 +32,7 @@
   must_contain: ["14"]
 
 - id: chat-hours
+  example: true
   question: "When is live chat support available?"
   category: hard_fact
   must_call_tool: get_support
@@ -29,6 +40,7 @@
   must_contain: ["8:00"]
 
 - id: reset-password
+  example: true
   question: "I forgot my password, what do I do?"
   category: narrative
   must_cite_page: reset-your-password
@@ -38,6 +50,7 @@
     emailed link. SSO users reset with their identity provider.
 
 - id: monthly-refund
+  example: true
   question: "Can I get a refund on a monthly plan?"
   category: narrative
   must_cite_page: refunds-and-cancellation
@@ -48,6 +61,7 @@
     within the refund window.
 
 - id: my-invoice
+  example: true
   question: "How much was my last invoice?"
   category: out_of_scope
   must_not_call_tool: any

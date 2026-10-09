@@ -18,9 +18,10 @@ Inside a project:
 | Path | Holds | Rules |
 |---|---|---|
 | `facts/*.yaml` | Exact facts (prices, dates, hours, contacts, limits) and the tools that serve them | Every row has a source. Format: `docs/facts.md` |
-| `wiki/**/*.md` | Explanations (how-to, policy, "what is") | Frontmatter + `## Sources & Lineage`. **No dates or dollar amounts in prose.** Format: `docs/wiki.md` |
+| `wiki/**/*.md` | Explanations (how-to, policy, "what is") | Frontmatter + `## Sources & Lineage`. **No exact facts in prose.** Format: `docs/wiki.md` |
 | `sources/pages/*.md` | Evidence, written by `./gt ingest` | Never edit by hand |
-| `prompts/system_prompt.md` | The assistant's instructions | Keep the fact-routing table in sync with `facts/` |
+| `sources.lock.yaml` | Which version of each source the facts/wiki were last reviewed against | Only via `./gt review --done` |
+| `prompts/system_prompt.md` | The assistant's instructions (what MCP clients receive) | Keep `{{FACT_TOOLS}}` in it: the routing table is generated from `facts/` |
 | `evals/golden.yaml` | Questions with known answers | Format: `docs/evals.md` |
 | `build/`, `logs/`, `reports/` | Generated | Never edit, never commit |
 
@@ -35,10 +36,14 @@ fact tool disagree, the tool is right and the page is stale.
 ## The gates: run before you say you're done
 
 ```bash
-./gt check     # facts valid, wiki structure, no facts in prose, golden set wired correctly
+./gt check     # facts valid, sources reviewed, wiki structure, no facts in prose, golden set wired
 ./gt eval      # free, no model: tools return the expected facts, search finds the pages
 python -m unittest discover -s tests    # only if you changed code in groundtruth/
 ```
+
+If `./gt check` says a source changed since the last review, compare the listed
+facts and pages with the current source (`git diff`), fix what's stale, and only
+then run `./gt review --done`. Never run `--done` without actually re-checking.
 
 Both `./gt` commands must pass. `./gt -p PATH ...` targets a specific project.
 If you changed the prompt, tools, or content and an `ANTHROPIC_API_KEY` is
@@ -55,11 +60,14 @@ available, also run `./gt eval --tier live` and report the result.
      add a file per kind of thing; give every tool a sharp `description`.
    - Explanations become wiki pages: one topic per page, the words people use in
      `title` and `tags`, sources listed, lineage table at the bottom.
-   - Update `prompts/system_prompt.md`'s routing table to match the tools.
+   - Rewrite `prompts/system_prompt.md` for the organization (scope, tone, what
+     to refuse and where to redirect). Keep `{{FACT_TOOLS}}`: it lists the tools.
    - Replace the template's example questions in `evals/golden.yaml`: a
-     `hard_fact` item (with `must_call_tool`, `tool_args`, `must_contain`) per
-     tool, and a `narrative` item (with `must_cite_page`) per page.
-   - Delete the template's example rows and pages that don't apply.
+     `hard_fact` item (with `must_call_tool`, `tool_args`, and `must_match` or
+     `must_contain`) per tool, and a `narrative` item (`must_cite_page`) per page.
+   - Remove the template's fictional examples (`example: true`) with
+     `./gt examples --remove` once real content replaces them.
+   - `./gt review --done` once facts and pages match the sources.
 4. Run the gates. Fix everything. Then `./gt ask "..."` a few real questions.
 
 ### "Do the work in build/compile-packet.md"
@@ -83,8 +91,11 @@ Don't add per-domain logic to the code: domains belong in project YAML.
 
 ## Don'ts
 
-- Don't put facts in wiki prose. Don't use `<!-- fact-ok -->` to dodge the rule;
+- Don't put facts in wiki prose (dates, money, durations, percentages, size
+  limits, phone numbers, emails). Don't use `<!-- fact-ok -->` to dodge the rule;
   it's for genuinely stable, illustrative values, with a reason.
+- Don't run `./gt review --done` to make a check go green. It means "I compared
+  the facts with the changed source and they're right." 
 - Don't edit `sources/`; re-run `./gt ingest`.
 - Don't commit `build/`, `logs/`, `reports/`, or `evals/runs/*-tools.json`.
 - Don't invent facts to make an eval pass. If the evidence doesn't say it, the

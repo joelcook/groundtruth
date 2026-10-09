@@ -35,7 +35,7 @@ class TestLibraryFacts(unittest.TestCase):
     def test_every_row_carries_its_source(self):
         r = self.call("get_contact", department="youth services")
         self.assertEqual(r["results"][0]["phone"], "555-0103")
-        self.assertTrue(r["results"][0]["source_url"].startswith("https://"))
+        self.assertTrue(r["results"][0]["source"].startswith("https://"))
 
     def test_list_filters_resolve_refs_and_abbreviations(self):
         r = self.call("get_hours", branch="main", day="sat")

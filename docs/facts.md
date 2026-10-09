@@ -49,6 +49,10 @@ or `null`.
   arg: fee_type
 ```
 
+Every result carries a `source`: the row's URL, or its file path when the
+evidence is a local document (`source: {path: sources/pages/pricing.md}` with no
+URL is fine). The assistant cites it.
+
 `get_fee(fee_type="lost card")` scores every row: an exact key or alias match
 first, then the query appearing inside a field, then word overlap ("black and
 white printing" finds `printing-bw`; "late fees" finds `overdue-fine` through
@@ -114,6 +118,9 @@ A file with no `tools:` gets one lookup tool named `get_<file name>`.
 
 Warnings (they don't fail the check): a source file that doesn't exist, or a
 `ref` value that isn't a key in the referenced file.
+
+And one more that does fail: if a source a facts file cites has changed since
+the last `./gt review --done`, the facts may be stale. `./gt review` names them.
 
 ## YAML gotchas
 

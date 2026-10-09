@@ -66,6 +66,9 @@ def init(dest: str | Path, template: str = "blank", name: str | None = None) -> 
     if name:
         text = re.sub(r"(?m)^name:.*$", f"name: {display}", text, count=1)
     cfg.write_text(text, encoding="utf-8")
+    from groundtruth import review
+    from groundtruth.project import load
+    review.mark_reviewed(load(target))
     set_current(target)
     return target
 

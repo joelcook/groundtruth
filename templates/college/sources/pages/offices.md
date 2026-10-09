@@ -1,4 +1,5 @@
 ---
+example: true
 title: Contact a student service office
 source_url: https://www.example.edu/contact
 captured: 2026-01-15

@@ -1,4 +1,5 @@
 ---
+example: true
 title: Contact support
 source_url: https://example.com/support
 captured: 2026-01-15

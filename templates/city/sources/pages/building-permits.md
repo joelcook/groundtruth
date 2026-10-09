@@ -1,4 +1,5 @@
 ---
+example: true
 title: Building permits
 source_url: https://www.example.gov/permits
 captured: 2026-01-15

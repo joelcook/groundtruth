@@ -5,6 +5,7 @@
 #   ./gt eval --tier live  asks Claude with the real tools (needs ANTHROPIC_API_KEY)
 
 - id: support-phone
+  example: true
   question: "What's the phone number for support?"
   category: hard_fact
   must_call_tool: get_contact
@@ -12,6 +13,7 @@
   must_contain: ["555-0100"]
 
 - id: what-do-you-do
+  example: true
   question: "What does your company do?"
   category: narrative
   must_cite_page: about-us
@@ -21,6 +23,7 @@
     leave, data always exportable.
 
 - id: my-order-status
+  example: true
   question: "Where is my order right now?"
   category: out_of_scope
   must_not_call_tool: any

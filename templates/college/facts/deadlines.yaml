@@ -1,5 +1,6 @@
 # Dated facts are the most dangerous to paraphrase: a wrong date is a missed
 # deadline. `date` is ISO so "upcoming only" works.
+example: true          # fictional template data: ./gt examples --remove deletes it
 description: Academic calendar deadlines by term.
 key: id
 date_field: date

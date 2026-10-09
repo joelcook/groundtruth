@@ -1,3 +1,4 @@
+example: true          # fictional template data: ./gt examples --remove deletes it
 description: Insurance plans and whether the clinic is in network.
 key: plan
 source:

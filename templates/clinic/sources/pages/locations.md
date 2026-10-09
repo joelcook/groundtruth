@@ -1,4 +1,5 @@
 ---
+example: true
 title: Locations and hours
 source_url: https://www.example-clinic.com/locations
 captured: 2026-01-15

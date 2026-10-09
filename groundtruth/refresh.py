@@ -103,14 +103,24 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
         else:
             print("  ✓ compile: nothing new or stale")
 
-        # 4. gates
+        # 4. gates. Changed sources aren't fatal here: they go in the PR as a review list,
+        # and CI keeps the PR red until a human reconciles them and runs ./gt review --done.
+        from groundtruth import review
         report = checks.run(project)
-        if not report.ok:
-            for section, errs in report.errors.items():
+        fatal = {k: v for k, v in report.errors.items() if k != "sources" and v}
+        if fatal:
+            for section, errs in fatal.items():
                 for e in errs:
                     print(f"  ✗ {section}: {e}")
             return finish(1)
-        print("  ✓ check")
+        pending = review.changes(project)
+        if pending:
+            print(f"  ! {len(pending)} changed source(s) need a human review (listed in the PR)")
+            lines.append("- **Needs your review** (facts and pages written against an older source; "
+                         "`./gt check` stays red until you run `./gt review --done`):")
+            for ch in pending:
+                lines.append(f"  - `{ch.source}` ({ch.reason}): " + ", ".join(f"`{x}`" for x in ch.facts + ch.wiki))
+        print("  ✓ check" + (" (except the source review above)" if pending else ""))
         if evals.run(project, "tools", quiet=True) != 0:
             print("  ✗ eval (tools tier) failed: run ./gt eval to see why")
             return finish(1)
@@ -130,9 +140,10 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
                 if not shutil.which("gh"):
                     print("  ! gh CLI not found: push the branch and open the PR yourself")
                 else:
+                    gates = ("`./gt eval` passed; `./gt check` passes once the review above is done."
+                             if pending else "Gates passed: `./gt check`, `./gt eval`.")
                     body = "\n".join([f"Automated refresh for **{project.name}** ({today}).", "", *lines, "",
-                                      "Gates passed: `./gt check`, `./gt eval`.", "",
-                                      "Review the diff, then merge."])
+                                      gates, "", "Review the diff, then merge."])
                     _git("push", "-q", "-u", "origin", branch)
                     subprocess.run(["gh", "pr", "create", "--title", f"Knowledge refresh {today}",
                                     "--body", body, "--head", branch], cwd=REPO_ROOT, check=False)

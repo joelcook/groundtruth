@@ -22,8 +22,13 @@ makes the assistant *yours* lives here, and `./gt` works on it.
 ./gt connect claude-desktop --install      # talk to it in Claude
 ```
 
-Replace the example rows in `facts/` with real ones, rewrite the example wiki
-pages, and swap the example questions in `evals/golden.yaml` for ten you know
-the answers to. Every miss after launch becomes a new question.
+Everything the template shipped with is fictional and marked `example: true`.
+Replace it with real facts, pages, and questions (the compile packet walks you
+through it), then `./gt examples --remove` clears whatever's left. When ingest
+brings in a changed version of a source your facts cite, `./gt check` fails
+until you've re-checked them: `./gt review`, fix, `./gt review --done`.
+
+The prompt's routing table (`{{FACT_TOOLS}}`) is generated from `facts/`. Every
+miss after launch becomes a new eval question.
 
 Full docs: the repo's `README.md` and `docs/`.

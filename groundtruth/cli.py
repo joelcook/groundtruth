@@ -24,6 +24,7 @@ Build your knowledge
   compile              work order for Claude Code/Codex to write wiki pages + facts
                        (--write: let Claude draft the pages itself)
   build                rebuild the facts database (automatic, but handy)
+  review               sources that changed since facts/wiki were last checked against them
   check                facts, wiki, no-facts-in-prose, eval wiring
   eval                 free offline eval (--tier live: ask Claude, needs a key)
 
@@ -39,7 +40,7 @@ Keep it honest
   bundle               package data so deployed servers update without a redeploy
 
 Housekeeping
-  status · use PATH · doctor · setup
+  status · use PATH · examples [--remove] · prompt · doctor · setup
 
 Project: {project}
 Add -p PATH before the command to use a different project. Docs: README.md, docs/
@@ -85,12 +86,61 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_examples(args) -> int:
+    from groundtruth import examples
+    project = _p(args)
+    found = examples.find(project)
+    if not found.total:
+        _ok("no template examples left: everything here is yours")
+        return 0
+    if not args.remove:
+        print(f"{found.total} template example item(s) still live (fictional data):")
+        for p in [*found.facts, *found.wiki, *found.sources]:
+            print(f"  {project.rel(p)}")
+        for q in found.questions:
+            print(f"  evals/golden.yaml: {q}")
+        print("\nRemove them all with: ./gt examples --remove")
+        return 0
+    removed = examples.remove(project)
+    _ok(f"removed {len(removed.facts)} facts file(s), {len(removed.wiki)} page(s), "
+        f"{len(removed.sources)} source(s), {len(removed.questions)} question(s)")
+    print("next: ./gt compile   (a work order for adding your own facts, pages, and questions)")
+    print("      if prompts/system_prompt.md names tools you just removed, ./gt check will point them out")
+    return 0
+
+
+def cmd_review(args) -> int:
+    from groundtruth import review
+    project = _p(args)
+    if args.done:
+        recorded = review.mark_reviewed(project, args.paths or None)
+        _ok(f"recorded {len(recorded)} source version(s) in {project.rel(review.lock_path(project))}")
+        return 0
+    if review.load_lock(project) is None:
+        print("No sources.lock.yaml yet. When your facts and wiki match your sources, run ./gt review --done")
+        return 0
+    pending = review.changes(project)
+    if not pending:
+        _ok("every cited source matches its last review")
+        return 0
+    print(f"{len(pending)} source(s) changed since the last review:\n")
+    for ch in pending:
+        print(f"  {ch.source} ({ch.reason})")
+        for f in ch.facts:
+            print(f"      facts: {f}")
+        for w in ch.wiki:
+            print(f"      wiki:  {w}")
+    print("\nRe-check each listed file against its source (git diff shows what changed),")
+    print("update what's out of date, then run ./gt review --done.")
+    return 1
+
+
 def cmd_check(args) -> int:
     from groundtruth import checks
     project = _p(args)
     report = checks.run(project)
     print(f"check: {project.name} ({_where(project)})")
-    for section in ("facts", "wiki", "prose", "evals", "prompt"):
+    for section in ("facts", "sources", "wiki", "prose", "evals", "prompt", "examples"):
         errs = report.errors.get(section, [])
         warns = report.warnings.get(section, [])
         note = report.notes.get(section, "")
@@ -129,6 +179,12 @@ def cmd_tools(args) -> int:
     return 0
 
 
+def cmd_prompt(args) -> int:
+    from groundtruth import server
+    print(server.instructions(_p(args)))
+    return 0
+
+
 def cmd_ask(args) -> int:
     from groundtruth import evals, llm, server
     project = _p(args)
@@ -150,7 +206,8 @@ def cmd_ask(args) -> int:
             print(f"  - {c['name']}({', '.join(f'{k}={v!r}' for k, v in c['input'].items())})")
         return 0
     from groundtruth import facts
-    print(f"No API key, so here's roughly what the model would look up for: {question!r}\n")
+    print(f"No API key, so this is a heuristic preview of what the model might look up for {question!r}.")
+    print("(A real model chooses its own tools; set ANTHROPIC_API_KEY to see that.)\n")
     found = False
     for guess in facts.store(project).suggest(question):
         res = server.call_tool(project, guess["tool"], {**guess["args"], "limit": 3}, log=False)
@@ -158,10 +215,10 @@ def cmd_ask(args) -> int:
             continue
         found = True
         args_txt = ", ".join(f"{k}={v!r}" for k, v in guess["args"].items())
-        print(f"{guess['tool']}({args_txt}) -> {res['count']} row(s)")
+        conf = "high" if guess["score"] >= 60 else "medium" if guess["score"] >= 40 else "low"
+        print(f"{guess['tool']}({args_txt}) -> {res['count']} row(s)   [match confidence: {conf}]")
         for row in res["results"][:3]:
-            shown = {k: v for k, v in row.items() if k not in ("source_path",)}
-            print(f"    {json.dumps(shown, default=str)[:200]}")
+            print(f"    {json.dumps(row, default=str)[:220]}")
     hits = server.call_tool(project, "search_wiki", {"query": question, "limit": 3}, log=False)
     if hits:
         found = True
@@ -169,7 +226,9 @@ def cmd_ask(args) -> int:
         for h in hits:
             print(f"    {h['path']}: {h['snippet'][:150]}")
     if not found:
-        print("Nothing matched. That's a gap: add a fact or a wiki page for it.")
+        print("No fact or page matched. If the assistant should know this, add a fact or a page.\n"
+              "If it's out of scope (personal or account data), that's expected: make sure the prompt\n"
+              "tells the assistant how to redirect, and add an out_of_scope question to evals/golden.yaml.")
     print("\nSet ANTHROPIC_API_KEY to get a written answer from Claude using these tools.")
     return 0
 
@@ -192,7 +251,11 @@ def cmd_ingest(args) -> int:
     for s in result.skipped[:10]:
         print(f"    ! skipped {s}")
     if result.changed and not args.dry_run:
-        print("next: ./gt compile   (turns new sources into wiki pages and facts)")
+        from groundtruth import review
+        pending = review.changes(project)
+        if pending:
+            print(f"    ! {len(pending)} changed source(s) are cited by your facts or wiki: run ./gt review")
+        print("next: ./gt compile   (a work order for turning the evidence into facts and pages)")
     return 0
 
 
@@ -231,11 +294,11 @@ def cmd_connect(args) -> int:
             _bad("say which client: ./gt connect claude-desktop --install")
             return 2
         try:
-            path = connect.install(args.client, project)
+            msg = connect.install(args.client, project)
         except ValueError as exc:
             _bad(str(exc))
             return 2
-        _ok(f"added {project.name!r} to {path} (old file backed up). Restart the app.")
+        _ok(msg)
         return 0
     for c in clients:
         try:
@@ -302,6 +365,11 @@ def cmd_init(args) -> int:
     _ok("./gt now points at it (switch any time with ./gt use PATH)")
     _ok("check passes" if report.ok else "check has problems (run ./gt check)")
     _ok("free eval passes" if rc == 0 else "free eval has failures (run ./gt eval)")
+    from groundtruth import examples
+    ex = examples.find(project).total
+    note = (f"\n        The template's {ex} example items are fictional placeholders so it works on day one.\n"
+            f"        The compile packet walks you through replacing them (or: ./gt examples --remove).\n"
+            if ex else "")
     print(textwrap.dedent(f"""
         Make it yours:
           1. ./gt ingest https://your-site.example     pull your pages into sources/
@@ -309,6 +377,7 @@ def cmd_init(args) -> int:
              (edit facts/*.yaml and wiki/ by hand any time; ./gt check keeps you honest)
           3. ./gt ask "a real question"                 see what the assistant finds
           4. ./gt connect claude-desktop --install      talk to it in Claude
+        {note}
         Everything lives in {_where(project)}/. Start with its README.md.
     """).rstrip())
     return 0
@@ -338,11 +407,17 @@ def cmd_status(args) -> int:
     print(f"  wiki     {len(search.load_pages(project))} public page(s)")
     srcs = comp.sources(project)
     st = comp.status(project)
-    print(f"  sources  {len(srcs)} page(s); {len(st['uncovered'])} not covered yet, {len(st['stale'])} stale wiki page(s)")
+    from groundtruth import review
+    pending = review.changes(project)
+    print(f"  sources  {len(srcs)} page(s); {len(st['uncovered'])} not covered yet, {len(pending)} changed since review")
     print(f"  evals    {len(checks.load_golden(project))} golden question(s)")
+    from groundtruth import examples
+    ex = examples.find(project).total
+    if ex:
+        print(f"  examples {ex} fictional template item(s) still live (./gt examples)")
     calls = observability.read_log(project)
     print(f"  logs     {len(calls)} tool call(s) recorded")
-    nxt = ("./gt compile" if st["uncovered"] or st["stale"] else
+    nxt = ("./gt review" if pending else "./gt compile" if st["uncovered"] or st["stale"] else
            "./gt connect" if not calls else "./gt report")
     print(f"next: {nxt}")
     return 0
@@ -484,6 +559,11 @@ def parser() -> argparse.ArgumentParser:
     sp = add("build", cmd_build, "rebuild the facts database")
     sp.add_argument("--index", action="store_true", help="also build the semantic search index")
     add("check", cmd_check, "facts, wiki, no-facts-in-prose, eval wiring")
+    sp = add("examples", cmd_examples, "list (or --remove) the template's fictional example content")
+    sp.add_argument("--remove", action="store_true")
+    sp = add("review", cmd_review, "what changed in your sources since facts and wiki were last reviewed")
+    sp.add_argument("--done", action="store_true", help="record the current source versions as reviewed")
+    sp.add_argument("paths", nargs="*", help="only these sources (default: all)")
     sp = add("eval", cmd_eval, "run the golden set (tools tier is free)")
     sp.add_argument("--tier", default="tools", choices=["tools", "replay", "fast", "live", "release"])
     sp.add_argument("--only")
@@ -496,6 +576,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("client", nargs="?")
     sp.add_argument("--install", action="store_true")
     sp.add_argument("--url", help="your deployed /mcp URL, for hosted clients")
+    add("prompt", cmd_prompt, "print the assistant's full instructions (what MCP clients receive)")
     sp = add("tools", cmd_tools, "list the tools your assistant gets")
     sp.add_argument("--json", action="store_true")
     sp = add("report", cmd_report, "observability report from the tool-call log")

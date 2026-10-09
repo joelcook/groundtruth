@@ -7,11 +7,7 @@ answer.
 
 A wrong date is a missed deadline; a wrong number is a wrong bill.
 
-| If the question is about... | Call |
-|---|---|
-| a deadline or term date | `get_deadline`, `list_deadlines` |
-| tuition or a fee | `get_tuition` |
-| which office, phone, email, hours | `get_office` |
+{{FACT_TOOLS}}
 
 For how-to and policy questions, call `search_wiki`, then `read_wiki_page`.
 

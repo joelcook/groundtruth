@@ -1,4 +1,5 @@
 ---
+example: true
 title: Dropping and withdrawing from classes
 source_url: https://www.example.edu/drop-withdraw
 captured: 2026-01-15

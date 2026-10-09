@@ -13,6 +13,7 @@ a fixed problem fixed.
   must_call_tool: get_limit             # the answer must come from this tool
   tool_args: {name: refund window}      # what the free tier calls it with
   must_contain: ["30"]                  # must appear in the answer (and, free tier, in the tool result)
+  must_match: {value: 30, unit: days}   # free tier: some result row has exactly these field values
   must_not_contain: ["60"]              # optional
   must_cite_page: refunds-and-cancellation   # optional: the wiki page that must be read/found
   expected_summary: >                   # narrative only: the rubric the live judge grades against
@@ -41,8 +42,10 @@ a fixed problem fixed.
 
 **tools** (free) is the CI gate. For each question it:
 - calls `must_call_tool` with `tool_args` and checks `must_contain` is in the
-  result (numbers compare by value, so `"0.10"` matches `0.1`) and
-  `must_not_contain` isn't;
+  result and `must_not_contain` isn't. A plain number compares by value against
+  the numbers in the result: `"0.10"` matches `0.1`, and `"9"` does not match `49`;
+- checks `must_match` (field: value pairs) against the result rows, which is the
+  most precise check for prices and limits;
 - runs `search_wiki` on the question and checks `must_cite_page` comes back in
   the top five;
 - for narrative questions, checks the page actually mentions `must_contain`;
@@ -53,10 +56,11 @@ pages that stopped being findable, without spending a cent.
 
 **live** runs each question through Claude with the exact tools your server
 exposes and the system prompt in `prompts/system_prompt.md`, then grades the
-tool calls and the answer. Narrative answers also go to an LLM judge (`--no-judge`
-to skip). Each live run is saved in `evals/runs/` (commit a good one as your
-baseline; `replay` re-grades it for free), and regressions since the last live
-run are called out.
+tool calls and the answer. It uses exactly the instructions MCP clients get
+(`./gt prompt`). Narrative answers also go to an LLM judge (`--no-judge` to
+skip). Each live run is saved in `evals/runs/` (commit a good one as your
+baseline; `replay` re-grades it for free and skips questions added since), and
+regressions since the last live run are called out.
 
 Models: `GT_MODEL` (default `claude-opus-5-5`) and `GT_JUDGE_MODEL`. **Evaluate
 on the model you run in production**, or you're grading a different assistant

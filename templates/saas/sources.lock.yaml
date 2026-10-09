@@ -1,0 +1,6 @@
+# The version of each source your facts and wiki were last reviewed against.
+# Written by `./gt review --done`. Don't edit by hand.
+sources/pages/password-help.md: 67dae8887cafcb3f
+sources/pages/pricing.md: 35f018e1de8ca593
+sources/pages/refunds.md: 10fe8c196c3a5586
+sources/pages/support.md: 012a65565a915720

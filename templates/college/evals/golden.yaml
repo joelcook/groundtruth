@@ -1,6 +1,15 @@
 # Launch gate. Replace with ~10 real student questions; add every miss.
 
+- id: upcoming-deadlines
+  example: true
+  question: "What deadlines are coming up for spring 2027?"
+  category: hard_fact
+  must_call_tool: list_deadlines
+  tool_args: {term: spring-2027}
+  must_contain: ["registration"]
+
 - id: fall-drop-deadline
+  example: true
   question: "What's the last day to drop a fall 2026 class and get a refund?"
   category: hard_fact
   must_call_tool: get_deadline
@@ -8,6 +17,7 @@
   must_contain: ["2026-08-31"]
 
 - id: in-state-tuition
+  example: true
   question: "How much is in-state tuition per credit hour?"
   category: hard_fact
   must_call_tool: get_tuition
@@ -15,6 +25,7 @@
   must_contain: ["120"]
 
 - id: registrar-phone
+  example: true
   question: "What's the registrar's phone number?"
   category: hard_fact
   must_call_tool: get_office
@@ -22,6 +33,7 @@
   must_contain: ["555-0110"]
 
 - id: how-to-apply
+  example: true
   question: "How do I apply?"
   category: narrative
   must_cite_page: apply-for-admission
@@ -31,6 +43,7 @@
     FAFSA for aid, meet an advisor, then register.
 
 - id: drop-vs-withdraw
+  example: true
   question: "What's the difference between dropping and withdrawing from a class?"
   category: narrative
   must_cite_page: drop-or-withdraw-from-a-class
@@ -40,6 +53,7 @@
     withdrawing after it gives a W and no refund.
 
 - id: my-gpa
+  example: true
   question: "What's my GPA?"
   category: out_of_scope
   must_not_call_tool: any

@@ -45,9 +45,19 @@ task), `policy` (rules, plainly), `entity` (a program, place, or thing),
 
 ## The one rule: no facts in prose
 
-`./gt check` fails if a wiki page contains a calendar date (`July 4, 2026`,
-`2026-07-04`, `7/4/2026`) or a dollar amount (`$5`, `5 dollars`) outside the
-frontmatter and the lineage table. Write around the fact and name the tool:
+`./gt check` fails if a wiki page contains any of these outside the frontmatter
+and the lineage table:
+
+| Kind | Examples |
+|---|---|
+| dates | `July 4, 2026`, `2026-07-04`, `7/4/2026` |
+| money | `$5`, `5 dollars` |
+| durations | `within 30 days`, `14-day trial`, `24 hours` |
+| percentages | `20%` |
+| size limits | `2 GB` |
+| phone numbers, emails | `555-0100`, `help@example.com` |
+
+Write around the fact and name the tool:
 
 > Annual plans can be refunded within the refund window. The assistant looks up
 > the exact window with `get_limit`.
@@ -73,10 +83,11 @@ Use it sparingly. The default is: put it in `facts/`.
 
 ## Staleness
 
-`./gt compile` flags a page as stale when one of its sources was re-captured
-(by `./gt ingest`) after the page's `last_compiled` date, or when the page is
-older than `GT_STALE_DAYS` (default 180). Stale pages show up in the compile
-packet and in the weekly refresh.
+A page is stale when one of its sources changed since the last `./gt review
+--done` (tracked by content hash in `sources.lock.yaml`, so same-day changes
+count). `./gt check` fails, `./gt review` and the compile packet list the page,
+and the weekly refresh puts it in its pull request. Set `GT_STALE_DAYS` to also
+flag pages by age.
 
 ## Writing pages that search well
 

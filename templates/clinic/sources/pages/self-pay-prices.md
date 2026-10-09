@@ -1,4 +1,5 @@
 ---
+example: true
 title: Self-pay prices
 source_url: https://www.example-clinic.com/self-pay
 captured: 2026-01-15

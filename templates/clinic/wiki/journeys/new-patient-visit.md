@@ -1,4 +1,5 @@
 ---
+example: true
 title: Your first visit as a new patient
 page_type: journey
 last_compiled: 2026-01-15

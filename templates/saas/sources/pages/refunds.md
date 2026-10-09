@@ -1,4 +1,5 @@
 ---
+example: true
 title: Refund policy
 source_url: https://example.com/legal/refunds
 captured: 2026-01-15

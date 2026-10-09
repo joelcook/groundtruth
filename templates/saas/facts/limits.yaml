@@ -1,4 +1,5 @@
 # Numbers that change and must never be paraphrased: windows, caps, lengths.
+example: true          # fictional template data: ./gt examples --remove deletes it
 description: Account limits and policy numbers (refund window, trial length, upload size).
 key: id
 source:

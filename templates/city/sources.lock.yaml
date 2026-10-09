@@ -1,0 +1,6 @@
+# The version of each source your facts and wiki were last reviewed against.
+# Written by `./gt review --done`. Don't edit by hand.
+sources/pages/building-permits.md: de6274848acc017e
+sources/pages/fee-schedule.md: 469f600afcb58623
+sources/pages/offices.md: 115834aa7cf9fbd7
+sources/pages/trash-and-recycling.md: 151243c3ff6502dc

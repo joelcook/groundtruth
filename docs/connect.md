@@ -17,6 +17,7 @@ first). Restart Claude Desktop. Or paste the printed JSON into
 ## Claude Code
 
 ```bash
+./gt connect claude-code --install      # runs the command below for you
 claude mcp add my-assistant -- /path/to/groundtruth/.venv/bin/python -m groundtruth -p /path/to/my-assistant serve --stdio
 ```
 
@@ -25,6 +26,7 @@ Add `--scope project` to share it with your team through `.mcp.json`.
 ## Codex CLI
 
 ```bash
+./gt connect codex --install            # runs the command below for you
 codex mcp add my-assistant -- /path/to/groundtruth/.venv/bin/python -m groundtruth -p /path/to/my-assistant serve --stdio
 ```
 
@@ -45,8 +47,9 @@ These need the HTTP server reachable on the internet over HTTPS. See
 **Copilot Studio**: add a Model Context Protocol tool to your agent with your
 server's `/mcp` URL, and send your key as the header
 `Authorization: Bearer <GT_MCP_API_KEY>` (`x-api-key` and `x-ms-apikey` work
-too). Paste `prompts/system_prompt.md` into the agent's instructions, so the
-agent and your evals agree.
+too). Paste the output of `./gt prompt` into the agent's instructions, so the
+agent and your evals agree. (MCP clients that read server instructions get it
+automatically.)
 
 **ChatGPT and claude.ai**: add a custom connector pointing at your `/mcp` URL.
 These currently support OAuth or no authentication, not an API-key header.

@@ -1,4 +1,5 @@
 ---
+example: true
 title: Insurance we accept
 source_url: https://www.example-clinic.com/insurance
 captured: 2026-01-15

@@ -36,10 +36,22 @@ client, for stdio). Data changes reload live; new tools need a restart.
 `match:` to the fields that should be searched. `./gt ask --offline "..."` shows
 what each tool returns.
 
+**"sources/pages/x.md changed since the last review"**: the evidence behind
+some facts or pages changed. `./gt review` lists them; compare with `git diff`,
+fix what's stale, then `./gt review --done`.
+
+**"template examples are still live"**: the template's fictional rows and pages
+are still being served. Replace them, or `./gt examples --remove`.
+
 ## Wiki and evals
 
-**"date 'June 20, 2026' in prose"**: move the date to `facts/` and refer to the
-tool, or justify it with `<!-- fact-ok: why -->` on the line above.
+**"date 'June 20, 2026' in prose"** (or duration, percentage, phone number...):
+move the value to `facts/` and refer to the tool, or justify it with
+`<!-- fact-ok: why -->` on the line above.
+
+**"the prompt mentions `get_x`, which isn't a tool"**: rename or remove it in
+`prompts/system_prompt.md`. Using `{{FACT_TOOLS}}` there keeps the routing table
+in sync automatically.
 
 **"search_wiki doesn't surface 'x' for this question"**: put the words people use
 in the page's `title` and `tags`, or add a synonym in `groundtruth.yaml`.

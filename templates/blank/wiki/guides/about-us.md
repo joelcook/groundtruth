@@ -1,4 +1,5 @@
 ---
+example: true
 title: About us and getting help
 page_type: guide
 last_compiled: 2026-01-15

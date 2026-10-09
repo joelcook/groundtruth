@@ -47,7 +47,9 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `facts.py` | Load, validate, build, and query facts; generate tool specs |
 | `search.py`, `embeddings.py` | Wiki search: keyword scan, optional embeddings |
 | `server.py` | The MCP server, auth, host rules, `/healthz` |
-| `checks.py` | `./gt check`: facts, wiki structure, prose lint, golden wiring |
+| `checks.py` | `./gt check`: facts, source review, wiki structure, prose lint, golden wiring, prompt |
+| `review.py` | `sources.lock.yaml`: detects evidence that changed since facts and pages were reviewed |
+| `examples.py` | Finds and removes a template's fictional example content |
 | `evals.py`, `llm.py` | The golden-set harness; Claude for live evals |
 | `ingest.py` | Website, sitemap, and folder capture |
 | `compile.py` | Coverage and staleness; agent work orders; Claude drafting |
@@ -70,9 +72,9 @@ don't need for correctness you can't live without.
 ```
 1. ingest       re-capture evidence (only changed pages are rewritten)
 2. build        re-derive facts (deterministic)
-3. compile      flag new and stale coverage; draft pages (agent or Claude)
-4. check, eval  the gates
-5. review       a pull request a human merges
+3. compile      flag new, changed, and stale coverage; draft pages (agent or Claude)
+4. check, eval  the gates; check stays red while cited sources are unreviewed
+5. review       a human reconciles changed evidence (./gt review --done) and merges the PR
 ```
 
 `./gt refresh` runs it; `.github/workflows/refresh.yml` schedules it weekly.

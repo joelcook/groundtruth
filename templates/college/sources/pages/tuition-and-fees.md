@@ -1,4 +1,5 @@
 ---
+example: true
 title: Tuition and fees
 source_url: https://www.example.edu/tuition
 captured: 2026-01-15

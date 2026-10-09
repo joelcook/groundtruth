@@ -1,4 +1,5 @@
 ---
+example: true
 title: Cancellations and missed appointments
 page_type: policy
 last_compiled: 2026-01-15

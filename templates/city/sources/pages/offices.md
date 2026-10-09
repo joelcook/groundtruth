@@ -1,4 +1,5 @@
 ---
+example: true
 title: Contact city offices
 source_url: https://www.example.gov/contact
 captured: 2026-01-15

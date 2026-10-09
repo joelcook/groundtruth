@@ -1,4 +1,5 @@
 ---
+example: true
 title: Trash and recycling
 page_type: guide
 last_compiled: 2026-01-15

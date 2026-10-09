@@ -1,4 +1,5 @@
 ---
+example: true
 title: Apply for admission
 page_type: journey
 last_compiled: 2026-01-15

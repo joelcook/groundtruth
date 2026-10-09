@@ -1,0 +1,7 @@
+# The version of each source your facts and wiki were last reviewed against.
+# Written by `./gt review --done`. Don't edit by hand.
+sources/pages/academic-calendar.md: 2b961bf0d8cf9c6f
+sources/pages/admissions.md: 36480e7a474973e5
+sources/pages/drop-and-withdraw.md: e8383271b2a437fd
+sources/pages/offices.md: 7ac71de6b36207a1
+sources/pages/tuition-and-fees.md: 7d27b234ba4e5cd1

@@ -1,4 +1,5 @@
 ---
+example: true
 title: How to apply
 source_url: https://www.example.edu/apply
 captured: 2026-01-15

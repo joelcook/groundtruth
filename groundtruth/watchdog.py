@@ -46,7 +46,7 @@ def _payload(result) -> object:
     return None
 
 
-async def _exercise(session, checks: Checks) -> None:
+async def _exercise(session, checks: Checks, probe: str | None = None) -> None:
     init = await session.initialize()
     checks.ok(f"initialize: {init.serverInfo.name}")
     listed = await session.list_tools()
@@ -66,14 +66,23 @@ async def _exercise(session, checks: Checks) -> None:
             checks.ok(f"{fact_tools[0]}: {count} row(s)")
     else:
         checks.fail("no fact tools advertised (is facts/ empty?)")
-    res = await session.call_tool("search_wiki", {"query": "help", "limit": 1})
+    if not probe:
+        checks.fail("the wiki has no public pages, so how/why questions can't be answered")
+        return
+    res = await session.call_tool("search_wiki", {"query": probe, "limit": 1})
+    hits = _payload(res)
     if res.isError:
-        checks.fail(f"search_wiki errored: {str(_payload(res))[:160]}")
+        checks.fail(f"search_wiki errored: {str(hits)[:160]}")
+    elif not hits:
+        checks.fail(f"search_wiki found nothing for a page title ({probe!r}): retrieval is broken")
     else:
-        checks.ok("search_wiki: answered")
+        checks.ok(f"search_wiki: found {probe!r}")
 
 
 async def _stdio(project: Project, checks: Checks) -> None:
+    from groundtruth import search
+    pages = search.load_pages(project)
+    probe = pages[0].title if pages else None
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
@@ -84,20 +93,22 @@ async def _stdio(project: Project, checks: Checks) -> None:
     )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
-            await _exercise(session, checks)
+            await _exercise(session, checks, probe)
 
 
-async def _http(url: str, api_key: str | None, checks: Checks) -> None:
+async def _http(url: str, api_key: str | None, checks: Checks, probe: str | None) -> None:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    headers = {"X-Groundtruth-Probe": "1"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     async with streamablehttp_client(url, headers=headers) as (read, write, _):
         async with ClientSession(read, write) as session:
-            await _exercise(session, checks)
+            await _exercise(session, checks, probe)
 
 
-def _health(url: str, max_age_hours: float | None, checks: Checks) -> None:
+def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
     import httpx
 
     base = url.rstrip("/")
@@ -108,10 +119,10 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> None:
         body = r.json()
     except Exception as exc:  # noqa: BLE001
         checks.fail(f"healthz unreachable: {exc}")
-        return
+        return {}
     if r.status_code != 200 or not body.get("ok"):
         checks.fail(f"healthz: {r.status_code} {body}")
-        return
+        return {}
     checks.ok(f"healthz: {body.get('name')} data {body.get('data_version')}, built {body.get('built_at')}")
     if max_age_hours and body.get("built_at"):
         built = dt.datetime.strptime(body["built_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
@@ -120,6 +131,7 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> None:
             checks.fail(f"data is {age:.0f}h old (limit {max_age_hours:.0f}h)")
         else:
             checks.ok(f"data age {age:.1f}h (limit {max_age_hours:.0f}h)")
+    return body
 
 
 def _leaf(exc: BaseException) -> BaseException:
@@ -147,8 +159,8 @@ def run(project: Project, url: str | None = None, api_key: str | None = None,
     try:
         if url:
             print(f"watchdog: {url}")
-            _health(url, max_age_hours, checks)
-            anyio.run(_http, url, api_key or os.environ.get("GT_MCP_API_KEY") or None, checks)
+            body = _health(url, max_age_hours, checks)
+            anyio.run(_http, url, api_key or os.environ.get("GT_MCP_API_KEY") or None, checks, body.get("probe"))
         else:
             print(f"watchdog: {project.name} over stdio")
             anyio.run(_stdio, project, checks)

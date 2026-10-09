@@ -1,4 +1,5 @@
 ---
+example: true
 title: Reset your password
 page_type: process
 last_compiled: 2026-01-15

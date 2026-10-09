@@ -85,7 +85,7 @@ def tool_specs(project: Project) -> list[dict[str, Any]]:
     for name, spec in store.tools.items():
         desc = spec["description"]
         if "source" not in desc.lower():
-            desc += " Results include source_url: cite it."
+            desc += " Each result has a `source` (a URL, or a file path for local documents): cite it."
         out.append({"name": name, "description": desc, "input_schema": store.tool_param_schema(name),
                     "collection": spec["collection"], "kind": spec["kind"]})
     out.append({
@@ -111,23 +111,45 @@ def tool_specs(project: Project) -> list[dict[str, Any]]:
     return out
 
 
-def instructions(project: Project) -> str:
+PLACEHOLDER = "{{FACT_TOOLS}}"
+
+
+def routing_table(project: Project) -> str:
+    """Markdown table: which fact tool answers what. Generated from facts/, so it can't drift."""
     store = facts.store(project)
     store.refresh()
-    fact_lines = []
+    lines = ["| For | Call |", "|---|---|"]
     for coll in store.collections.values():
-        names = ", ".join(t["name"] for t in coll["tools"])
-        fact_lines.append(f"{coll['description'] or coll['name']} ({names})")
+        names = ", ".join(f"`{t['name']}`" for t in coll["tools"])
+        lines.append(f"| {coll['description'] or coll['name']} | {names} |")
+    return "\n".join(lines)
+
+
+def _generated_instructions(project: Project) -> str:
     about = project.about or f"Grounded knowledge tools for {project.name}."
     return (
         f"{about}\n\n"
         "Rule: never state a date, time, dollar amount, phone number, email, hours, or other exact fact "
-        "from memory or from wiki prose. Look it up with a fact tool and cite its source_url:\n- "
-        + "\n- ".join(fact_lines)
-        + "\n\nFor how/why/process questions, call search_wiki, then read_wiki_page on the best hit. "
+        "from memory or from wiki prose. Look it up with a fact tool and cite the result's `source`:\n\n"
+        f"{routing_table(project)}\n\n"
+        "For how/why/process questions, call search_wiki, then read_wiki_page on the best hit. "
         "If a wiki page and a fact tool disagree, the fact tool is right. If no tool covers the question, "
         "say so instead of guessing."
     )
+
+
+def instructions(project: Project) -> str:
+    """The assistant's instructions. One source of truth for MCP clients, ./gt ask, and evals.
+
+    Uses prompts/system_prompt.md when it exists, with ``{{FACT_TOOLS}}`` replaced by
+    the generated routing table. Without a prompt file, generates everything.
+    """
+    if project.prompt_path.exists():
+        text = project.prompt_path.read_text(encoding="utf-8")
+        if PLACEHOLDER in text:
+            text = text.replace(PLACEHOLDER, routing_table(project))
+        return text.strip()
+    return _generated_instructions(project)
 
 
 def _make_fact_tool(project: Project, spec: dict[str, Any]):
@@ -231,6 +253,7 @@ def health(project: Project) -> dict[str, Any]:
     store.refresh()
     db = project.db_path
     counts = json.loads(store.meta.get("counts", "{}"))
+    pages = search.load_pages(project)
     return {
         "ok": True,
         "name": project.name,
@@ -238,7 +261,8 @@ def health(project: Project) -> dict[str, Any]:
         "data_version": store.meta.get("fingerprint"),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(db.stat().st_mtime)) if db.exists() else None,
         "facts": counts,
-        "wiki_pages": len(search.load_pages(project)),
+        "wiki_pages": len(pages),
+        "probe": pages[0].title if pages else None,  # a query ./gt watchdog knows must find something
         "tools": len(store.tools) + 2,
     }
 
@@ -267,8 +291,8 @@ class GatewayMiddleware:
                 return await self._send_json(send, 200, health(self.project))
             except Exception as exc:  # noqa: BLE001 - health must report, not crash
                 return await self._send_json(send, 503, {"ok": False, "error": str(exc)})
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
         if self.api_key:
-            headers = {k.lower(): v for k, v in scope.get("headers", [])}
             presented = ""
             auth = headers.get(b"authorization", b"")
             if auth.lower().startswith(b"bearer "):
@@ -279,6 +303,12 @@ class GatewayMiddleware:
             if not presented or not hmac.compare_digest(presented, self.api_key):
                 return await self._send_json(send, 401, {"error": "unauthorized",
                                                          "hint": "send Authorization: Bearer <GT_MCP_API_KEY>"})
+        if headers.get(b"x-groundtruth-probe"):
+            token = observability.PROBE.set(True)
+            try:
+                return await self.app(scope, receive, send)
+            finally:
+                observability.PROBE.reset(token)
         return await self.app(scope, receive, send)
 
 

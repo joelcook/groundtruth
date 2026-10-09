@@ -1,0 +1,7 @@
+# The version of each source your facts and wiki were last reviewed against.
+# Written by `./gt review --done`. Don't edit by hand.
+sources/pages/cancellation-policy.md: 560a543efdc9bf00
+sources/pages/insurance.md: 9b332b4b8b64e643
+sources/pages/locations.md: b811a1221d2d5ca5
+sources/pages/new-patients.md: dfdfd55a8f840861
+sources/pages/self-pay-prices.md: feea2142c5e2bcdc

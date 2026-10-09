@@ -1,6 +1,7 @@
 # A facts file: one kind of exact thing people ask about. Replace the example
 # rows with yours, and add more files (prices.yaml, hours.yaml...) the same way.
 # Reference: docs/facts.md
+example: true          # fictional template data: ./gt examples --remove deletes it
 description: How to reach each team, by phone and email.
 key: team
 source:

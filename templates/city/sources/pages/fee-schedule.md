@@ -1,4 +1,5 @@
 ---
+example: true
 title: Fee schedule
 source_url: https://www.example.gov/fees
 captured: 2026-01-15

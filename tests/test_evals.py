@@ -19,7 +19,7 @@ class TestToolsTier(unittest.TestCase):
     def test_example_passes(self):
         self.assertEqual(evals.run(self.p, "tools", quiet=True), 0)
         data = self.latest()
-        self.assertEqual((data["passed"], data["total"], data["skipped"]), (12, 12, 3))
+        self.assertEqual((data["passed"], data["total"], data["skipped"]), (15, 15, 3))
 
     def test_catches_wrong_data(self):
         fees = self.p.facts_dir / "fees.yaml"

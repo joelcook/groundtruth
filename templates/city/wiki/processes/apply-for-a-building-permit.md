@@ -1,4 +1,5 @@
 ---
+example: true
 title: Apply for a building permit
 page_type: process
 last_compiled: 2026-01-15

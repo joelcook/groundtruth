@@ -1,4 +1,5 @@
 ---
+example: true
 title: Cancellation policy
 source_url: https://www.example-clinic.com/cancellations
 captured: 2026-01-15

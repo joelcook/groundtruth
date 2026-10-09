@@ -6,7 +6,7 @@ scraped_at: 2026-06-10
 # Events Calendar (Source Snapshot)
 
 The structured event rows projected into the database live in
-`sources/facts/library-facts.yaml`. This page is the human-readable evidence a
+`facts/events.yaml`. This page is the human-readable evidence a
 scraper captured from the public events calendar.
 
 Recurring: Toddler Story Time runs weekly at Central. Teen Game Night runs at

@@ -1,0 +1,4 @@
+# The version of each source your facts and wiki were last reviewed against.
+# Written by `./gt review --done`. Don't edit by hand.
+sources/pages/about.md: b090bc5bde82cdde
+sources/pages/contact.md: 5369c6b8266d8226

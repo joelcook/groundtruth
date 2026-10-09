@@ -1,3 +1,4 @@
+example: true          # fictional template data: ./gt examples --remove deletes it
 description: Tuition and required fees per credit hour.
 key: id
 source:

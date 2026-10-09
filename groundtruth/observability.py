@@ -15,6 +15,7 @@ to echo each call.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import sys
@@ -25,6 +26,10 @@ from pathlib import Path
 from groundtruth.project import Project
 
 REDACT_KEYS = {"api_key", "authorization", "token", "secret", "password", "pin", "ssn"}
+
+# Set while handling a request from ./gt watchdog, so synthetic checks never show up
+# as real demand (or fake gaps) in ./gt report.
+PROBE: contextvars.ContextVar[bool] = contextvars.ContextVar("groundtruth_probe", default=False)
 
 
 def log_path(project: Project) -> Path:
@@ -63,6 +68,8 @@ def log_tool_call(project: Project, name: str, args: dict, *, ok: bool, ms: floa
     }
     if error:
         record["error"] = error[:300]
+    if PROBE.get():
+        record["probe"] = True
     try:
         path = log_path(project)
         path.parent.mkdir(parents=True, exist_ok=True)

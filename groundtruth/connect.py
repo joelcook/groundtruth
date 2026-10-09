@@ -89,7 +89,7 @@ def snippet(client: str, project: Project, url: str | None = None) -> str:
                 f"  Server URL:      {http_url}\n"
                 "  Authentication:  API key sent as the header  Authorization: Bearer <GT_MCP_API_KEY>\n"
                 "                   (x-api-key: <key> and x-ms-apikey: <key> also work)\n"
-                "Paste prompts/system_prompt.md into the agent's instructions so the agent and your evals agree.")
+                "Paste the output of `./gt prompt` into the agent's instructions so the agent and your evals agree.")
     if client in ("chatgpt", "claude-ai"):
         where = ("In ChatGPT, add a custom connector (developer mode)"
                  if client == "chatgpt" else "In claude.ai, add a custom connector (Settings > Connectors)")
@@ -104,10 +104,25 @@ def snippet(client: str, project: Project, url: str | None = None) -> str:
     raise ValueError(f"unknown client {client!r}; choose from {', '.join(CLIENTS)}")
 
 
+INSTALL_CLIS = {"claude-code": "claude", "codex": "codex"}
+
+
 def install(client: str, project: Project) -> str:
+    """Add the server to a client. Returns a message; raises ValueError (with the snippet) if it can't."""
+    if client in INSTALL_CLIS:
+        import subprocess
+        exe = shutil.which(INSTALL_CLIS[client])
+        if not exe:
+            raise ValueError(f"the `{INSTALL_CLIS[client]}` CLI isn't on your PATH. Run this once it is:\n\n"
+                             + snippet(client, project).split("\n\n", 1)[-1])
+        cmd = [exe, "mcp", "add", server_name(project), "--", *stdio_command(project)]
+        done = subprocess.run(cmd, capture_output=True, text=True)
+        if done.returncode != 0:
+            raise ValueError(f"`{' '.join(cmd[:4])} ...` failed: {(done.stderr or done.stdout).strip()}")
+        return f"added {project.name!r} to {client}"
     path = config_path(client)
     if path is None:
-        raise ValueError(f"--install supports claude-desktop, cursor, windsurf; for {client} run the printed command")
+        raise ValueError(f"--install isn't available for {client}. Do this instead:\n\n{snippet(client, project)}")
     path.parent.mkdir(parents=True, exist_ok=True)
     data: dict = {}
     if path.exists():
@@ -121,4 +136,4 @@ def install(client: str, project: Project) -> str:
         shutil.copy2(path, backup)
     data.setdefault("mcpServers", {})[server_name(project)] = _json_entry(project)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return str(path)
+    return f"added {project.name!r} to {path} (old file backed up). Restart the app"

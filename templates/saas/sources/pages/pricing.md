@@ -1,4 +1,5 @@
 ---
+example: true
 title: Pricing
 source_url: https://example.com/pricing
 captured: 2026-01-15

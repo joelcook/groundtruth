@@ -27,7 +27,7 @@ from pathlib import Path
 from groundtruth import checks, facts
 from groundtruth.project import Project
 
-STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "180"))
+STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "0"))  # 0 = only flag pages whose sources changed
 
 
 @dataclass
@@ -98,6 +98,8 @@ def uncovered(project: Project) -> list[SourceInfo]:
 
 
 def stale_pages(project: Project) -> list[tuple[Path, str]]:
+    from groundtruth import review
+    changed = {c.source for c in review.changes(project)}
     by_rel = {s.rel: s for s in sources(project)}
     today = dt.date.today()
     out = []
@@ -105,6 +107,11 @@ def stale_pages(project: Project) -> list[tuple[Path, str]]:
         if "internal" in page.relative_to(project.wiki_dir).parts:
             continue
         meta = _frontmatter(page)
+        cited = [str(s).strip("[]").split("|")[0] for s in (meta.get("sources") or [])]
+        hit = [s for s in cited if s in changed]
+        if hit:
+            out.append((page, f"source changed since the last review: {', '.join(hit)}"))
+            continue
         compiled = _date(meta.get("last_compiled"))
         if compiled is None:
             out.append((page, "no last_compiled date"))
@@ -113,7 +120,7 @@ def stale_pages(project: Project) -> list[tuple[Path, str]]:
                  if (src := by_rel.get(str(s))) and src.captured and src.captured > compiled]
         if newer:
             out.append((page, f"source changed since {compiled}: {', '.join(map(str, newer))}"))
-        elif (today - compiled).days > STALE_DAYS:
+        elif STALE_DAYS and (today - compiled).days > STALE_DAYS:
             out.append((page, f"compiled {(today - compiled).days} days ago"))
     return out
 
@@ -128,7 +135,8 @@ RULES = """\
    `./gt check` fails if a date or `$` amount appears in a wiki page.
 2. **Every fact row has a source.** Use the file-level `source: {path, url}` or a
    per-row `source_url`. Point at the `sources/pages/...` file it came from.
-3. **Every wiki page has frontmatter and a lineage table:**
+3. **Every wiki page has frontmatter and a lineage table** (for local files with
+   no URL, put the source path in the URL column):
    ```markdown
    ---
    title: How to reset your password
@@ -154,12 +162,22 @@ RULES = """\
    `wiki/processes/reset-password.md`) and list new pages in `wiki/index.md`.
 5. **Don't edit `sources/`.** It's the evidence; `./gt ingest` owns it.
 6. **Add eval questions** to `evals/golden.yaml` for what you added: a `hard_fact`
-   item (with `must_call_tool`, `tool_args`, `must_contain`) for each new fact
-   tool, and a `narrative` item (`must_cite_page`) for each new page.
+   item (with `must_call_tool`, `tool_args`, and `must_contain` or `must_match`)
+   for each fact tool, and a `narrative` item (`must_cite_page`) for each page.
+   Replace any template example questions (`example: true`). `./gt check` warns
+   about tools no question exercises.
+7. **The prompt.** If `prompts/system_prompt.md` contains `{{FACT_TOOLS}}`, its
+   routing table is generated from `facts/` and you don't touch it. Otherwise
+   update its table. Rewrite its scope and refusal rules for this organization
+   (what's personal/account data it must redirect, and where to).
+8. **Template examples** (`example: true` in facts files, pages, sources, and
+   questions) are fictional. Remove them once real content replaces them:
+   `./gt examples --remove`.
 """
 
 FACTS_HOWTO = """\
-A collection is one YAML file. Copy this shape:
+A collection is one YAML file. Copy this shape (for a local document with no
+URL, `source: {path: sources/pages/pricing.md}` is enough):
 
 ```yaml
 # facts/plans.yaml
@@ -193,9 +211,11 @@ def _where(project: Project) -> str:
 
 
 def packet(project: Project) -> Path:
+    from groundtruth import review
     today = dt.date.today().isoformat()
     new = uncovered(project)
     stale = stale_pages(project)
+    changed = review.changes(project)
     try:
         collections = facts.load(project)
         coll_lines = [f"- `{Path(c.file).name}`: {c.description or c.name} "
@@ -219,6 +239,16 @@ def packet(project: Project) -> Path:
         "## Work list",
         "",
     ]
+    if changed:
+        lines += [f"### Sources that changed since the last review ({len(changed)})", "",
+                  "Facts and pages below were written against an older version of the source. Compare",
+                  "them with the current source (`git diff` shows what changed), fix anything out of",
+                  "date, then run `./gt review --done`. `./gt check` fails until you do.", ""]
+        for ch in changed:
+            lines.append(f"- `{ch.source}` ({ch.reason})")
+            lines += [f"  - facts: `{f}`" for f in ch.facts]
+            lines += [f"  - wiki: `{w}`" for w in ch.wiki]
+        lines.append("")
     if new:
         lines += [f"### New sources nothing covers yet ({len(new)})", "",
                   "For each: decide what's a fact (goes in `facts/`) and what's explanation (a wiki",
@@ -231,7 +261,18 @@ def packet(project: Project) -> Path:
                   "facts the change affects.", ""]
         lines += [f"- `{project.rel(p)}`: {why}" for p, why in stale]
         lines.append("")
-    if not new and not stale:
+    from groundtruth import examples
+    ex = examples.find(project)
+    if ex.total:
+        lines += [f"### Template examples still live ({ex.total})", "",
+                  "These are fictional placeholders from the template. Once the evidence above is",
+                  "turned into real facts, pages, and questions, delete them all with",
+                  "`./gt examples --remove` (or delete them one by one). Don't leave fictional prices",
+                  "or contacts in a live assistant.", ""]
+        lines += [f"- `{project.rel(p)}`" for p in [*ex.facts, *ex.wiki, *ex.sources]]
+        lines += [f"- `evals/golden.yaml`: question `{q}`" for q in ex.questions]
+        lines.append("")
+    if not new and not stale and not changed and not ex.total:
         lines += ["Nothing to do: every source is covered and no page is stale. Run `./gt ingest`",
                   "to pull fresh evidence first.", ""]
     lines += [
@@ -254,8 +295,10 @@ def packet(project: Project) -> Path:
         "Run these from the repo root and fix everything they report:",
         "",
         "```bash",
-        "./gt check      # facts, wiki structure, no facts in prose, golden set",
-        "./gt eval       # free: tools return the expected facts, search finds the pages",
+        "./gt check          # facts, sources, wiki structure, no facts in prose, golden set",
+        "./gt eval           # free: tools return the expected facts, search finds the pages",
+        "./gt review --done  # once facts and pages match the current sources",
+        "./gt check          # again: green means reconciled",
         "```",
         "",
         "Then summarize what you added and anything in the sources you couldn't place.",

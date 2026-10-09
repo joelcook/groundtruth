@@ -31,38 +31,38 @@ rows:
   - title: Summer Reading Kickoff
     branch: central
     category: program
-    date: "2026-06-20"
-    when: Saturday, June 20, 2026
+    date: "2027-06-19"
+    when: Saturday, June 19, 2027
     start_time: "11:00"
     registration_required: false
     notes: Sign up for Summer Reading, meet the staff, free snacks.
   - title: Teen Game Night
     branch: eastside
     category: workshop
-    date: "2026-06-26"
-    when: Friday, June 26, 2026
+    date: "2027-06-25"
+    when: Friday, June 25, 2027
     start_time: "18:00"
     registration_required: false
     notes: Grades 6-12. Board games and console tournaments.
   - title: Resume & Job Search Workshop
     branch: central
     category: workshop
-    date: "2026-06-27"
-    when: Saturday, June 27, 2026
+    date: "2027-06-26"
+    when: Saturday, June 26, 2027
     start_time: "14:00"
     registration_required: true
     notes: Bring a laptop or use ours. Seats limited; registration required.
   - title: Independence Day Closure
     category: closure
-    date: "2026-07-04"
-    when: Saturday, July 4, 2026
+    date: "2027-07-05"
+    when: Monday, July 5, 2027 (observed)
     registration_required: false
     notes: All branches closed for the holiday.
   - title: Friends of the Library Book Sale
     branch: central
     category: book-sale
-    date: "2026-07-11"
-    when: Saturday, July 11, 2026
+    date: "2027-07-10"
+    when: Saturday, July 10, 2027
     start_time: "09:00"
     registration_required: false
     notes: Gently used books, most under a dollar. Proceeds fund programs.

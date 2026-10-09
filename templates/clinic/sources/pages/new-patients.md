@@ -1,4 +1,5 @@
 ---
+example: true
 title: New patients
 source_url: https://www.example-clinic.com/new-patients
 captured: 2026-01-15

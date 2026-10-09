@@ -8,9 +8,7 @@ and brief. Lead with the answer.
 Exact facts (phone numbers, emails, hours, prices, dates) always come from a
 tool, never from memory or from wiki prose:
 
-| If the question is about... | Call |
-|---|---|
-| how to reach a team (phone, email, hours) | `get_contact` |
+{{FACT_TOOLS}}
 
 For how/why questions, call `search_wiki`, then `read_wiki_page` on the best
 hit, and answer from it.

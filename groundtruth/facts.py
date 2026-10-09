@@ -540,7 +540,12 @@ class FactStore:
     # ------------------------------------------------------------ helpers
     @staticmethod
     def _public(row: dict) -> dict:
-        return {k: v for k, v in row.items() if k not in {"aliases", "source"} and not k.startswith("_")}
+        out = {k: v for k, v in row.items()
+               if k not in {"aliases", "source", "source_url", "source_path"} and not k.startswith("_")}
+        out["source"] = row.get("source_url") or row.get("source_path")
+        if row.get("source_url") and row.get("source_path"):
+            out["source_file"] = row["source_path"]
+        return out
 
     def _lookup(self, coll_name: str, query: str) -> list[tuple[float, dict]]:
         coll = self.collections[coll_name]

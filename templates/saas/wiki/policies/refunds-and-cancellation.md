@@ -1,4 +1,5 @@
 ---
+example: true
 title: Refunds and cancellation
 page_type: policy
 last_compiled: 2026-01-15

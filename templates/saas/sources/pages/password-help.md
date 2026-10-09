@@ -1,4 +1,5 @@
 ---
+example: true
 title: Reset your password
 source_url: https://example.com/help/password
 captured: 2026-01-15

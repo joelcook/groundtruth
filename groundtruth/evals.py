@@ -42,15 +42,45 @@ LIVE_TIERS = ("live", "release")
 # ===================================================================== matching helpers
 
 
+NUMBER_RE = re.compile(r"(?<![\d:.\w])\d[\d,]*(?:\.\d+)?(?![\d:])")
+
+
+def _as_number(text: str) -> float | None:
+    cleaned = str(text).strip().replace("$", "").replace(",", "")
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", cleaned):
+        return None
+    return float(cleaned)
+
+
+def numbers_in(text: str) -> list[float]:
+    return [float(m.replace(",", "")) for m in NUMBER_RE.findall(text)]
+
+
 def contains(haystack: str, needle: str) -> bool:
-    """Case-insensitive substring match that also treats "0.10" and 0.1 as equal."""
-    if str(needle).lower() in haystack.lower():
-        return True
-    try:
-        target = float(str(needle).replace("$", "").replace(",", "").strip())
-    except ValueError:
-        return False
-    return any(abs(float(x) - target) < 1e-9 for x in re.findall(r"(?<![\d:])-?\d+(?:\.\d+)?(?![\d:])", haystack))
+    """Does ``haystack`` contain ``needle``?
+
+    A plain number ("29", "$0.10") is compared by VALUE against every number in
+    the text, so "0.10" matches 0.1 and "9" does NOT match 49. Anything else is
+    a case-insensitive substring match.
+    """
+    number = _as_number(needle)
+    if number is not None:
+        return any(abs(n - number) < 1e-9 for n in numbers_in(haystack))
+    return str(needle).lower() in haystack.lower()
+
+
+def _field_equals(actual, expected) -> bool:
+    a, e = _as_number(str(actual)), _as_number(str(expected))
+    if a is not None and e is not None:
+        return abs(a - e) < 1e-9
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return str(actual).lower() == str(expected).lower()
+    return str(actual).strip().lower() == str(expected).strip().lower()
+
+
+def match_rows(rows: list[dict], expected: dict) -> bool:
+    """True when some row has every field in ``expected`` with that value."""
+    return any(all(_field_equals(r.get(k), v) for k, v in expected.items()) for r in rows)
 
 
 def _norm_page(value: str) -> str:
@@ -104,6 +134,11 @@ def run_tools_tier(project: Project, items: list[dict]) -> list[dict]:
                 for needle in item.get("must_contain", []) or []:
                     if not contains(payload_text, str(needle)):
                         reasons.append(f"{tool}({args}) result doesn't contain {needle!r}")
+                expected = item.get("must_match")
+                if expected and isinstance(payload, dict):
+                    if not match_rows(payload.get("results") or [], expected):
+                        got = [{k: r.get(k) for k in expected} for r in (payload.get("results") or [])[:3]]
+                        reasons.append(f"{tool}({args}) has no row with {expected} (got {got})")
                 for needle in item.get("must_not_contain", []) or []:
                     if str(needle).lower() in payload_text.lower():
                         reasons.append(f"{tool}({args}) result contains the stale value {needle!r}")
@@ -172,8 +207,7 @@ def grade(item: dict, response: str, calls: list[dict], *, use_judge: bool) -> t
 
 
 def system_prompt(project: Project) -> str:
-    if project.prompt_path.exists():
-        return project.prompt_path.read_text(encoding="utf-8")
+    """Exactly what MCP clients get (see server.instructions)."""
     return server.instructions(project)
 
 
@@ -212,7 +246,8 @@ def run_replay(project: Project, items: list[dict]) -> tuple[list[dict], Path | 
     for item in items:
         row = rows.get(item["id"])
         if row is None:
-            results.append(_result(item, False, ["not in the recorded run (new question?)"]))
+            results.append(_result(item, True, ["skipped: added after the recorded run (run --tier live)"],
+                                   skipped=True))
             continue
         passed, reasons = grade(item, row.get("response", ""), row.get("tool_calls", []), use_judge=False)
         results.append(_result(item, passed, reasons, tool_calls=row.get("tool_calls", []),
@@ -290,7 +325,8 @@ def run(project: Project, tier: str = "tools", *, only: str | None = None, judge
         for r in graded:
             if not r["passed"]:
                 print(f"  ✗ {r['id']}: {'; '.join(r['reasons'])}")
-        extra = f" ({len(skipped)} skipped: need a model, run --tier live)" if skipped else ""
+        why = "not in the recorded run" if tier == "replay" else "need a model"
+        extra = f" ({len(skipped)} skipped: {why}, run --tier live)" if skipped else ""
         print(f"{tier}: {passed}/{len(graded)} passed{extra}")
         if regressions:
             print(f"  REGRESSIONS since the last live run: {', '.join(regressions)}")

@@ -1,4 +1,5 @@
 ---
+example: true
 title: Drop or withdraw from a class
 page_type: process
 last_compiled: 2026-01-15
