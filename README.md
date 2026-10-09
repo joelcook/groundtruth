@@ -14,11 +14,11 @@ get to make facts up.**
   them in plain YAML, and each file becomes tools the model has to call. No
   Python, no SQL.
 - **Explanations live in a small wiki.** How-tos and policies in markdown, every
-  page citing its sources. A linter fails the build if a date, a price, a
-  deadline, or a phone number sneaks into the prose.
+  page citing its sources. `./gt check` fails, and the server refuses to serve,
+  if a date, a time, a price, a deadline, or a phone number sneaks into the prose.
 - **Changed evidence can't hide.** Re-capture your sources and anything built on
-  a page that changed gets flagged for review. Green means reconciled, not just
-  well-formed.
+  a page that changed, or disappeared, gets flagged for review with a diff.
+  Green means reconciled, not just well-formed.
 - **Evals prove it.** Questions with known answers. The free tier checks your
   data and your search with no API key. The live tier asks Claude, with the real
   tools, and fails any answer that came from memory instead of a lookup.
@@ -57,7 +57,7 @@ Without an API key, `./gt ask` shows what the model would look up
 (`get_hours(branch='central', day='saturday')`) and what comes back. With
 `ANTHROPIC_API_KEY` set, Claude writes the answer using those tools.
 
-## Make your own: about 10 minutes
+## Make your own
 
 ```bash
 ./gt init my-assistant --template saas    # or: college, city, clinic, blank
@@ -73,9 +73,10 @@ Without an API key, `./gt ask` shows what the model would look up
    `./gt check` reminds you until they're replaced (`./gt examples --remove`).
 2. **`ingest`** crawls your site (sitemap first, `robots.txt` respected) or reads
    a folder of `.md`, `.html`, `.txt`, or `.pdf` files into `sources/pages/`.
-   Re-running only rewrites pages that actually changed, and if a changed page
-   is one your facts or wiki cite, `./gt check` fails until you've re-checked them
-   and run `./gt review --done`.
+   Re-running only rewrites pages that actually changed, and keeps two documents
+   with the same name separate. If a page your facts or wiki cite changed or
+   disappeared upstream, `./gt check` fails until you've re-checked them
+   (`./gt review --diff` shows exactly what changed) and run `./gt review --done`.
 3. **`compile`** writes `build/compile-packet.md`: a precise work order. Open the
    repo in Claude Code (or Codex, or Cursor) and say *"do the work in
    my-assistant/build/compile-packet.md"*. It turns the evidence into wiki pages
@@ -87,6 +88,11 @@ Without an API key, `./gt ask` shows what the model would look up
 5. **`connect`** prints setup for every common client with your real paths filled
    in. `--install` does it for you: it writes Claude Desktop, Cursor, or Windsurf
    config (backing up the old file) or runs `claude mcp add` / `codex mcp add`.
+
+**How long it takes:** the commands take minutes. The real work is curation:
+deciding what's a fact, writing pages, choosing eval questions. A coding agent
+working from the compile packet does most of it for a small site in an
+afternoon; by hand, budget a day for your first few dozen facts and pages.
 
 Prefer to do it by hand? Every file is plain YAML or markdown. Edit `facts/`
 and `wiki/` directly, and `./gt check` tells you if anything's off.
@@ -137,7 +143,7 @@ the exact window with `get_limit`, so it's always current.
 ```
 
 Notice what's missing: the number. "Within 30 days" in prose is a fact that goes
-stale silently, so `./gt check` fails on it, along with dates, prices,
+stale silently, so `./gt check` fails on it, along with dates, times, prices,
 percentages, size limits, phone numbers, and emails. See [docs/wiki.md](docs/wiki.md).
 
 ## Evals that grade the lookup, not the vibes
@@ -177,8 +183,10 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 
 - **Deploy anywhere that runs a container**: Fly.io, Render, Railway, Azure
   Container Apps, Google Cloud Run, a VPS. Recipes in [docs/deploy.md](docs/deploy.md).
-- **`/healthz`** for load balancers, and **`./gt watchdog --url ...`** to check a
-  deployed server end to end. `.github/workflows/watchdog.yml` runs it daily.
+- **It won't serve unchecked content.** `./gt serve` refuses to start if
+  `./gt check` fails, `/healthz` reports whether the live content passes, and
+  **`./gt watchdog --url ...`** checks a deployed server end to end, daily via
+  `.github/workflows/watchdog.yml`.
 - **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
   rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
   and costs nothing.
@@ -197,7 +205,7 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt ingest URL\|FOLDER` | Pull a site, sitemap, or folder into `sources/pages/` |
 | `./gt compile [--write]` | Work order for a coding agent, or draft wiki pages with Claude |
 | `./gt check` | Facts, source review, wiki structure, no facts in prose, eval wiring |
-| `./gt review [--done]` | Sources that changed since your facts and wiki were checked against them |
+| `./gt review [--diff] [--done]` | Sources that changed (or vanished) since your facts and wiki were checked against them |
 | `./gt examples [--remove]` | The template's fictional example content |
 | `./gt eval [--tier live]` | Run the golden set (free tier needs nothing) |
 | `./gt serve [--stdio]` | The MCP server |

@@ -104,6 +104,46 @@ def changes(project: Project) -> list[Change]:
     return out
 
 
+def diff(project: Project, source: str) -> str | None:
+    """Unified diff from the last reviewed version of a source to the current one (None if unknown)."""
+    import difflib
+    lock = load_lock(project) or {}
+    old_hash = lock.get(source)
+    current_path = project.root / source
+    if not old_hash or not current_path.exists():
+        return None
+    rel = Path(source).relative_to("sources/pages").as_posix() if source.startswith("sources/pages/") else source
+    old_path = project.sources_dir / ".history" / f"{rel}@{old_hash}"
+    if not old_path.exists():
+        return None
+    old = old_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    new = current_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    return "".join(difflib.unified_diff(old, new, f"{source} (reviewed)", f"{source} (now)"))
+
+
+def removed_upstream(project: Project) -> dict[str, str]:
+    """Cited sources whose document is gone upstream: source -> date noticed."""
+    out = {}
+    for src in dependents(project):
+        path = project.root / src
+        if path.exists():
+            meta, _ = checks.split_frontmatter(path.read_text(encoding="utf-8"))
+            if (meta or {}).get("removed_upstream"):
+                out[src] = str(meta["removed_upstream"])
+    return out
+
+
+def _prune_history(project: Project, lock: dict[str, str]) -> None:
+    hist = project.sources_dir / ".history"
+    if not hist.exists():
+        return
+    keep = {f"{Path(k).relative_to('sources/pages').as_posix()}@{v}" for k, v in lock.items()
+            if k.startswith("sources/pages/")}
+    for f in hist.rglob("*"):
+        if f.is_file() and f.relative_to(hist).as_posix() not in keep:
+            f.unlink()
+
+
 def mark_reviewed(project: Project, paths: list[str] | None = None) -> list[str]:
     """Record the current version of the given sources (default: all). Returns what was recorded."""
     now = current(project)
@@ -117,4 +157,5 @@ def mark_reviewed(project: Project, paths: list[str] | None = None) -> list[str]
             recorded.append(src)
     lock = {k: v for k, v in sorted(lock.items()) if k in now}
     lock_path(project).write_text(HEADER + yaml.safe_dump(lock, sort_keys=True), encoding="utf-8")
+    _prune_history(project, lock)
     return recorded

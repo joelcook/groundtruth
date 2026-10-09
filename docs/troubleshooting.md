@@ -37,8 +37,15 @@ client, for stdio). Data changes reload live; new tools need a restart.
 what each tool returns.
 
 **"sources/pages/x.md changed since the last review"**: the evidence behind
-some facts or pages changed. `./gt review` lists them; compare with `git diff`,
+some facts or pages changed. `./gt review` lists them; `./gt review --diff` shows the change;
 fix what's stale, then `./gt review --done`.
+
+**"was removed upstream but is still cited"**: `./gt ingest` noticed the document
+is gone (deleted from its folder, or a 404). The evidence is kept and flagged.
+Update or remove the facts and pages that cite it, then `./gt review --done`.
+
+**"Refusing to serve content that hasn't passed the checks"**: fix what `./gt
+check` reports. `./gt serve --force` serves anyway, for local testing only.
 
 **"template examples are still live"**: the template's fictional rows and pages
 are still being served. Replace them, or `./gt examples --remove`.

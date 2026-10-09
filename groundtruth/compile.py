@@ -88,7 +88,8 @@ def cited_sources(project: Project) -> set[str]:
 
 def _retired(path: Path) -> bool:
     meta = _frontmatter(path)
-    return meta.get("canonical") is False or str(meta.get("status", "")).lower() in {"retired", "superseded", "archived"}
+    return (meta.get("canonical") is False or bool(meta.get("removed_upstream"))
+            or str(meta.get("status", "")).lower() in {"retired", "superseded", "archived"})
 
 
 def uncovered(project: Project) -> list[SourceInfo]:
@@ -242,7 +243,7 @@ def packet(project: Project) -> Path:
     if changed:
         lines += [f"### Sources that changed since the last review ({len(changed)})", "",
                   "Facts and pages below were written against an older version of the source. Compare",
-                  "them with the current source (`git diff` shows what changed), fix anything out of",
+                  "them with the current source (`./gt review --diff` shows what changed), fix anything out of",
                   "date, then run `./gt review --done`. `./gt check` fails until you do.", ""]
         for ch in changed:
             lines.append(f"- `{ch.source}` ({ch.reason})")
@@ -295,10 +296,10 @@ def packet(project: Project) -> Path:
         "Run these from the repo root and fix everything they report:",
         "",
         "```bash",
-        "./gt check          # facts, sources, wiki structure, no facts in prose, golden set",
+        "./gt check          # fix everything it reports, except 'changed since the last review'",
         "./gt eval           # free: tools return the expected facts, search finds the pages",
-        "./gt review --done  # once facts and pages match the current sources",
-        "./gt check          # again: green means reconciled",
+        "./gt review --done  # only after the facts and pages match the current sources",
+        "./gt check          # must be fully green now",
         "```",
         "",
         "Then summarize what you added and anything in the sources you couldn't place.",

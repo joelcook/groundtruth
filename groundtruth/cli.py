@@ -83,6 +83,12 @@ def cmd_build(args) -> int:
     if args.index:
         n = search.build_search_index(project)
         _ok(f"semantic index: {n} page(s) -> {project.rel(project.index_path)}")
+    from groundtruth import checks
+    report = checks.run(project)
+    if not report.ok:
+        n = sum(len(v) for v in report.errors.values())
+        _bad(f"built, but ./gt check finds {n} problem(s), and ./gt serve won't serve it until they're fixed")
+        return 1
     return 0
 
 
@@ -130,8 +136,14 @@ def cmd_review(args) -> int:
             print(f"      facts: {f}")
         for w in ch.wiki:
             print(f"      wiki:  {w}")
-    print("\nRe-check each listed file against its source (git diff shows what changed),")
-    print("update what's out of date, then run ./gt review --done.")
+    if args.diff:
+        for ch in pending:
+            d = review.diff(project, ch.source)
+            print(f"\n── {ch.source} " + "─" * max(0, 56 - len(ch.source)))
+            print(d if d else "(no saved copy of the reviewed version: compare by hand)")
+    else:
+        print("\nSee exactly what changed: ./gt review --diff")
+    print("Re-check each listed file against its source, update what's out of date, then run ./gt review --done.")
     return 1
 
 
@@ -163,7 +175,7 @@ def cmd_eval(args) -> int:
 
 def cmd_serve(args) -> int:
     from groundtruth import server
-    return server.run(_p(args), stdio=args.stdio, host=args.host, port=args.port)
+    return server.run(_p(args), stdio=args.stdio, host=args.host, port=args.port, force=args.force)
 
 
 def cmd_tools(args) -> int:
@@ -206,19 +218,32 @@ def cmd_ask(args) -> int:
             print(f"  - {c['name']}({', '.join(f'{k}={v!r}' for k, v in c['input'].items())})")
         return 0
     from groundtruth import facts
+    store = facts.store(project)
+    if args.json:
+        out = {"question": question, "facts": [], "wiki": []}
+        for guess in store.suggest(question):
+            out["facts"].append({"tool": guess["tool"], "args": guess["args"], "score": guess["score"],
+                                 "result": server.call_tool(project, guess["tool"], guess["args"], log=False)})
+        out["wiki"] = server.call_tool(project, "search_wiki", {"query": question, "limit": 3}, log=False)
+        print(json.dumps(out, indent=2, default=str))
+        return 0
     print(f"No API key, so this is a heuristic preview of what the model might look up for {question!r}.")
     print("(A real model chooses its own tools; set ANTHROPIC_API_KEY to see that.)\n")
     found = False
-    for guess in facts.store(project).suggest(question):
+    for guess in store.suggest(question):
         res = server.call_tool(project, guess["tool"], {**guess["args"], "limit": 3}, log=False)
         if not res.get("count"):
             continue
         found = True
+        key = store.collections[res["collection"]]["key"]
         args_txt = ", ".join(f"{k}={v!r}" for k, v in guess["args"].items())
         conf = "high" if guess["score"] >= 60 else "medium" if guess["score"] >= 40 else "low"
         print(f"{guess['tool']}({args_txt}) -> {res['count']} row(s)   [match confidence: {conf}]")
         for row in res["results"][:3]:
-            print(f"    {json.dumps(row, default=str)[:220]}")
+            fields = "; ".join(f"{k}={str(v)[:80]}" for k, v in row.items()
+                               if k not in (key, "source", "source_file") and v not in (None, ""))
+            print(f"  • {row.get(key)}: {fields}")
+            print(f"    source: {row.get('source')}")
     hits = server.call_tool(project, "search_wiki", {"query": question, "limit": 3}, log=False)
     if hits:
         found = True
@@ -248,6 +273,8 @@ def cmd_ingest(args) -> int:
         print(f"      ... and {len(result.new) - 15} more")
     for path in result.updated[:15]:
         print(f"      ~ {path}")
+    for path in result.removed[:15]:
+        print(f"      - {path} (gone upstream; kept and flagged)")
     for s in result.skipped[:10]:
         print(f"    ! skipped {s}")
     if result.changed and not args.dry_run:
@@ -542,6 +569,7 @@ def parser() -> argparse.ArgumentParser:
     sp = add("ask", cmd_ask, "ask a question (written answer with an API key, retrieval preview without)")
     sp.add_argument("question", nargs="*")
     sp.add_argument("--offline", action="store_true", help="show the retrieval preview even with a key")
+    sp.add_argument("--json", action="store_true", help="print the full preview as JSON")
     sp = add("init", cmd_init, "start your own assistant from a template")
     sp.add_argument("name", nargs="?")
     sp.add_argument("--template", "-t", default="blank")
@@ -563,6 +591,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--remove", action="store_true")
     sp = add("review", cmd_review, "what changed in your sources since facts and wiki were last reviewed")
     sp.add_argument("--done", action="store_true", help="record the current source versions as reviewed")
+    sp.add_argument("--diff", action="store_true", help="show what changed in each source")
     sp.add_argument("paths", nargs="*", help="only these sources (default: all)")
     sp = add("eval", cmd_eval, "run the golden set (tools tier is free)")
     sp.add_argument("--tier", default="tools", choices=["tools", "replay", "fast", "live", "release"])
@@ -570,6 +599,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-judge", action="store_true", help="live: skip the LLM judge for narrative answers")
     sp = add("serve", cmd_serve, "run the MCP server")
     sp.add_argument("--stdio", action="store_true")
+    sp.add_argument("--force", action="store_true", help="serve even if ./gt check fails (local testing only)")
     sp.add_argument("--host")
     sp.add_argument("--port", type=int)
     sp = add("connect", cmd_connect, "setup snippets for MCP clients")

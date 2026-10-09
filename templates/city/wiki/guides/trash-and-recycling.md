@@ -18,7 +18,7 @@ the city website; the assistant then looks up the day with `get_pickup`.
 - **Set out carts** at the curb early in the morning, lids closed.
 - **Recycling takes** paper, cardboard, metal cans, and plastic bottles.
 - **No plastic bags** in recycling.
-- **Holiday weeks** shift pickup one day later.
+- **Holiday weeks** shift the pickup schedule, so check before you set carts out.
 
 ## Sources & Lineage
 

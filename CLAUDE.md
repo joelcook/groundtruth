@@ -41,9 +41,11 @@ fact tool disagree, the tool is right and the page is stale.
 python -m unittest discover -s tests    # only if you changed code in groundtruth/
 ```
 
-If `./gt check` says a source changed since the last review, compare the listed
-facts and pages with the current source (`git diff`), fix what's stale, and only
-then run `./gt review --done`. Never run `--done` without actually re-checking.
+If `./gt check` says a source changed since the last review, run `./gt review
+--diff`, compare the listed facts and pages with the change, fix what's stale,
+and only then run `./gt review --done`. Never run `--done` without actually
+re-checking. A source "removed upstream" means the document is gone: update or
+remove whatever still cites it.
 
 Both `./gt` commands must pass. `./gt -p PATH ...` targets a specific project.
 If you changed the prompt, tools, or content and an `ANTHROPIC_API_KEY` is

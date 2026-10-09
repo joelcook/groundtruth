@@ -2,8 +2,8 @@
 
   facts    every facts/*.yaml parses, has keys, sources, and valid tools
   wiki     frontmatter, page types, a Sources & Lineage table, links that resolve
-  prose    no dates, dollar amounts, durations, percentages, size limits, phone numbers,
-           or emails in wiki prose (the rule that keeps the bot honest)
+  prose    no dates, times, dollar amounts, durations, percentages, size limits,
+           phone numbers, or emails in wiki prose (the rule that keeps the bot honest)
   evals    every golden question points at a real tool and a real page
 
 Errors fail the check (exit 1). Warnings are printed but don't fail it.
@@ -34,14 +34,22 @@ DATE_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:\s*[–-
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 SLASH_DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
 MONEY_RE = re.compile(r"(?:\$\s?\d|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|dollars)\b)")
-DURATION_RE = re.compile(r"\b\d+(?:\.\d+)?[\s-]?(?:business[\s-]|calendar[\s-])?(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?)\b", re.I)
+NUMBER_WORDS = ("one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|"
+                "twenty|thirty|forty|forty-five|fifty|sixty|ninety|hundred")
+UNITS = r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?)"
+DURATION_RE = re.compile(
+    rf"\b\d+(?:\.\d+)?[\s-]?(?:business[\s-]|calendar[\s-])?{UNITS}\b"
+    # "seven days" is exact; "about two weeks" / "a few days" is approximate and allowed
+    rf"|(?<!about )(?<!around )(?<!roughly )(?<!approximately )(?<!nearly )(?<!almost )"
+    rf"\b(?:{NUMBER_WORDS})[\s-](?:business[\s-]|calendar[\s-])?{UNITS}\b", re.I)
+TIME_RE = re.compile(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:1[0-2]|0?[1-9])\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z])", re.I)
 PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s?%")
-SIZE_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB)\b")
+SIZE_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:[KMGT]i?B|bytes|megabytes|gigabytes)\b", re.I)
 PHONE_RE = re.compile(r"(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b|\b\d{3}-\d{4}\b")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 FACT_OK_RE = re.compile(r"<!--\s*fact-ok:")
 PATTERNS = (("date", DATE_RE), ("date", ISO_DATE_RE), ("date", SLASH_DATE_RE), ("money", MONEY_RE),
-            ("duration", DURATION_RE), ("percentage", PERCENT_RE), ("size limit", SIZE_RE),
+            ("time", TIME_RE), ("duration", DURATION_RE), ("percentage", PERCENT_RE), ("size limit", SIZE_RE),
             ("phone number", PHONE_RE), ("email", EMAIL_RE))
 GOLDEN_CATEGORIES = {"hard_fact", "narrative", "out_of_scope", "contradiction"}
 
@@ -111,7 +119,8 @@ def check_wiki(project: Project, report: Report) -> None:
             report.error("wiki", f"{rel}: add a '## Sources & Lineage' section at the bottom (the audit trail)")
         for src in meta.get("sources") or []:
             if isinstance(src, str) and src.startswith("sources/") and not (project.root / src).exists():
-                report.warn("wiki", f"{rel}: source {src} does not exist")
+                report.error("wiki", f"{rel}: cites {src}, which doesn't exist. Restore it, re-ingest, "
+                                     f"or fix the path")
         for target in WIKILINK_RE.findall(text):
             t = target.strip().lower()
             if t.startswith(("sources/", "raw/", "http")):
@@ -168,7 +177,10 @@ def check_facts(project: Project, report: Report) -> list[facts.Collection]:
             report.error("facts", p)
         return []
     for w in facts.warnings(project, collections):
-        report.warn("facts", w)
+        if "does not exist" in w:
+            report.error("facts", w + ". Every fact needs evidence you can check: restore it, re-ingest, or fix the path")
+        else:
+            report.warn("facts", w)
     n_rows = sum(len(c.rows) for c in collections)
     n_tools = sum(len(c.tools) for c in collections)
     report.notes["facts"] = f"{len(collections)} collection(s), {n_rows} row(s), {n_tools} fact tool(s)"
@@ -268,11 +280,17 @@ def check_sources(project: Project, report: Report) -> None:
         report.warn("sources", "no sources.lock.yaml yet, so changed evidence can't be detected. "
                                "Once your facts match your sources, run ./gt review --done")
         return
-    pending = review.changes(project)
+    gone = review.removed_upstream(project)
+    pending = [ch for ch in review.changes(project) if ch.source not in gone]
     for ch in pending:
         affected = ", ".join(ch.facts + ch.wiki) or "nothing yet"
         report.error("sources", f"{ch.source} {ch.reason} since the last review. Re-check {affected} "
-                                f"against it, then run ./gt review --done")
+                                f"against it (./gt review --diff shows what changed), then run ./gt review --done")
+    deps = review.dependents(project)
+    for src, when in gone.items():
+        affected = ", ".join(deps[src]["facts"] + deps[src]["wiki"])
+        report.error("sources", f"{src} was removed upstream ({when}) but is still cited by {affected}. "
+                                f"Update or remove what depends on it, then ./gt review --done")
     n = len(review.current(project))
     report.notes["sources"] = f"{n} source(s), all reviewed" if not pending else f"{n} source(s)"
 

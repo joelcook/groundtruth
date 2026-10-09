@@ -124,6 +124,10 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
         checks.fail(f"healthz: {r.status_code} {body}")
         return {}
     checks.ok(f"healthz: {body.get('name')} data {body.get('data_version')}, built {body.get('built_at')}")
+    status = body.get("checks") or {}
+    if status and not status.get("ok", True):
+        checks.fail(f"the server is serving content that fails ./gt check ({status.get('errors')} problem(s)): "
+                    f"{status.get('first')}")
     if max_age_hours and body.get("built_at"):
         built = dt.datetime.strptime(body["built_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
         age = (dt.datetime.now(dt.timezone.utc) - built).total_seconds() / 3600
@@ -163,6 +167,11 @@ def run(project: Project, url: str | None = None, api_key: str | None = None,
             anyio.run(_http, url, api_key or os.environ.get("GT_MCP_API_KEY") or None, checks, body.get("probe"))
         else:
             print(f"watchdog: {project.name} over stdio")
+            from groundtruth import checks as gates
+            report = gates.run(project)
+            if not report.ok:
+                first = next(f"{k}: {e[0]}" for k, e in report.errors.items() if e)
+                checks.fail(f"the project fails ./gt check: {first}")
             anyio.run(_stdio, project, checks)
     except Exception as exc:  # noqa: BLE001 - surface any transport failure as a failed check
         checks.fail(f"MCP session failed: {_explain(exc)}")

@@ -56,7 +56,7 @@ URL is fine). The assistant cites it.
 `get_fee(fee_type="lost card")` scores every row: an exact key or alias match
 first, then the query appearing inside a field, then word overlap ("black and
 white printing" finds `printing-bw`; "late fees" finds `overdue-fine` through
-its aliases). It returns the best matches, each with its `source_url`. An empty
+its aliases). It returns the best matches, each with its `source`. An empty
 argument returns every row. No match returns a `hint` listing the known keys, so
 the model can try again instead of guessing.
 

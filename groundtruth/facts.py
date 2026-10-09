@@ -247,6 +247,15 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
     )
 
 
+def friendly_yaml_error(name: str, exc: yaml.YAMLError) -> str:
+    mark = getattr(exc, "problem_mark", None)
+    where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+    problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
+    return (f"{name}: YAML can't be read{where} ({problem}). Usual causes: indentation that doesn't line up, "
+            f"a missing ':' after a field name, a value containing ': ' that needs quotes, or a list item "
+            f"missing its '- '")
+
+
 def load(project: Project) -> list[Collection]:
     """Read and validate every facts file. Raises FactsError listing all problems."""
     problems: list[str] = []
@@ -255,7 +264,7 @@ def load(project: Project) -> list[Collection]:
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:
-            problems.append(f"{path.name}: not valid YAML ({exc})")
+            problems.append(friendly_yaml_error(path.name, exc))
             continue
         coll = _parse_collection(path, data, problems)
         if coll is not None:

@@ -7,14 +7,17 @@ The server is one small container. Anything that runs a container can host it.
 1. **Point the image at your project.** In `Dockerfile`, change
    `ARG PROJECT=examples/library` to your folder (e.g. `ARG PROJECT=my-assistant`),
    or pass `--build-arg PROJECT=my-assistant`. The build runs `./gt check`, so a
-   project with broken facts never becomes an image.
+   project with broken facts never becomes an image. (`./gt serve` also refuses to
+   start on a project that fails the checks; `--force` overrides for local testing.)
 2. **Make a key** and keep it out of git:
    ```bash
    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
    ```
    Set it as `GT_MCP_API_KEY` on the platform. Every request must then send
    `Authorization: Bearer <key>` (or `x-api-key: <key>`). `/healthz` stays open
-   for load balancers and reveals nothing sensitive (counts and a data version).
+   for load balancers. It shows counts, a data version, one page title (the
+   watchdog searches for it), and whether the content passes the checks; nothing
+   that isn't already public knowledge in your assistant.
 3. **Serving without a key?** (Needed for ChatGPT and claude.ai connectors, which
    use OAuth or no auth.) Set `GT_ALLOWED_HOSTS=your.host`; otherwise the MCP SDK
    rejects requests for your domain with a 421 to prevent DNS rebinding.
@@ -105,8 +108,8 @@ atomically. Code changes still need a deploy.
 
 Set the repo variable `GT_WATCHDOG_URL` to your `/mcp` URL (and the secret
 `GT_MCP_API_KEY`). `.github/workflows/watchdog.yml` then checks it daily: health,
-data age, a real MCP session, a fact lookup, and a wiki search. A failed run
-emails you.
+whether the live content passes `./gt check`, data age, a real MCP session, a
+fact lookup, and a wiki search for a real page. A failed run emails you.
 
 ## Privacy
 

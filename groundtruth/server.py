@@ -248,6 +248,26 @@ def _transport_security():
                                      allowed_origins=origins)
 
 
+_check_cache: dict[str, tuple[float, dict]] = {}
+
+
+def check_status(project: Project) -> dict[str, Any]:
+    """Does the content being served pass ./gt check? Cached for 30 seconds."""
+    from groundtruth import checks
+    key = str(project.data_root or project.root)
+    hit = _check_cache.get(key)
+    if hit and time.monotonic() - hit[0] < 30:
+        return hit[1]
+    if project.data_root is not None:
+        status = {"ok": True, "errors": 0, "note": "published bundle (checked before publishing)"}
+    else:
+        report = checks.run(project)
+        errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
+        status = {"ok": not errors, "errors": len(errors), "first": errors[0] if errors else None}
+    _check_cache[key] = (time.monotonic(), status)
+    return status
+
+
 def health(project: Project) -> dict[str, Any]:
     store = facts.store(project)
     store.refresh()
@@ -264,6 +284,7 @@ def health(project: Project) -> dict[str, Any]:
         "wiki_pages": len(pages),
         "probe": pages[0].title if pages else None,  # a query ./gt watchdog knows must find something
         "tools": len(store.tools) + 2,
+        "checks": check_status(project),
     }
 
 
@@ -318,8 +339,19 @@ def http_app(project: Project):
     return GatewayMiddleware(app, project, os.environ.get("GT_MCP_API_KEY", "").strip())
 
 
-def run(project: Project, *, stdio: bool = False, host: str | None = None, port: int | None = None) -> int:
+def run(project: Project, *, stdio: bool = False, host: str | None = None, port: int | None = None,
+        force: bool = False) -> int:
     facts.ensure_built(project)
+    status = check_status(project)
+    if not status["ok"]:
+        msg = (f"groundtruth: this project fails ./gt check ({status['errors']} problem(s)); first: "
+               f"{status['first']}")
+        if not stdio and not force:
+            print(msg + "\nRefusing to serve content that hasn't passed the checks. Fix it, or run "
+                  "./gt serve --force to serve anyway (local testing only).", file=sys.stderr)
+            return 1
+        print(msg + " Serving anyway" + (" (--force)." if force else " because this is a local stdio session."),
+              file=sys.stderr)
     if os.environ.get("GT_DATA_URL", "").strip():
         from groundtruth import bundle
         bundle.start_polling(project)

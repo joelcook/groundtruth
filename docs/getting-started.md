@@ -18,8 +18,9 @@ Check your setup any time with `./gt doctor`.
 ```
 
 `./gt demo` builds and tests `examples/library`: six facts files, six wiki
-pages, fifteen eval questions. `./gt ask` shows which tool the model would call
-and what it gets back.
+pages, eighteen eval questions (fifteen run free; three need a model). Without
+an API key, `./gt ask` shows a heuristic preview of which tools the model might
+call and what they return; with `ANTHROPIC_API_KEY`, Claude answers for real.
 
 ## 2. Start your own
 
@@ -47,9 +48,11 @@ URL for web pages, the original path for local files), a capture date, and a
 content hash. The targets are saved in `groundtruth.yaml`, so plain `./gt
 ingest` (and the weekly refresh) re-runs them. Unchanged pages are left alone.
 
-If a page that your facts or wiki cite comes back changed, `./gt check` fails
-and `./gt review` lists exactly which facts files and pages to re-check. Fix
-what's out of date, then `./gt review --done`.
+If a page that your facts or wiki cite comes back changed, or its document is
+gone upstream, `./gt check` fails and `./gt review` lists exactly which facts
+files and pages to re-check. `./gt review --diff` shows what changed. Fix what's
+out of date, then `./gt review --done`. Two documents with the same name (say,
+`policy.md` from two folders) are kept as separate pages.
 
 ## 4. Turn evidence into facts and pages
 

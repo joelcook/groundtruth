@@ -51,10 +51,11 @@ and the lineage table:
 | Kind | Examples |
 |---|---|
 | dates | `July 4, 2026`, `2026-07-04`, `7/4/2026` |
+| times | `09:00`, `5 pm` |
 | money | `$5`, `5 dollars` |
-| durations | `within 30 days`, `14-day trial`, `24 hours` |
+| durations | `within 30 days`, `14-day trial`, `seven days` (approximate wording like "about two weeks" is fine) |
 | percentages | `20%` |
-| size limits | `2 GB` |
+| size limits | `2 GB`, `100 MiB` |
 | phone numbers, emails | `555-0100`, `help@example.com` |
 
 Write around the fact and name the tool:

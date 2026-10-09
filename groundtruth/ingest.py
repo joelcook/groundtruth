@@ -45,14 +45,16 @@ class IngestResult:
     new: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return bool(self.new or self.updated)
+        return bool(self.new or self.updated or self.removed)
 
     def summary(self) -> str:
         return (f"{len(self.new)} new, {len(self.updated)} updated, {len(self.unchanged)} unchanged"
+                + (f", {len(self.removed)} removed upstream" if self.removed else "")
                 + (f", {len(self.skipped)} skipped" if self.skipped else ""))
 
 
@@ -97,34 +99,85 @@ def slug_for(url_or_name: str) -> str:
     return (slug or "index")[:120]
 
 
-def _existing_hash(path: Path) -> str | None:
+def page_meta(path: Path) -> dict:
     if not path.exists():
-        return None
+        return {}
     m = FRONTMATTER_RE.match(path.read_text(encoding="utf-8"))
     if not m:
-        return None
+        return {}
     try:
-        return (yaml.safe_load(m.group(1)) or {}).get("sha256")
+        meta = yaml.safe_load(m.group(1)) or {}
     except yaml.YAMLError:
-        return None
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _origin(meta: dict) -> str | None:
+    value = meta.get("source_url") or meta.get("source_path")
+    return str(value) if value else None
+
+
+def history_dir(project: Project) -> Path:
+    return project.sources_dir / ".history"
+
+
+def save_history(project: Project, path: Path) -> None:
+    """Keep the version being replaced, so ./gt review --diff can show what changed."""
+    from groundtruth import review
+    if not path.exists():
+        return
+    rel = path.relative_to(project.pages_dir).as_posix()
+    dest = history_dir(project) / f"{rel}@{review.file_hash(path)}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        dest.write_bytes(path.read_bytes())
 
 
 def write_page(project: Project, slug: str, title: str, body: str, origin: dict, result: IngestResult,
                dry_run: bool = False) -> None:
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    me = _origin(origin)
     path = project.pages_dir / f"{slug}.md"
-    old = _existing_hash(path)
+    meta = page_meta(path)
+    if path.exists() and _origin(meta) not in (None, me):
+        # Two different documents want the same name: keep both, deterministically.
+        path = project.pages_dir / f"{slug}-{hashlib.sha1(str(me).encode()).hexdigest()[:6]}.md"
+        meta = page_meta(path)
     rel = project.rel(path)
-    if old == digest:
+    if path.exists() and meta.get("sha256") == digest and not meta.get("removed_upstream"):
         result.unchanged.append(rel)
         return
     (result.updated if path.exists() else result.new).append(rel)
     if dry_run:
         return
-    meta = {"title": title, **origin, "captured": dt.date.today().isoformat(), "sha256": digest}
+    save_history(project, path)
+    new_meta = {"title": title, **origin, "captured": dt.date.today().isoformat(), "sha256": digest}
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("---\n" + yaml.safe_dump(meta, sort_keys=False, allow_unicode=True) + "---\n\n"
+    path.write_text("---\n" + yaml.safe_dump(new_meta, sort_keys=False, allow_unicode=True) + "---\n\n"
                     + body.strip() + "\n", encoding="utf-8")
+
+
+def mark_removed(project: Project, path: Path, result: IngestResult, dry_run: bool = False) -> None:
+    """The document is gone upstream. Keep the evidence, but flag it so anything citing it fails ./gt check."""
+    meta = page_meta(path)
+    if meta.get("removed_upstream"):
+        return
+    result.removed.append(project.rel(path))
+    if dry_run:
+        return
+    save_history(project, path)
+    text = path.read_text(encoding="utf-8")
+    m = FRONTMATTER_RE.match(text)
+    body = text[m.end():] if m else text
+    meta["removed_upstream"] = dt.date.today().isoformat()
+    path.write_text("---\n" + yaml.safe_dump(meta, sort_keys=False, allow_unicode=True) + "---\n\n"
+                    + body.lstrip("\n"), encoding="utf-8")
+
+
+def _existing_pages(project: Project) -> list[tuple[Path, dict]]:
+    if not project.pages_dir.exists():
+        return []
+    return [(p, page_meta(p)) for p in sorted(project.pages_dir.rglob("*.md"))]
 
 
 # ===================================================================== web
@@ -258,6 +311,21 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
             for link in _links(r.text, final):
                 if link not in seen and urlparse(link).netloc == host:
                     queue.append(link)
+    # Pages captured before that this run didn't reach: are they gone (404/410), or just not visited?
+    checked = 0
+    for path, meta in _existing_pages(project):
+        url = meta.get("source_url")
+        if not url or urlparse(str(url)).netloc != host or _clean_url(str(url)) in seen or meta.get("removed_upstream"):
+            continue
+        if checked >= 50:
+            break
+        checked += 1
+        try:
+            status = fetcher.get(str(url)).status_code
+        except Exception:  # noqa: BLE001 - unreachable isn't proof of removal
+            continue
+        if status in (404, 410):
+            mark_removed(project, path, result, dry_run)
 
 
 # ===================================================================== files
@@ -278,7 +346,7 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
     for path in files:
         ext = path.suffix.lower()
         rel_name = path.relative_to(base).with_suffix("").as_posix()
-        origin = {"source_path": str(path)}
+        origin = {"source_path": str(path.resolve())}
         if ext in {".md", ".markdown", ".txt"}:
             text = path.read_text(encoding="utf-8", errors="replace")
             m = FRONTMATTER_RE.match(text)
@@ -300,6 +368,12 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
                            result, dry_run)
         else:
             result.skipped.append(f"{path} (unsupported type {ext or 'none'})")
+    if folder.is_dir():
+        root = str(folder.resolve())
+        for page, meta in _existing_pages(project):
+            src = meta.get("source_path")
+            if src and str(Path(src)).startswith(root) and not Path(src).exists():
+                mark_removed(project, page, result, dry_run)
 
 
 # ===================================================================== entry point
