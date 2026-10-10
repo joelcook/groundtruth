@@ -94,6 +94,9 @@ Without an API key, `./gt ask` shows what the model would look up
    in. `--install` does it for you: it writes Claude Desktop, Cursor, or Windsurf
    config (backing up the old file) or runs `claude mcp add` / `codex mcp add`.
 
+Lost? **`./gt status`** shows the road from template to production: what's
+done, what's left, and the exact next command.
+
 **How long it takes:** the commands take minutes. The real work is curation:
 deciding what's a fact, writing pages, choosing eval questions. A coding agent
 working from the compile packet does most of it for a small site in an
@@ -226,7 +229,8 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt watchdog [--url URL]` | Outside-in health check |
 | `./gt refresh [--write --open-pr]` | The weekly agent |
 | `./gt bundle` | Package data for live updates |
-| `./gt status` · `use PATH` · `doctor` · `setup` | Housekeeping |
+| `./gt status` | What's done, what's left, and the next command |
+| `./gt use PATH` · `doctor` · `setup` | Housekeeping |
 
 Add `-p PATH` before any command to work on a different project.
 

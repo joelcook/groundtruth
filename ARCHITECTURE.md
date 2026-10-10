@@ -60,6 +60,7 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `watchdog.py` | Outside-in health checks over real MCP |
 | `refresh.py` | The weekly agent |
 | `bundle.py` | Data bundles and hot-swap for deployed servers |
+| `progress.py` | `./gt status`: the road to production and the next step |
 | `connect.py`, `scaffold.py`, `cli.py` | Client setup, `init`/`use`, the `./gt` command |
 
 ## Why a small, governed corpus beats big RAG

@@ -79,6 +79,8 @@ class TestCli(unittest.TestCase):
         code, out = self.run_cli("status")
         self.assertEqual(code, 0)
         self.assertIn("6 collection(s)", out)
+        self.assertIn("Road to production", out)
+        self.assertIn("next:", out)
 
     def test_tools_json(self):
         code, out = self.run_cli("tools", "--json")

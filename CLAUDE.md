@@ -75,6 +75,7 @@ available, also run `./gt eval --tier live` and report the result.
      `./gt examples --remove` once real content replaces them.
    - `./gt review --done` once facts and pages match the sources.
 4. Run the gates. Fix everything. Then `./gt ask "..."` a few real questions.
+   `./gt status` lists anything still unfinished, in order, with the command for each.
 
 ### "Do the work in build/compile-packet.md"
 

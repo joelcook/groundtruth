@@ -70,6 +70,18 @@ class TestCompile(unittest.TestCase):
             self.assertNotIn("Pages whose sources changed", packet)
 
 
+class TestProgress(unittest.TestCase):
+    def test_fresh_template_is_not_ready(self):
+        from groundtruth import progress
+        with tempfile.TemporaryDirectory() as d:
+            p = project.load(scaffold.init(Path(d) / "acme", "saas", activate=False))
+            steps = progress.steps(p)
+            self.assertFalse(steps[0].done)  # no evidence of its own yet
+            self.assertIn("ingest", steps[0].next)
+            self.assertFalse(next(s for s in steps if "examples" in s.title).done)
+            self.assertFalse(next(s for s in steps if "gates" in s.title).done)
+
+
 class TestGateRecovery(unittest.TestCase):
     def setUp(self):
         self.p, self.tmp = copy_project()

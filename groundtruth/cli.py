@@ -410,12 +410,13 @@ def cmd_init(args) -> int:
             if ex else "")
     print(textwrap.dedent(f"""
         Make it yours:
-          1. ./gt ingest https://your-site.example     pull your pages into sources/
-          2. ./gt compile                               work order for Claude Code/Codex
+          1. ./gt ingest https://your-site.example     pull your pages (or a folder) into sources/
+          2. ./gt compile                               draft pages + a work order for Claude Code/Codex
              (edit facts/*.yaml and wiki/ by hand any time; ./gt check keeps you honest)
           3. ./gt ask "a real question"                 see what the assistant finds
           4. ./gt connect claude-desktop --install      talk to it in Claude
         {note}
+        Lost? ./gt status shows what's done, what's left, and the next command.
         Everything lives in {_where(project)}/. Start with its README.md.
     """).rstrip())
     return 0
@@ -433,31 +434,29 @@ def cmd_use(args) -> int:
 
 
 def cmd_status(args) -> int:
-    from groundtruth import checks, compile as comp, facts, observability, search
+    from groundtruth import checks, compile as comp, facts, observability, progress, search
     project = _p(args)
     print(f"{project.name}  ({_where(project)})")
     try:
         colls = facts.load(project)
-        print(f"  facts    {len(colls)} collection(s), {sum(len(c.rows) for c in colls)} rows, "
-              f"{sum(len(c.tools) for c in colls)} tools")
+        fact_line = (f"{len(colls)} collection(s), {sum(len(c.rows) for c in colls)} rows, "
+                     f"{sum(len(c.tools) for c in colls)} tools")
     except facts.FactsError as exc:
-        print(f"  facts    {len(exc.problems)} problem(s): run ./gt check")
-    print(f"  wiki     {len(search.load_pages(project))} public page(s)")
-    srcs = comp.sources(project)
-    st = comp.status(project)
-    from groundtruth import review
-    pending = review.changes(project)
-    print(f"  sources  {len(srcs)} page(s); {len(st['uncovered'])} not covered yet, {len(pending)} changed since review")
-    print(f"  evals    {len(checks.load_golden(project))} golden question(s)")
-    from groundtruth import examples
-    ex = examples.find(project).total
-    if ex:
-        print(f"  examples {ex} fictional template item(s) still live (./gt examples)")
-    calls = observability.read_log(project)
-    print(f"  logs     {len(calls)} tool call(s) recorded")
-    nxt = ("./gt review" if pending else "./gt compile" if st["uncovered"] or st["stale"] else
-           "./gt connect" if not calls else "./gt report")
-    print(f"next: {nxt}")
+        fact_line = f"{len(exc.problems)} problem(s): run ./gt check"
+    print(f"  facts {fact_line} · wiki {len(search.load_pages(project))} page(s) · "
+          f"sources {len(comp.sources(project))} · evals {len(checks.load_golden(project))} question(s) · "
+          f"{len(observability.read_log(project))} tool call(s) logged")
+    gt = "./gt" if args.project is None else f"./gt -p {_where(project)}"
+    todo = progress.steps(project, gt, _where(project))
+    print(f"\nRoad to production ({sum(s.done for s in todo)} of {len(todo)} done):")
+    width = max(len(s.title) for s in todo) + 2
+    for i, s in enumerate(todo, 1):
+        print(f"  {'✓' if s.done else '✗'} {i}. {s.title:<{width}} {s.detail}")
+    first = next((s for s in todo if not s.done), None)
+    if first:
+        print(f"\nnext: {first.next}")
+    else:
+        print("\nReady. Put it online: docs/deploy.md. Then ./gt report shows what people ask.")
     return 0
 
 

@@ -29,9 +29,25 @@ call and what they return; with `ANTHROPIC_API_KEY`, Claude answers for real.
 ./gt init my-assistant --template saas    # blank, saas, college, city, clinic, library
 ```
 
-This creates `my-assistant/` and points `./gt` at it (`./gt status` shows which
-project is active; `./gt use PATH` switches). The new project passes `./gt
-check` and `./gt eval` from the start.
+This creates `my-assistant/` and points `./gt` at it (`./gt use PATH`
+switches). The new project passes `./gt check` and `./gt eval` from the start,
+on fictional example data.
+
+**Lost at any point? Run `./gt status`.** It shows the road from here to
+production, what's done, what's left, and the exact next command:
+
+```
+Road to production (2 of 7 done):
+  ✓ 1. Capture your evidence           3 source(s) of your own
+  ✗ 2. Turn it into facts and pages    3 source(s) not covered, 3 draft page(s) unfinished
+  ✗ 3. Replace the template examples   17 fictional item(s) left
+  ✗ 4. Write eval questions            0 question(s) of your own
+  ✓ 5. Review changed sources          all reviewed
+  ✗ 6. Pass the gates                  1 problem(s), first: examples: template examples are still live...
+  ✗ 7. Try it in a client              0 tool call(s) logged
+
+next: ./gt compile, then tell a coding agent: "do the work in my-assistant/build/compile-packet.md"
+```
 
 Open `my-assistant/README.md`. It's a one-page map of the folder.
 
