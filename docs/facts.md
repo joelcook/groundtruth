@@ -114,7 +114,7 @@ A file with no `tools:` gets one lookup tool named `get_<file name>`.
 - Tool names are unique across files and aren't `search_wiki` / `read_wiki_page`.
 - `limit` and `upcoming_only` are reserved parameter names.
 - Filters and `match` name fields that exist; `ref` names a real collection.
-- `date_field` values are `YYYY-MM-DD`.
+- `date_field` values are real dates written `YYYY-MM-DD` (`2026-02-30` fails).
 
 - A `source_path` points at a file that exists. (A typo'd path fails, with the
   closest real file suggested.)

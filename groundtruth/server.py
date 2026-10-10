@@ -89,15 +89,29 @@ class Gate:
         with self._lock:
             self._checked = now
             sig = self._signature()
-            if not force and sig in (self.serving_sig, self.rejected_sig):
+            if not force and sig == self.serving_sig:
+                if self.validated:  # back to the version being served (say, the bad file was deleted)
+                    self.rejected, self.rejected_sig, self.errors = None, None, 0
+                return
+            if not force and sig == self.rejected_sig:
                 return
             if self.project.data_root is not None:  # a published bundle was checked before publishing
                 self._load()
                 self.validated, self.serving_sig, self.rejected, self.rejected_sig = True, sig, None, None
                 return
-            report = checks.run(self.project, production=self.production)
+            from groundtruth import project as project_mod
+            try:  # check the config on disk too, not just the one loaded at startup
+                candidate = project_mod.load(self.project.root)
+            except project_mod.ProjectError as exc:
+                if self.pages is None:
+                    raise
+                self.rejected, self.rejected_sig, self.errors = f"config: {exc}", sig, 1
+                print(f"groundtruth: rejected an update, still serving the last good version: {exc}", file=sys.stderr)
+                return
+            report = checks.run(candidate, production=self.production)
             errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
             if report.ok or (self.pages is None and self.allow_unvalidated):
+                self.project.config = candidate.config
                 self._load()
                 self.validated, self.serving_sig = report.ok, sig
                 self.rejected, self.rejected_sig, self.errors = (None, None, 0) if report.ok else \

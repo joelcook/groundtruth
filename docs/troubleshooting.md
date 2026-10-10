@@ -57,6 +57,15 @@ are still being served. Replace them, or `./gt examples --remove`.
 move the value to `facts/` and refer to the tool, or justify it with
 `<!-- fact-ok: why -->` on the line above.
 
+**"no sources.lock.yaml"**: nothing records which version of each source your
+facts and pages were checked against, so a changed source couldn't be caught.
+Check your facts against `sources/pages/`, then run `./gt review --done`.
+(`./gt init` creates the lock for you; you'll only see this on a project made by
+hand.)
+
+**"missing or invalid YAML frontmatter"**: usually a value with a colon in it.
+Quote it: `title: "Pricing: plans and limits"`.
+
 **"the prompt mentions `get_x`, which isn't a tool"**: rename or remove it in
 `prompts/system_prompt.md`. Using `{{FACT_TOOLS}}` there keeps the routing table
 in sync automatically.

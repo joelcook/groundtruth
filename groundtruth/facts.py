@@ -174,6 +174,11 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
             text = value.isoformat() if isinstance(value, dt.date) else str(value)
             if not ISO_DATE_RE.match(text):
                 problems.append(f"{where}: row {i} {date_field}={value!r} must be YYYY-MM-DD")
+            else:
+                try:
+                    dt.date.fromisoformat(text[:10])
+                except ValueError:
+                    problems.append(f"{where}: row {i} {date_field}={value!r} isn't a real date")
         clean = {}
         for k2, v in row.items():
             if isinstance(v, dt.date):
@@ -298,7 +303,11 @@ def warnings(project: Project, collections: list[Collection]) -> list[str]:
         for row in c.rows:
             spath, _ = _row_source(row, {"path": c.source_path, "url": c.source_url})
             if spath and not (project.root / spath).exists():
-                out.append(f"{Path(c.file).name}: source file {spath} does not exist")
+                import difflib
+                known = [project.rel(p) for p in project.pages_dir.rglob("*.md")] if project.pages_dir.exists() else []
+                close = difflib.get_close_matches(str(spath), known, n=1, cutoff=0.6)
+                out.append(f"{Path(c.file).name}: source file {spath} does not exist"
+                           + (f" (did you mean {close[0]}?)" if close else ""))
                 break
         for t in c.tools:
             for f in t.filters:

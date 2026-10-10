@@ -63,13 +63,14 @@ out of date, then `./gt review --done`. Two documents with the same name (say,
 This does two things, no API key needed:
 
 - **Draft pages.** One skeleton per new source in `wiki/drafts/`, with the
-  frontmatter and lineage table filled in. They're `status: draft`, so they
-  aren't served (or counted against you) until you write them and set
-  `status: published`.
+  frontmatter and lineage table filled in. They're `status: draft`: not served,
+  and their problems show as warnings, not failures, until you write them and
+  set `status: published`.
 - **A work order**, `build/compile-packet.md`: the sources nothing covers yet,
   every exact value found in each one (a price, a date, a phone number: each is
-  a fact row waiting to happen), starter eval questions, the rules, and the
-  exact commands to verify.
+  a fact row waiting to happen; the first 60 lines per source are listed, with
+  the total count), starter eval questions to fill in, the rules, and the exact
+  commands to verify.
 
 Open the repo in Claude Code, Codex, or Cursor and say:
 

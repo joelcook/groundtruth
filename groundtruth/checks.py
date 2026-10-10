@@ -33,7 +33,7 @@ MONTHS = (
 DATE_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:\s*[–-]\s*\d{{1,2}})?,?\s+\d{{4}}\b")
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 SLASH_DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
-MONEY_RE = re.compile(r"(?:[$€£¥]\s?\d|\b(?:USD|EUR|GBP|CAD|AUD)\s?\d|\b\d[\d,]*(?:\.\d+)?\s?"
+MONEY_RE = re.compile(r"(?:[$€£¥]\s?\d[\d,]*(?:\.\d+)?|\b(?:USD|EUR|GBP|CAD|AUD)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?"
                       r"(?:USD|EUR|GBP|CAD|AUD|dollars?|euros?|pounds|cents)\b)", re.I)
 MONTH_DAY_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?!\s*(?:%|percent))")
 LIMIT_RE = re.compile(r"\b(?:up to|maximum of|max(?:imum)?|limit(?:ed)? (?:of|to)|allows?|at most|at least|"
@@ -85,9 +85,17 @@ def wiki_pages(project: Project) -> list[Path]:
     return [p for p in sorted(project.wiki_dir.rglob("*.md")) if p.name not in SKIP]
 
 
+def is_draft(path: Path) -> bool:
+    """A page with ``status: draft``: not served, and its problems are warnings until it's published."""
+    meta, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+    return str((meta or {}).get("status", "")).lower() == "draft"
+
+
 def _slugs(project: Project) -> set[str]:
     out = set()
     for p in wiki_pages(project):
+        if is_draft(p):
+            continue  # linking to a draft is linking to a page nobody can read yet
         out.add(p.stem.lower())
         out.add(p.relative_to(project.wiki_dir).as_posix().lower().removesuffix(".md"))
     return out
@@ -112,27 +120,35 @@ def check_wiki(project: Project, report: Report) -> None:
         text = path.read_text(encoding="utf-8")
         meta, _ = split_frontmatter(text)
         if meta is None:
-            report.error("wiki", f"{rel}: missing or invalid YAML frontmatter (--- title: ... ---)")
+            report.error("wiki", f"{rel}: missing or invalid YAML frontmatter (--- title: ... ---). "
+                                 f"A value with a colon in it needs quotes: title: \"Pricing: plans\"")
             continue
+        draft = str(meta.get("status", "")).lower() == "draft"
+
+        def fail(msg: str) -> None:  # a draft isn't served, so its problems can't block anything yet
+            if draft:
+                report.warn("wiki", f"(draft) {rel}: {msg}")
+            else:
+                report.error("wiki", f"{rel}: {msg}")
+
         missing = REQUIRED_KEYS - set(meta)
         if missing:
-            report.error("wiki", f"{rel}: frontmatter is missing {sorted(missing)}")
+            fail(f"frontmatter is missing {sorted(missing)}")
         ptype = str(meta.get("page_type", "")).lower()
         if ptype and ptype not in VALID_PAGE_TYPES:
-            report.error("wiki", f"{rel}: page_type {ptype!r} must be one of {sorted(VALID_PAGE_TYPES)}")
+            fail(f"page_type {ptype!r} must be one of {sorted(VALID_PAGE_TYPES)}")
         if not LINEAGE_RE.search(text):
-            report.error("wiki", f"{rel}: add a '## Sources & Lineage' section at the bottom (the audit trail)")
+            fail("add a '## Sources & Lineage' section at the bottom (the audit trail)")
         for src in meta.get("sources") or []:
             if isinstance(src, str) and src.startswith("sources/") and not (project.root / src).exists():
-                report.error("wiki", f"{rel}: cites {src}, which doesn't exist. Restore it, re-ingest, "
-                                     f"or fix the path")
+                fail(f"cites {src}, which doesn't exist. Restore it, re-ingest, or fix the path")
         for target in WIKILINK_RE.findall(text):
             t = target.strip().lower()
             if t.startswith(("sources/", "raw/", "http")):
                 continue
             t = t.removeprefix("wiki/").removesuffix(".md")
             if t not in slugs and t.rsplit("/", 1)[-1] not in slugs:
-                report.error("wiki", f"{rel}: broken link [[{target}]]")
+                fail(f"broken link [[{target}]] (no published page by that name)")
     report.notes["wiki"] = f"{len(pages)} page(s)"
 
 
@@ -160,9 +176,14 @@ def hard_facts_in(path: Path) -> list[tuple[int, str, str]]:
 def check_prose(project: Project, report: Report) -> None:
     pages = [p for p in wiki_pages(project) if "internal" not in p.relative_to(project.wiki_dir).parts]
     for path in pages:
+        draft = is_draft(path)
         for line, kind, text in hard_facts_in(path):
-            report.error("prose", f"{project.rel(path)}:{line}: {kind} {text!r} in prose. Put it in facts/ "
-                                  f"and let a tool answer it (or justify with <!-- fact-ok: why -->)")
+            msg = (f"{project.rel(path)}:{line}: {kind} {text!r} in prose. Put it in facts/ "
+                   f"and let a tool answer it (or justify with <!-- fact-ok: why -->)")
+            if draft:
+                report.warn("prose", f"(draft) {msg}")
+            else:
+                report.error("prose", msg)
     report.notes["prose"] = f"{len(pages)} page(s), no exact facts in prose"
 
 
@@ -282,8 +303,10 @@ def check_golden(project: Project, report: Report, collections: list[facts.Colle
 def check_sources(project: Project, report: Report) -> None:
     from groundtruth import review
     if review.load_lock(project) is None:
-        report.warn("sources", "no sources.lock.yaml yet, so changed evidence can't be detected. "
-                               "Once your facts match your sources, run ./gt review --done")
+        msg = ("no sources.lock.yaml, so nothing records which version of each source your facts and "
+               "pages were checked against, and a changed source can't be caught. Once your facts match "
+               "your sources, run ./gt review --done")
+        (report.error if review.dependents(project) else report.warn)("sources", msg)
         return
     gone = review.removed_upstream(project)
     pending = [ch for ch in review.changes(project) if ch.source not in gone]
@@ -327,8 +350,7 @@ def run(project: Project, production: bool = False) -> Report:
                f"{len(found.wiki)} page(s), {len(found.sources)} source(s), {len(found.questions)} question(s). "
                f"Replace them, or run ./gt examples --remove")
         (report.error if production else report.warn)("examples", msg)
-    drafts = [p for p in wiki_pages(project) if str((split_frontmatter(p.read_text(encoding="utf-8"))[0] or {})
-                                                    .get("status", "")).lower() == "draft"]
+    drafts = [p for p in wiki_pages(project) if is_draft(p)]
     if drafts:
         report.warn("wiki", f"{len(drafts)} draft page(s) aren't served until you finish them and set "
                             f"status: published ({', '.join(project.rel(p) for p in drafts[:3])}"

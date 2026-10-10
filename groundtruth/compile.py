@@ -32,6 +32,7 @@ from groundtruth import checks, facts
 from groundtruth.project import Project
 
 STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "0"))  # 0 = only flag pages whose sources changed
+CANDIDATES_SHOWN = 60  # per source in the packet; the count is always shown in full
 
 
 @dataclass
@@ -139,7 +140,7 @@ def stale_pages(project: Project) -> list[tuple[Path, str]]:
 # ===================================================================== scaffolding
 
 
-def candidates(path: Path, limit: int = 20) -> list[tuple[int, str, str]]:
+def candidates(path: Path) -> list[tuple[int, str, str]]:
     """(line, kind, the line itself) for each line of a source with an exact value in it.
 
     These are the fact candidates: each one belongs in a facts/ row, not in wiki prose.
@@ -154,9 +155,13 @@ def candidates(path: Path, limit: int = 20) -> list[tuple[int, str, str]]:
         if kinds:
             clean = " ".join(line.strip().lstrip("#*-> ").split())
             out.append((i + 1 + offset, ", ".join(dict.fromkeys(kinds)), clean[:160]))
-            if len(out) >= limit:
-                break
     return out
+
+
+def _yaml_value(value: str) -> str:
+    """A string as a safe one-line YAML scalar (quoted when it needs to be: colons, #, quotes...)."""
+    import yaml
+    return yaml.safe_dump(value, allow_unicode=True, width=10_000).removesuffix("\n...\n").strip()
 
 
 def _slug(text: str) -> str:
@@ -182,9 +187,10 @@ def write_drafts(project: Project) -> list[Path]:
             target, n = target.with_name(f"{slug}-{n}.md"), n + 1
         words = [w for w in re.findall(r"[a-z0-9]+", src.title.lower()) if len(w) > 2][:6]
         captured = src.captured.isoformat() if src.captured else today
+        where = src.url or str(_frontmatter(src.path).get("source_path") or "")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(f"""---
-title: {src.title}
+title: {_yaml_value(src.title)}
 page_type: guide
 last_compiled: {today}
 compiled_by: ./gt compile (draft)
@@ -209,7 +215,7 @@ tags: [{", ".join(words)}]
 
 | Source | Captured | URL |
 |---|---|---|
-| [[{src.rel}]] | {captured} | {src.url or ""} |
+| [[{src.rel}]] | {captured} | {where} |
 """, encoding="utf-8")
         out.append(target)
     return out
@@ -353,8 +359,11 @@ def packet(project: Project) -> Path:
                 lines.append(f"  - draft page waiting for you: `{project.rel(drafts[src.rel])}`")
             found = candidates(src.path)
             if found:
-                lines.append("  - exact values in it (each is a facts row, not prose):")
-                lines += [f"    - line {n} ({kind}): {text}" for n, kind, text in found]
+                lines.append(f"  - exact values in it ({len(found)} line(s); each is a facts row, not prose):")
+                lines += [f"    - line {n} ({kind}): {text}" for n, kind, text in found[:CANDIDATES_SHOWN]]
+                if len(found) > CANDIDATES_SHOWN:
+                    lines.append(f"    - ...and {len(found) - CANDIDATES_SHOWN} more line(s) with exact values: "
+                                 f"read the whole source, every one of them needs a facts row")
         lines.append("")
     if stale:
         lines += [f"### Pages whose sources changed ({len(stale)})", "",
@@ -436,10 +445,11 @@ def _golden_stubs(project: Project, drafts: dict[str, Path]) -> list[str]:
                     "  tool_args: {TODO: the arguments a model would pass}",
                     "  must_contain: [\"TODO: the exact value the answer must include\"]", ""]
     if not collections:
-        out += ["- id: team-plan-price           # one like this per fact tool you add",
-                "  question: \"How much is the Team plan?\"", "  category: hard_fact",
-                "  must_call_tool: get_plan     # the tool from facts/*.yaml",
-                "  tool_args: {plan: team}      # what a model would pass", "  must_contain: [\"39\"]", ""]
+        out += ["- id: TODO-question-id                    # one like this per fact tool you add",
+                "  question: \"TODO: a question a real person asks\"", "  category: hard_fact",
+                "  must_call_tool: TODO_tool_name          # a tool from facts/*.yaml",
+                "  tool_args: {TODO_arg: TODO_value}       # what a model would pass it",
+                "  must_contain: [\"TODO: the exact value from the source\"]", ""]
     for page in sorted(set(drafts.values())):
         slug = page.stem
         out += [f"- id: {slug}", f"  question: \"TODO: how would someone ask about {_frontmatter(page).get('title', slug)}?\"",

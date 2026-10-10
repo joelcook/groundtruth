@@ -7,8 +7,9 @@ paragraphs that look relevant, and hope the model doesn't invent a price, a
 deadline, or an opening time. It will. Not often, but it only takes once. A
 wrong date is a missed deadline. A wrong number is a wrong bill.
 
-groundtruth makes the opposite bet, and it's a simple one: **the model doesn't
-get to make facts up.**
+groundtruth makes the opposite bet, and it's a simple one: **the model never
+has to guess.** Every fact is one tool call away, and every answer can say
+where it came from.
 
 - **Facts live in a database.** Prices, dates, hours, phone numbers. You write
   them in plain YAML, and each file becomes tools the model has to call. No

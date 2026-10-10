@@ -47,11 +47,13 @@ class TestSourceReview(unittest.TestCase):
         self.assertEqual([(c.source, c.reason) for c in review.changes(self.p)],
                          [("sources/pages/new.md", "not yet reviewed")])
 
-    def test_no_lock_is_a_warning(self):
+    def test_no_lock_is_an_error_once_sources_are_cited(self):
         review.lock_path(self.p).unlink()
         report = checks.run(self.p)
-        self.assertTrue(report.ok)
-        self.assertIn("sources", report.warnings)
+        self.assertFalse(report.ok)
+        self.assertIn("sources.lock.yaml", report.errors["sources"][0])
+        review.mark_reviewed(self.p)
+        self.assertTrue(checks.run(self.p).ok)
 
 
 class TestExamples(unittest.TestCase):

@@ -44,7 +44,7 @@ task), `policy` (rules, plainly), `entity` (a program, place, or thing),
 `./gt check` requires it.
 
 **`status: draft`** keeps a page out of search and out of the source-review
-gate until it's done. `./gt compile` writes drafts to `wiki/drafts/`; set
+gate until it's done, and its problems show as warnings instead of failures. `./gt compile` writes drafts to `wiki/drafts/`; set
 `status: published` when one is ready (move it to another folder if you like).
 
 ## The one rule: no facts in prose
