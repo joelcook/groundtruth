@@ -37,7 +37,9 @@ MONEY_RE = re.compile(r"(?:[$€£¥]\s?\d[\d,]*(?:\.\d+)?|\b(?:USD|EUR|GBP|CAD|
                       r"(?:USD|EUR|GBP|CAD|AUD|dollars?|euros?|pounds|cents)\b)", re.I)
 MONTH_DAY_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?!\s*(?:%|percent))")
 LIMIT_RE = re.compile(r"\b(?:up to|maximum of|max(?:imum)?|limit(?:ed)? (?:of|to)|allows?|at most|at least|"
-                      r"minimum of|capped at|cap of|no more than|no fewer than)\s+\d[\d,]*", re.I)
+                      r"minimum of|capped at|cap of|no more than|no fewer than)\s+\d[\d,]*"
+                      r"|\b(?:includes?|including|comes? with|gets?|offers?|supports?|provides?|permits?|seats)"
+                      r"\s+\d[\d,]*\s+[a-z]", re.I)
 NUMBER_WORDS = ("one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|"
                 "twenty|thirty|forty|forty-five|fifty|sixty|ninety|hundred")
 UNITS = r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?)"
@@ -184,7 +186,7 @@ def check_prose(project: Project, report: Report) -> None:
                 report.warn("prose", f"(draft) {msg}")
             else:
                 report.error("prose", msg)
-    report.notes["prose"] = f"{len(pages)} page(s), no exact facts in prose"
+    report.notes["prose"] = f"{len(pages)} page(s), no exact facts detected in prose"
 
 
 # ===================================================================== facts
@@ -350,6 +352,12 @@ def run(project: Project, production: bool = False) -> Report:
                f"{len(found.wiki)} page(s), {len(found.sources)} source(s), {len(found.questions)} question(s). "
                f"Replace them, or run ./gt examples --remove")
         (report.error if production else report.warn)("examples", msg)
+    from groundtruth import compile as comp
+    proposed = comp.proposals(project)
+    if proposed:
+        report.warn("facts", f"{len(proposed)} proposed facts file(s) aren't live yet ("
+                             f"{', '.join(project.rel(p) for p in proposed[:3])}{'...' if len(proposed) > 3 else ''}). "
+                             f"Check each row against its source, then rename it without the leading _")
     drafts = [p for p in wiki_pages(project) if is_draft(p)]
     if drafts:
         report.warn("wiki", f"{len(drafts)} draft page(s) aren't served until you finish them and set "

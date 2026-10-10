@@ -302,10 +302,15 @@ def cmd_compile(args) -> int:
             print(f"    ! fact in prose: {p}")
         print("next: review with git diff, then ./gt check && ./gt eval")
         return 0
+    proposed = comp.write_fact_proposals(project)
     drafts = comp.write_drafts(project)
     status = comp.status(project)
     path = comp.packet(project)
     _ok(f"{len(status['uncovered'])} new source(s), {len(status['stale'])} stale page(s)")
+    if proposed:
+        _ok(f"{len(proposed)} proposed facts file(s): {', '.join(project.rel(p) for p in proposed[:3])}"
+            f"{'...' if len(proposed) > 3 else ''}")
+        print("      one row per exact statement in the source; check them, then rename without the _ to go live")
     if drafts:
         _ok(f"{len(drafts)} draft page(s) in {project.rel(project.wiki_dir / 'drafts')}/ (not served until "
             f"you set status: published)")
@@ -357,7 +362,8 @@ def cmd_report(args) -> int:
 
 def cmd_watchdog(args) -> int:
     from groundtruth import watchdog
-    return watchdog.run(_p(args), url=args.url, api_key=args.api_key, max_age_hours=args.max_age_hours)
+    project = None if args.url else _p(args)  # a remote check needs nothing local
+    return watchdog.run(project, url=args.url, api_key=args.api_key, max_age_hours=args.max_age_hours)
 
 
 def cmd_refresh(args) -> int:
@@ -443,18 +449,22 @@ def cmd_status(args) -> int:
                      f"{sum(len(c.tools) for c in colls)} tools")
     except facts.FactsError as exc:
         fact_line = f"{len(exc.problems)} problem(s): run ./gt check"
+    try:
+        n_golden = len(checks.load_golden(project))
+    except Exception:  # noqa: BLE001 - broken YAML; ./gt check explains
+        n_golden = "?"
     print(f"  facts {fact_line} · wiki {len(search.load_pages(project))} page(s) · "
-          f"sources {len(comp.sources(project))} · evals {len(checks.load_golden(project))} question(s) · "
-          f"{len(observability.read_log(project))} tool call(s) logged")
+          f"sources {len(comp.sources(project))} · evals {n_golden} question(s) · "
+          f"{sum(1 for r in observability.read_log(project) if not r.get('probe'))} tool call(s) logged")
     gt = "./gt" if args.project is None else f"./gt -p {_where(project)}"
     todo = progress.steps(project, gt, _where(project))
     print(f"\nRoad to production ({sum(s.done for s in todo)} of {len(todo)} done):")
     width = max(len(s.title) for s in todo) + 2
     for i, s in enumerate(todo, 1):
         print(f"  {'✓' if s.done else '✗'} {i}. {s.title:<{width}} {s.detail}")
-    first = next((s for s in todo if not s.done), None)
-    if first:
-        print(f"\nnext: {first.next}")
+    action = progress.next_action(project, todo, gt)
+    if action:
+        print(f"\nnext: {action}")
     else:
         print("\nReady. Put it online: docs/deploy.md. Then ./gt report shows what people ask.")
     return 0

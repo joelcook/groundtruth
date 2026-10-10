@@ -87,20 +87,33 @@ A filter can be written as just the field name: `filters: [category, audience]`.
 ### Dated rows and "upcoming only"
 
 ```yaml
+# facts/events.yaml
+description: Upcoming events.
+key: title
+source: {path: sources/pages/events.md}
 date_field: date
 tools:
   - name: list_events
     kind: list
     filters: [category]
     upcoming: true
+    description: Events, soonest first. Every event date the assistant states comes from here.
 rows:
-  - {title: Book Sale, date: "2026-07-11", when: "Saturday, July 11, 2026"}
-  - {title: Story Time, when: Every Wednesday}      # no date = recurring, always included
+  - {title: Book Sale, category: sale, date: "2026-07-11", when: "Saturday, July 11, 2026"}
+  - {title: Story Time, category: kids, when: Every Wednesday}   # no date = recurring, always included
 ```
 
 `upcoming: true` adds an `upcoming_only` parameter (default true) and sorts
 soonest first. Dates must be ISO `YYYY-MM-DD`; quoting them is safest. Keep a
 human-readable `when` field for the model to quote.
+
+### Proposed and parked files
+
+Files whose names start with `_` are ignored. `./gt compile` uses that: it
+writes `facts/_proposed-<source>.yaml`, one row per exact statement in a new
+source (`{id: ..., statement: "The Team plan costs USD 39 per month."}`) with a
+lookup tool. Check the rows, rename the file without the `_`, and it's live.
+Statements are a fine start; real fields (`price_usd: 39`) make sharper tools.
 
 ### Default tool
 

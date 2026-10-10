@@ -23,6 +23,7 @@ add rows to facts/*.yaml, and ./gt check verifies them.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -221,6 +222,98 @@ tags: [{", ".join(words)}]
     return out
 
 
+PROPOSAL_PREFIX = "_proposed-"
+
+
+def _proposal_path(project: Project, src: SourceInfo) -> Path:
+    """facts/_proposed-<name>.yaml, named after the source without ingest's collision suffix when that's free."""
+    for stem in dict.fromkeys([re.sub(r"-[0-9a-f]{6}$", "", _slug(src.path.stem)), _slug(src.path.stem)]):
+        target = project.facts_dir / f"{PROPOSAL_PREFIX}{stem}.yaml"
+        if (project.facts_dir / f"{stem}.yaml").exists():
+            continue
+        if not target.exists() or f"from {src.rel}" in target.read_text(encoding="utf-8").split("\n", 1)[0]:
+            return target
+    return project.facts_dir / f"{PROPOSAL_PREFIX}{_slug(src.path.stem)}.yaml"
+
+
+def proposals(project: Project) -> list[Path]:
+    """Proposed facts files waiting for review (facts/_proposed-*.yaml; the leading _ keeps them offline)."""
+    return sorted(project.facts_dir.glob(f"{PROPOSAL_PREFIX}*.yaml")) if project.facts_dir.exists() else []
+
+
+def _statement_query(text: str, value: str) -> str:
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z'-]+", text.replace(value, " "))
+             if w.lower() not in facts.STOPWORDS and len(w) > 2]
+    return " ".join(words[:3]).lower()
+
+
+def write_fact_proposals(project: Project) -> list[Path]:
+    """A ready-to-review facts file per new source: one row per line with an exact value in it.
+
+    Each row is the exact statement from the source, served by a lookup tool, with the
+    source wired in. It's written as facts/_proposed-<source>.yaml, which the loader
+    ignores. Check it, rename it without the leading underscore, and it's live.
+    Reshaping rows into real fields (price_usd: 39) is better still; this gets you there.
+    """
+    import yaml
+    out = []
+    taken = set()
+    try:
+        taken = {t.name for c in facts.load(project) for t in c.tools}
+    except facts.FactsError:
+        pass
+    for p in proposals(project):
+        try:
+            taken |= {t["name"] for t in (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("tools") or []}
+        except (yaml.YAMLError, AttributeError, TypeError):
+            pass
+    for src in uncovered(project):
+        found = candidates(src.path)
+        target = _proposal_path(project, src)
+        stem = target.name.removeprefix(PROPOSAL_PREFIX).removesuffix(".yaml")
+        if not found or target.exists() or (project.facts_dir / f"{stem}.yaml").exists():
+            continue
+        base = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
+        tool = f"get_{base}_fact"[:64] if base and base[0].isalpha() else f"get_fact_{base}"[:64]
+        n = 2
+        while tool in taken:
+            tool, n = f"get_{base}_fact_{n}"[:64], n + 1
+        taken.add(tool)
+        rows, ids = [], set()
+        for line, kind, text in found:
+            rid = _slug(" ".join(text.split()[:6])) or f"line-{line}"
+            while rid in ids:
+                rid = f"{rid}-{line}"
+            ids.add(rid)
+            rows.append({"id": rid, "statement": text})
+        source = {"path": src.rel}
+        origin = src.url or _frontmatter(src.path).get("source_path")
+        if src.url:
+            source["url"] = src.url
+        data = {
+            "description": f"Exact statements from {src.title}.",
+            "key": "id",
+            "source": source,
+            "tools": [{
+                "name": tool, "kind": "lookup", "arg": "topic",
+                "description": (f"Exact statements from {src.title} (prices, dates, limits, contacts). "
+                                f"Quote the statement and cite its source."),
+            }],
+            "rows": rows,
+        }
+        header = (f"# PROPOSED by ./gt compile from {src.rel}" + (f" ({origin})" if origin else "") + ".\n"
+                  "# Not live yet: files whose names start with _ are ignored.\n"
+                  "# To make it live: check every row against the source, delete what isn't a fact,\n"
+                  "# give the tool a sharper name and description, then rename this file without\n"
+                  "# the leading underscore (facts/" + stem + ".yaml). Better still, reshape rows into\n"
+                  "# real fields (price_usd: 39) as shown in docs/facts.md.\n")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100),
+                          encoding="utf-8")
+        out.append(target)
+    return out
+
+
 # ===================================================================== the packet
 
 
@@ -228,7 +321,8 @@ RULES = """\
 1. **Facts never go in wiki prose.** Dates, times, dollar amounts, phone numbers,
    emails, hours, deadlines, limits: put them in `facts/*.yaml` and refer to the
    tool in prose ("the assistant looks up the current price with `get_fee`").
-   `./gt check` fails if a date or `$` amount appears in a wiki page.
+   `./gt check` fails on the common ways of writing these; the rule covers the
+   rest too.
 2. **Every fact row has a source.** Use the file-level `source: {path, url}` or a
    per-row `source_url`. Point at the `sources/pages/...` file it came from.
 3. **Every wiki page has frontmatter and a lineage table** (for local files with
@@ -254,8 +348,10 @@ RULES = """\
    |---|---|---|
    | [[sources/pages/password-help.md]] | <captured date> | <source_url> |
    ```
-4. **Link pages** with `[[slug]]`. Put pages under `wiki/<page_type>s/` (e.g.
-   `wiki/processes/reset-password.md`) and list new pages in `wiki/index.md`.
+4. **Link pages** with `[[slug]]`. Put pages in the folder for their type:
+   `wiki/journeys/`, `wiki/processes/`, `wiki/policies/`, `wiki/entities/`,
+   `wiki/comparisons/`, `wiki/faqs/`, or `wiki/guides/` (e.g.
+   `wiki/processes/reset-password.md`), and list new pages in `wiki/index.md`.
 5. **Don't edit `sources/`.** It's the evidence; `./gt ingest` owns it.
 6. **Add eval questions** to `evals/golden.yaml` for what you added: a `hard_fact`
    item (with `must_call_tool`, `tool_args`, and `must_contain` or `must_match`)
@@ -357,13 +453,17 @@ def packet(project: Project) -> Path:
             lines.append(f"- `{src.rel}`: {src.title}" + (f" ({src.url})" if src.url else ""))
             if src.rel in drafts:
                 lines.append(f"  - draft page waiting for you: `{project.rel(drafts[src.rel])}`")
+            proposal = _proposal_path(project, src)
+            if proposal.exists():
+                lines.append(f"  - proposed facts waiting for review: `{project.rel(proposal)}` (rename it "
+                             f"without the `_` to make it live)")
             found = candidates(src.path)
             if found:
                 lines.append(f"  - exact values in it ({len(found)} line(s); each is a facts row, not prose):")
                 lines += [f"    - line {n} ({kind}): {text}" for n, kind, text in found[:CANDIDATES_SHOWN]]
                 if len(found) > CANDIDATES_SHOWN:
-                    lines.append(f"    - ...and {len(found) - CANDIDATES_SHOWN} more line(s) with exact values: "
-                                 f"read the whole source, every one of them needs a facts row")
+                    lines.append(f"    - ...and {len(found) - CANDIDATES_SHOWN} more: the complete list is in "
+                                 f"`build/fact-candidates.md`")
         lines.append("")
     if stale:
         lines += [f"### Pages whose sources changed ({len(stale)})", "",
@@ -427,6 +527,23 @@ def packet(project: Project) -> Path:
     out = project.build_dir / "compile-packet.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
+    write_candidates(project, new)
+    return out
+
+
+def write_candidates(project: Project, srcs: list[SourceInfo]) -> Path:
+    """build/fact-candidates.md: every line with an exact value, in every source nothing covers yet."""
+    lines = ["# Fact candidates", "",
+             "Every line in an uncovered source with a value the prose check recognizes (a price, a date,",
+             "a duration, a limit, a contact). Each belongs in a facts/ row. The patterns cover common",
+             "formats, not every possible one, so read the sources too.", ""]
+    for src in srcs:
+        found = candidates(src.path)
+        lines += [f"## `{src.rel}` ({len(found)} line(s))", ""]
+        lines += [f"- line {n} ({kind}): {text}" for n, kind, text in found] or ["- (none recognized)"]
+        lines.append("")
+    out = project.build_dir / "fact-candidates.md"
+    out.write_text("\n".join(lines), encoding="utf-8")
     return out
 
 
@@ -444,7 +561,21 @@ def _golden_stubs(project: Project, drafts: dict[str, Path]) -> list[str]:
                     "  category: hard_fact", f"  must_call_tool: {t.name}",
                     "  tool_args: {TODO: the arguments a model would pass}",
                     "  must_contain: [\"TODO: the exact value the answer must include\"]", ""]
-    if not collections:
+    import yaml
+    for prop in proposals(project):
+        try:
+            data = yaml.safe_load(prop.read_text(encoding="utf-8")) or {}
+            tool, row = data["tools"][0]["name"], data["rows"][0]
+        except (yaml.YAMLError, KeyError, IndexError, TypeError):
+            continue
+        value = next((rx.search(row["statement"]).group(0) for _, rx in checks.PATTERNS
+                      if rx.search(row["statement"])), "")
+        out += [f"- id: {row['id']}"[:70] + f"          # once {prop.name} is live",
+                f"  question: \"TODO: how a real person would ask this ({row['statement'][:60]})\"",
+                "  category: hard_fact", f"  must_call_tool: {tool}",
+                f"  tool_args: {{topic: {_statement_query(row['statement'], value) or 'TODO'}}}",
+                f"  must_contain: [{json.dumps(value)}]", ""]
+    if not collections and not proposals(project):
         out += ["- id: TODO-question-id                    # one like this per fact tool you add",
                 "  question: \"TODO: a question a real person asks\"", "  category: hard_fact",
                 "  must_call_tool: TODO_tool_name          # a tool from facts/*.yaml",

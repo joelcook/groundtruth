@@ -161,7 +161,7 @@ def _explain(exc: BaseException) -> str:
     return f"{type(leaf).__name__}: {leaf}"
 
 
-def run(project: Project, url: str | None = None, api_key: str | None = None,
+def run(project: Project | None, url: str | None = None, api_key: str | None = None,
         max_age_hours: float | None = None) -> int:
     checks = Checks()
     if url and not url.rstrip("/").endswith("/mcp"):
@@ -178,10 +178,11 @@ def run(project: Project, url: str | None = None, api_key: str | None = None,
             print(f"watchdog: {project.name} over stdio")
             from groundtruth import checks as gates
             report = gates.run(project)
-            if not report.ok:
+            if not report.ok:  # the server refuses to start on it, so there's no session to test
                 first = next(f"{k}: {e[0]}" for k, e in report.errors.items() if e)
-                checks.fail(f"the project fails ./gt check: {first}")
-            anyio.run(_stdio, project, checks)
+                checks.fail(f"the project fails ./gt check, so the server won't start: {first}")
+            else:
+                anyio.run(_stdio, project, checks)
     except Exception as exc:  # noqa: BLE001 - surface any transport failure as a failed check
         checks.fail(f"MCP session failed: {_explain(exc)}")
     print("healthy" if not checks.failed else f"UNHEALTHY: {checks.failed} check(s) failed")

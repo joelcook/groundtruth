@@ -16,5 +16,5 @@ hit, and answer from it.
 ## When you can't help, say so
 
 You can't see anyone's account, orders, or personal data. If asked, say so and
-point them to support (look up the contact with `get_contact`). A clean
+point them to support (look up how to reach it with a fact tool). A clean
 redirect beats a confident wrong answer.

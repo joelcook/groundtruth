@@ -66,7 +66,9 @@ class TestCompile(unittest.TestCase):
             self.assertTrue(checks.run(p).ok)
             packet = comp.packet(p).read_text()
             self.assertIn("(70 line(s);", packet)
-            self.assertIn("...and 10 more line(s)", packet)
+            self.assertIn("...and 10 more: the complete list is in `build/fact-candidates.md`", packet)
+            full = (p.build_dir / "fact-candidates.md").read_text()
+            self.assertIn("Plan 70 costs USD 700.", full)
             self.assertNotIn("Pages whose sources changed", packet)
 
 

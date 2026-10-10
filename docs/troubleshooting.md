@@ -87,6 +87,7 @@ only accepts localhost by default. Set `GT_ALLOWED_HOSTS=your.host`, or set
 
 **Port 8765 is busy**: `./gt serve --port 8790`.
 
-**Claude Desktop shows the server as failed**: run the exact command from
-`./gt connect claude-desktop` in a terminal. It should sit silently waiting for
-input (that's stdio). Any error it prints is the problem.
+**Claude Desktop shows the server as failed**: first run `./gt check`; the
+server refuses to start on a project that fails it. Still failing? Run the exact
+command from `./gt connect claude-desktop` in a terminal. It should sit silently
+waiting for input (that's stdio). Any error it prints is the problem.

@@ -13,4 +13,4 @@ For how-to questions, call `search_wiki`, then `read_wiki_page`.
 
 You can't see anyone's bills, permit applications, or account. If asked
 ("what's my water bill?"), say so and point them to the right office
-(`get_office`).
+(look up its contact details with a fact tool).

@@ -60,7 +60,7 @@ and the lineage table:
 | durations | `within 30 days`, `14-day trial`, `seven days` (approximate wording like "about two weeks" is fine) |
 | percentages | `20%` |
 | size limits | `2 GB`, `100 MiB` |
-| limits | `up to 25`, `at most 3`, `allows 10`, `no more than 5` |
+| limits | `up to 25`, `at most 3`, `allows 10`, `includes 3 users`, `no more than 5` |
 | phone numbers, emails | `555-0100`, `help@example.com` |
 
 It recognizes the common ways of writing these, not every possible one. It's a

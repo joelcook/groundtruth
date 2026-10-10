@@ -58,11 +58,16 @@ available, also run `./gt eval --tier live` and report the result.
 
 1. `./gt init NAME --template TEMPLATE` (pick the closest: `./gt init --list`).
 2. `./gt ingest URL_OR_FOLDER` to capture the evidence.
-3. `./gt compile` writes a draft page per new source in `wiki/drafts/`
-   (`status: draft`: not served, not review-gated) and `NAME/build/compile-packet.md`,
-   which lists every exact value it found in each source. Do what the packet says:
-   - Exact things become rows in `facts/*.yaml`. Reuse a template file's shape;
-     add a file per kind of thing; give every tool a sharp `description`.
+3. `./gt compile` writes proposed facts per new source (`facts/_proposed-*.yaml`:
+   one row per exact statement; the `_` keeps them offline), a draft page per
+   new source in `wiki/drafts/` (`status: draft`: not served, not review-gated),
+   and `NAME/build/compile-packet.md`,
+   which lists the exact values it found in each source (all of them:
+   `build/fact-candidates.md`). Do what the packet says:
+   - Exact things become rows in `facts/*.yaml`. Start from the proposals:
+     verify every row against its source, and reshape statements into real
+     fields where you can (`price_usd: 39`; reuse a template file's shape), then
+     rename the file without the `_`. Give every tool a sharp `description`.
    - Explanations become wiki pages: finish the drafts (or write new pages), one
      topic per page, the words people use in `title` and `tags`, sources listed,
      lineage table at the bottom. Set `status: published` when a page is done.

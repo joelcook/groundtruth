@@ -435,18 +435,17 @@ def run(project: Project, *, stdio: bool = False, host: str | None = None, port:
         force: bool = False) -> int:
     from groundtruth import checks
     facts.ensure_built(project)
-    production = not stdio
+    production = not stdio  # local stdio sessions may still use template examples while you explore
     report = checks.run(project, production=production)
     if not report.ok:
         errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
-        msg = f"groundtruth: this project fails ./gt check{' --production' if production else ''} " \
-              f"({len(errors)} problem(s)); first: {errors[0]}"
-        if not stdio and not force:
-            print(msg + "\nRefusing to serve content that hasn't passed the checks. Fix it, or run "
-                  "./gt serve --force to serve anyway (local testing only).", file=sys.stderr)
+        cmd = "./gt check" + (" --production" if production else "")
+        msg = f"groundtruth: this project fails {cmd} ({len(errors)} problem(s)); first: {errors[0]}"
+        if not force:
+            print(msg + f"\nRefusing to serve content that hasn't passed the checks. Run {cmd} and fix "
+                  f"what it reports (or add --force to serve anyway, for local testing only).", file=sys.stderr)
             return 1
-        print(msg + " Serving anyway" + (" (--force)." if force else " because this is a local stdio session."),
-              file=sys.stderr)
+        print(msg + " Serving anyway (--force).", file=sys.stderr)
     gate = Gate(project, production=production, allow_unvalidated=True)
     gate.refresh(force=True)
     if os.environ.get("GT_DATA_URL", "").strip():

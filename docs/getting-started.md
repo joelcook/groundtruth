@@ -76,17 +76,24 @@ out of date, then `./gt review --done`. Two documents with the same name (say,
 ./gt compile
 ```
 
-This does two things, no API key needed:
+This does three things, no API key needed:
 
+- **Proposed facts.** One file per new source, `facts/_proposed-<source>.yaml`:
+  every line with an exact value becomes a row holding that exact statement,
+  served by a lookup tool, with the source wired in. Files starting with `_`
+  are ignored, so it isn't live yet. Check each row against the source, delete
+  what isn't a fact, rename the file without the `_`, and the tool is live.
+  (Reshaping rows into real fields, like `price_usd: 39`, makes better tools;
+  [facts.md](facts.md) shows how.)
 - **Draft pages.** One skeleton per new source in `wiki/drafts/`, with the
   frontmatter and lineage table filled in. They're `status: draft`: not served,
   and their problems show as warnings, not failures, until you write them and
   set `status: published`.
 - **A work order**, `build/compile-packet.md`: the sources nothing covers yet,
   every exact value found in each one (a price, a date, a phone number: each is
-  a fact row waiting to happen; the first 60 lines per source are listed, with
-  the total count), starter eval questions to fill in, the rules, and the exact
-  commands to verify.
+  a fact row waiting to happen; up to 60 lines per source in the packet, all of
+  them in `build/fact-candidates.md`), starter eval questions to fill in, the
+  rules, and the exact commands to verify.
 
 Open the repo in Claude Code, Codex, or Cursor and say:
 
@@ -131,7 +138,8 @@ right tool for the question is what `./gt eval --tier live` tests.
 ```
 
 Restart the client and ask it something. Then run `./gt report` to see what was
-asked and what came up empty.
+asked and what came up empty. If the client says the server failed to start,
+run `./gt check`: the server won't serve a project that fails it.
 
 ## 7. Put it online
 

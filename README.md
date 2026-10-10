@@ -79,13 +79,19 @@ Without an API key, `./gt ask` shows what the model would look up
    with the same name separate. If a page your facts or wiki cite changed or
    disappeared upstream, `./gt check` fails until you've re-checked them
    (`./gt review --diff` shows exactly what changed) and run `./gt review --done`.
-3. **`compile`** writes a draft page for each new source (not served until you
-   finish it) and `build/compile-packet.md`: a work order that lists every exact
-   value it found in your sources (each one a fact row waiting to happen),
-   starter eval questions, and the commands to verify. Open the repo in Claude
-   Code (or Codex, or Cursor) and say *"do the work in
-   my-assistant/build/compile-packet.md"*. It writes the fact rows and pages,
-   swaps out the template examples, and runs the checks. Have an API key?
+3. **`compile`** does the first pass for you, no API key needed:
+   - **Proposed facts**: `facts/_proposed-pricing.yaml`, one row per exact
+     statement it found in the source ("The Team plan costs USD 39 per month"),
+     with a lookup tool and the source wired in. The leading `_` keeps it
+     offline. Check the rows, rename the file without the `_`, and it's live.
+   - **Draft pages**: a skeleton per source in `wiki/drafts/`, not served until
+     you write it and set `status: published`.
+   - **A work order**, `build/compile-packet.md`: what's left, starter eval
+     questions built from your sources, and the commands to verify.
+
+   Or open the repo in Claude Code (or Codex, or Cursor) and say *"do the work
+   in my-assistant/build/compile-packet.md"*: it reshapes the facts, writes the
+   pages, swaps out the template examples, and runs the checks. Have an API key?
    `./gt compile --write` drafts the pages with Claude directly.
 4. **`check` and `eval`** catch facts in prose, broken links, bad YAML, and
    questions your data can't answer. `./gt check --production` also fails on
@@ -195,10 +201,11 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 
 - **Deploy anywhere that runs a container**: Fly.io, Render, Railway, Azure
   Container Apps, Google Cloud Run, a VPS. Recipes in [docs/deploy.md](docs/deploy.md).
-- **It only serves checked content.** `./gt serve` won't start on a project
-  that fails `./gt check --production`. While it runs, every edit is checked
-  first: one that fails is rejected, the last good version keeps serving, and
-  `/healthz` says so. **`./gt watchdog --url ...`** checks a deployed server end
+- **It only serves checked content.** The server won't start on a project that
+  fails the checks: `./gt check --production` over HTTP, `./gt check` over stdio
+  (what Claude Desktop and other local clients use, so you can still explore a
+  template). While it runs, every edit is checked first: one that fails is
+  rejected, the last good version keeps serving, and `/healthz` says so. **`./gt watchdog --url ...`** checks a deployed server end
   to end, daily via `.github/workflows/watchdog.yml`.
 - **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
   rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
