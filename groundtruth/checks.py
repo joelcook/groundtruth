@@ -195,6 +195,13 @@ def check_prose(project: Project, report: Report) -> None:
 def check_facts(project: Project, report: Report) -> list[facts.Collection]:
     files = facts.fact_files(project)
     if not files:
+        from groundtruth import compile as comp
+        waiting = comp.proposals(project)
+        if waiting:
+            report.error("facts", f"no live facts files yet. {len(waiting)} proposed file(s) are waiting: check "
+                                  f"{project.rel(waiting[0])} against its source, then rename it to "
+                                  f"{project.rel(comp.live_name(waiting[0]))}")
+            return []
         report.error("facts", f"no facts files in {project.rel(project.facts_dir)}/. "
                               "Add one (see docs/facts.md) or run ./gt init")
         return []
@@ -220,6 +227,21 @@ def check_facts(project: Project, report: Report) -> list[facts.Collection]:
 
 class GoldenError(Exception):
     pass
+
+
+def read_golden(project: Project) -> tuple[list[dict], str | None]:
+    """(questions, problem). Never raises: eval and status report the problem instead of crashing."""
+    try:
+        items = load_golden(project, strict=True)
+    except yaml.YAMLError as exc:
+        return [], f"{project.rel(project.golden_path)} is not valid YAML ({str(exc).splitlines()[0]}). Run ./gt check"
+    except GoldenError as exc:
+        return [], f"{exc}. Run ./gt check"
+    bad = [i for i, item in enumerate(items, start=1) if not isinstance(item, dict)]
+    if bad:
+        return [], (f"{project.rel(project.golden_path)} item {bad[0]} isn't a question (each one starts with "
+                    f"`- id: ...` and has fields under it). Run ./gt check")
+    return items, None
 
 
 def load_golden(project: Project, strict: bool = False) -> list[dict]:
@@ -357,7 +379,11 @@ def run(project: Project, production: bool = False) -> Report:
     if proposed:
         report.warn("facts", f"{len(proposed)} proposed facts file(s) aren't live yet ("
                              f"{', '.join(project.rel(p) for p in proposed[:3])}{'...' if len(proposed) > 3 else ''}). "
-                             f"Check each row against its source, then rename it without the leading _")
+                             f"Check each row against its source, then rename it to "
+                             f"{project.rel(comp.live_name(proposed[0]))}")
+        for p in comp.stale_proposals(project):
+            report.warn("facts", f"{project.rel(p)}: its source changed after it was proposed. Compare every "
+                                 f"row with the current source (or delete it and run ./gt compile again)")
     drafts = [p for p in wiki_pages(project) if is_draft(p)]
     if drafts:
         report.warn("wiki", f"{len(drafts)} draft page(s) aren't served until you finish them and set "

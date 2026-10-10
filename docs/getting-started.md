@@ -82,7 +82,8 @@ This does three things, no API key needed:
   every line with an exact value becomes a row holding that exact statement,
   served by a lookup tool, with the source wired in. Files starting with `_`
   are ignored, so it isn't live yet. Check each row against the source, delete
-  what isn't a fact, rename the file without the `_`, and the tool is live.
+  what isn't a fact, and rename it without the `_proposed-` prefix
+  (`facts/pricing.yaml`): the tool is live.
   (Reshaping rows into real fields, like `price_usd: 39`, makes better tools;
   [facts.md](facts.md) shows how.)
 - **Draft pages.** One skeleton per new source in `wiki/drafts/`, with the
@@ -122,7 +123,7 @@ First, make sure `evals/golden.yaml` holds questions you know the answers to
 ```bash
 ./gt check                # facts valid, no dates or $ in wiki prose, links resolve, evals wired up
 ./gt eval                 # free: your data answers each fact question, search finds each how-to
-./gt check --production   # what the server and Docker require: also no template examples left
+./gt check --production   # what HTTP serving and Docker require: also no template examples left
 ```
 
 `./gt eval` says what it proved: `data` (the tools return the expected values)

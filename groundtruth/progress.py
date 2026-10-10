@@ -30,6 +30,9 @@ def next_action(project: Project, todo: list[Step], gt: str = "./gt") -> str | N
     def is_review(kind: str, msg: str) -> bool:  # handled by the review step, not "broken"
         return kind == "sources" and "review" in msg and "same document" not in msg
     broken = [f"{k}: {e}" for k, v in report.errors.items() if k != "examples" for e in v if not is_review(k, e)]
+    waiting = next((s for s in todo if s.title == BUILD and not s.done and "proposed" in s.detail), None)
+    if waiting and all(b.startswith("facts: no live facts files") for b in broken):
+        return waiting.next  # nothing's broken: the proposals just haven't been accepted yet
     if broken:
         return f"{gt} check, and fix: {broken[0]}"
     review = next((s for s in todo if s.title == REVIEW and not s.done), None)
@@ -40,6 +43,7 @@ def next_action(project: Project, todo: list[Step], gt: str = "./gt") -> str | N
 
 
 REVIEW = "Review changed sources"
+BUILD = "Turn it into facts and pages"
 
 
 def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:
@@ -52,10 +56,7 @@ def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:
     uncovered = comp.uncovered(project)
     uncovered = [s for s in uncovered if s.path.resolve() not in fictional_sources]
     drafts = [p for p in checks.wiki_pages(project) if checks.is_draft(p)]
-    try:
-        golden = checks.load_golden(project)
-    except Exception:  # noqa: BLE001 - broken YAML: ./gt check explains it, next_action points there
-        golden = []
+    golden, golden_problem = checks.read_golden(project)
     example_ids = set(ex.questions)
     real_questions = [q for q in golden if q.get("id") not in example_ids]
     try:
@@ -85,7 +86,8 @@ def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:
         work.append(f"{len(uncovered)} source(s) not covered")
     if drafts:
         work.append(f"{len(drafts)} draft page(s) unfinished")
-    q_detail = f"{len(real_questions)} question(s) of your own"
+    q_detail = (f"{project.rel(project.golden_path)} can't be read (./gt check says why)" if golden_problem
+                else f"{len(real_questions)} question(s) of your own")
     if untested:
         q_detail += f"; no question tests {', '.join(untested[:3])}{'...' if len(untested) > 3 else ''}"
     problems = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
@@ -98,7 +100,7 @@ def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:
         parts = []
         if proposed:
             parts.append(f"check {project.rel(proposed[0])}{' (and the others)' if len(proposed) > 1 else ''} "
-                         f"against its source and rename it without the _")
+                         f"against its source and rename it to {project.rel(comp.live_name(proposed[0]))}")
         if drafts:
             parts.append(f"finish the draft pages in {project.rel(project.wiki_dir / 'drafts')}/ and set "
                          f"status: published")
@@ -108,13 +110,13 @@ def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:
     return [
         Step("Capture your evidence", bool(real_sources), f"{len(real_sources)} source(s) of your own",
              f"{gt} ingest URL_OR_FOLDER"),
-        Step("Turn it into facts and pages", bool(real_sources) and not work,
+        Step(BUILD, bool(real_sources) and not work,
              ", ".join(work) or ("every source is covered" if real_sources else "nothing to work from yet"),
              compile_next),
         Step("Replace the template examples", not ex.total,
              f"{ex.total} fictional item(s) left" if ex.total else "none left",
              f"{gt} examples --remove (once your own facts and pages replace them)"),
-        Step("Write eval questions", bool(real_questions) and not untested, q_detail,
+        Step("Write eval questions", bool(real_questions) and not untested and not golden_problem, q_detail,
              "add questions to evals/golden.yaml (the compile packet has starters); see docs/evals.md"),
         Step(REVIEW, has_lock and not pending,
              f"{len(pending)} source(s) waiting for review" if pending else

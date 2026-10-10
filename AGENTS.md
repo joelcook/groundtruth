@@ -67,7 +67,7 @@ available, also run `./gt eval --tier live` and report the result.
    - Exact things become rows in `facts/*.yaml`. Start from the proposals:
      verify every row against its source, and reshape statements into real
      fields where you can (`price_usd: 39`; reuse a template file's shape), then
-     rename the file without the `_`. Give every tool a sharp `description`.
+     rename `_proposed-x.yaml` to `x.yaml`. Give every tool a sharp `description`.
    - Explanations become wiki pages: finish the drafts (or write new pages), one
      topic per page, the words people use in `title` and `tags`, sources listed,
      lineage table at the bottom. Set `status: published` when a page is done.

@@ -29,9 +29,11 @@ groundtruth uses 1.x (`mcp>=1.27,<2`). Run `./gt setup`.
 **"can't use 'limit' as a parameter name"**: `limit` and `upcoming_only` are
 reserved. Use `arg: name` (or anything else).
 
-**I added a tool and the client doesn't see it**: restart the server (or the
-client, for stdio). Data changes reload live once they pass `./gt check` (a failing edit is
-rejected and shows in `/healthz`); new tools need a restart.
+**I added a tool and the client doesn't see it**: run `./gt check`; the server
+only picks up changes that pass it (a failing edit is rejected and shows in
+`/healthz`). Over HTTP, new tools and prompt edits then reach the next session
+on their own. A stdio client (Claude Desktop, Cursor...) reads the tool list
+when it starts: restart the client.
 
 **A lookup returns the wrong row**: add `aliases:` to the right row, or narrow
 `match:` to the fields that should be searched. `./gt ask --offline "..."` shows

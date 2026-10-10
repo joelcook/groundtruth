@@ -66,6 +66,11 @@ def _where(project: Project) -> str:
         return str(project.root)
 
 
+def _gt(args, project: Project) -> str:
+    """The ./gt prefix for a suggested command: keeps -p when the user gave one."""
+    return f"./gt -p {_where(project)}" if getattr(args, "project", None) else "./gt"
+
+
 # ===================================================================== commands
 
 
@@ -110,8 +115,7 @@ def cmd_examples(args) -> int:
     removed = examples.remove(project)
     _ok(f"removed {len(removed.facts)} facts file(s), {len(removed.wiki)} page(s), "
         f"{len(removed.sources)} source(s), {len(removed.questions)} question(s)")
-    print("next: ./gt compile   (a work order for adding your own facts, pages, and questions)")
-    print("      if prompts/system_prompt.md names tools you just removed, ./gt check will point them out")
+    print(f"next: {_gt(args, project)} status   (what's left, and the command for it)")
     return 0
 
 
@@ -282,7 +286,7 @@ def cmd_ingest(args) -> int:
         pending = review.changes(project)
         if pending:
             print(f"    ! {len(pending)} changed source(s) are cited by your facts or wiki: run ./gt review")
-        print("next: ./gt compile   (a work order for turning the evidence into facts and pages)")
+        print(f"next: {_gt(args, project)} compile   (proposed facts, draft pages, and a work order)")
     return 0
 
 
@@ -300,7 +304,7 @@ def cmd_compile(args) -> int:
             print(f"      {w}")
         for p in problems:
             print(f"    ! fact in prose: {p}")
-        print("next: review with git diff, then ./gt check && ./gt eval")
+        print(f"next: review with git diff, then {_gt(args, project)} check && {_gt(args, project)} eval")
         return 0
     proposed = comp.write_fact_proposals(project)
     drafts = comp.write_drafts(project)
@@ -310,7 +314,12 @@ def cmd_compile(args) -> int:
     if proposed:
         _ok(f"{len(proposed)} proposed facts file(s): {', '.join(project.rel(p) for p in proposed[:3])}"
             f"{'...' if len(proposed) > 3 else ''}")
-        print("      one row per exact statement in the source; check them, then rename without the _ to go live")
+        print(f"      one row per exact statement in the source. Check them, then rename each to go live "
+              f"(e.g. {project.rel(proposed[0])} -> {project.rel(comp.live_name(proposed[0]))})")
+    stale = comp.stale_proposals(project)
+    for p in stale:
+        print(f"    ! {project.rel(p)} was proposed from an older version of its source and you've edited it; "
+              f"compare it with the source (or delete it and run compile again)")
     if drafts:
         _ok(f"{len(drafts)} draft page(s) in {project.rel(project.wiki_dir / 'drafts')}/ (not served until "
             f"you set status: published)")
@@ -449,14 +458,12 @@ def cmd_status(args) -> int:
                      f"{sum(len(c.tools) for c in colls)} tools")
     except facts.FactsError as exc:
         fact_line = f"{len(exc.problems)} problem(s): run ./gt check"
-    try:
-        n_golden = len(checks.load_golden(project))
-    except Exception:  # noqa: BLE001 - broken YAML; ./gt check explains
-        n_golden = "?"
+    golden, problem = checks.read_golden(project)
+    n_golden = "?" if problem else len(golden)
     print(f"  facts {fact_line} · wiki {len(search.load_pages(project))} page(s) · "
           f"sources {len(comp.sources(project))} · evals {n_golden} question(s) · "
           f"{sum(1 for r in observability.read_log(project) if not r.get('probe'))} tool call(s) logged")
-    gt = "./gt" if args.project is None else f"./gt -p {_where(project)}"
+    gt = _gt(args, project)
     todo = progress.steps(project, gt, _where(project))
     print(f"\nRoad to production ({sum(s.done for s in todo)} of {len(todo)} done):")
     width = max(len(s.title) for s in todo) + 2

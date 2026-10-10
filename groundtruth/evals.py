@@ -281,7 +281,10 @@ def run(project: Project, tier: str = "tools", *, only: str | None = None, judge
     if tier not in TIERS:
         print(f"unknown tier {tier!r}; use one of {TIERS}", file=sys.stderr)
         return 2
-    items = checks.load_golden(project)
+    items, problem = checks.read_golden(project)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
     if not items:
         print(f"no questions in {project.rel(project.golden_path)}", file=sys.stderr)
         return 2

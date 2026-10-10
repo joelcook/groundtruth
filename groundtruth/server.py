@@ -61,6 +61,7 @@ class Gate:
         self.rejected_sig = None
         self.rejected: str | None = None
         self.errors = 0
+        self.listeners: list = []  # called after each validated reload (the server syncs prompt + tools)
         self._checked = 0.0
         self._lock = threading.Lock()
         facts.store(project).auto_reload = False
@@ -80,6 +81,11 @@ class Gate:
         facts.ensure_built(self.project)
         facts.store(self.project).refresh(force=True)
         self.pages = search._parse_pages(self.project)
+        for listener in self.listeners:
+            try:
+                listener()
+            except Exception as exc:  # noqa: BLE001 - a failed sync must not take serving down
+                print(f"groundtruth: couldn't apply the update to the MCP server: {exc}", file=sys.stderr)
 
     def refresh(self, force: bool = False) -> None:
         from groundtruth import checks
@@ -293,12 +299,29 @@ def build_server(project: Project, gate: Gate | None = None):
     )
     annotations = ToolAnnotations(**READ_ONLY)
     store = facts.store(project)
-    for spec_out in tool_specs(project):
-        name = spec_out["name"]
-        if name in ("search_wiki", "read_wiki_page"):
-            continue
-        fn = _make_fact_tool(project, store.tools[name], gate)
-        server.add_tool(fn, name=name, description=spec_out["description"], annotations=annotations)
+    registered: dict[str, str] = {}  # fact tool name -> its spec, to spot changes
+
+    def sync() -> None:
+        """Make the server match the project: instructions and fact tools. Runs on every validated reload,
+        so an edited prompt reaches new sessions and a new facts file's tools appear without a restart."""
+        server._mcp_server.instructions = instructions(project)
+        specs = {s["name"]: s for s in tool_specs(project) if s["kind"] != "wiki"}
+        for name in list(registered):
+            if name not in specs or registered[name] != json.dumps(specs[name], sort_keys=True, default=str):
+                if hasattr(server, "remove_tool"):
+                    server.remove_tool(name)
+                else:  # older mcp 1.x
+                    server._tool_manager._tools.pop(name, None)
+                del registered[name]
+        for name, spec_out in specs.items():
+            if name not in registered:
+                fn = _make_fact_tool(project, store.tools[name], gate)
+                server.add_tool(fn, name=name, description=spec_out["description"], annotations=annotations)
+                registered[name] = json.dumps(spec_out, sort_keys=True, default=str)
+
+    sync()
+    if gate is not None:
+        gate.listeners.append(sync)
 
     def search_wiki(
         query: Annotated[str, Field(description="What the person is asking about.")],

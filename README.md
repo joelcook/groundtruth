@@ -63,9 +63,11 @@ Without an API key, `./gt ask` shows what the model would look up
 
 ```bash
 ./gt init my-assistant --template saas    # or: college, city, clinic, blank
-./gt ingest https://your-site.example      # pull your pages in as evidence
-./gt compile                                # a work order for Claude Code or Codex
-./gt check && ./gt eval                     # prove it
+./gt ingest https://your-site.example      # pull your pages (or a folder) in as evidence
+./gt compile                                # proposed facts, draft pages, and a work order
+# now the real work: check the proposed facts, finish the pages, write eval
+# questions (or have Claude Code / Codex do the work order). ./gt status guides you.
+./gt check --production && ./gt eval        # prove it
 ./gt connect claude-desktop --install       # use it
 ```
 
@@ -83,7 +85,7 @@ Without an API key, `./gt ask` shows what the model would look up
    - **Proposed facts**: `facts/_proposed-pricing.yaml`, one row per exact
      statement it found in the source ("The Team plan costs USD 39 per month"),
      with a lookup tool and the source wired in. The leading `_` keeps it
-     offline. Check the rows, rename the file without the `_`, and it's live.
+     offline. Check the rows, rename it to `facts/pricing.yaml`, and it's live.
    - **Draft pages**: a skeleton per source in `wiki/drafts/`, not served until
      you write it and set `status: published`.
    - **A work order**, `build/compile-packet.md`: what's left, starter eval

@@ -112,7 +112,7 @@ human-readable `when` field for the model to quote.
 Files whose names start with `_` are ignored. `./gt compile` uses that: it
 writes `facts/_proposed-<source>.yaml`, one row per exact statement in a new
 source (`{id: ..., statement: "The Team plan costs USD 39 per month."}`) with a
-lookup tool. Check the rows, rename the file without the `_`, and it's live.
+lookup tool. Check the rows, rename it to `facts/<source>.yaml`, and it's live.
 Statements are a fine start; real fields (`price_usd: 39`) make sharper tools.
 
 ### Default tool
@@ -154,7 +154,9 @@ the last `./gt review --done`, the facts may be stale. `./gt review` names them.
 `build/facts.db`, a plain SQLite file you can open with any SQLite tool. The
 build is deterministic and tracks a fingerprint of your YAML, so it reruns
 itself whenever a file changes, and a running server notices within a second.
-Adding a **new tool** needs a server restart; changing data doesn't.
+Once the change passes `./gt check`, it goes live: new data, new tools, and an
+edited prompt. (A local stdio client like Claude Desktop reads the tool list
+when it starts, so restart it to see a new tool.)
 
 ## Choosing what's a fact
 

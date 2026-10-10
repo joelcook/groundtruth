@@ -155,7 +155,7 @@ def candidates(path: Path) -> list[tuple[int, str, str]]:
         kinds = [k for k, rx in checks.PATTERNS if rx.search(line)]
         if kinds:
             clean = " ".join(line.strip().lstrip("#*-> ").split())
-            out.append((i + 1 + offset, ", ".join(dict.fromkeys(kinds)), clean[:160]))
+            out.append((i + 1 + offset, ", ".join(dict.fromkeys(kinds)), clean))  # whole line: never cut a value off
     return out
 
 
@@ -241,6 +241,44 @@ def proposals(project: Project) -> list[Path]:
     return sorted(project.facts_dir.glob(f"{PROPOSAL_PREFIX}*.yaml")) if project.facts_dir.exists() else []
 
 
+def live_name(proposal: Path) -> Path:
+    """facts/_proposed-pricing.yaml -> facts/pricing.yaml: where it goes to become live."""
+    return proposal.with_name(proposal.name.removeprefix(PROPOSAL_PREFIX))
+
+
+def _sha(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _proposal_header(path: Path) -> tuple[dict[str, str], str]:
+    """The ``# key: value`` lines compile wrote at the top, and the YAML below them."""
+    meta, body = {}, []
+    for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        m = re.match(r"# (source|source-sha256|body-sha256): (.*)$", line.rstrip("\n"))
+        if m:
+            meta[m.group(1)] = m.group(2).strip()
+        elif not line.startswith("#") or body:
+            body.append(line)
+    return meta, "".join(body)
+
+
+def _source_sha(project: Project, rel: str) -> str | None:
+    path = project.root / rel
+    return str(_frontmatter(path).get("sha256") or "") or None if path.exists() else None
+
+
+def stale_proposals(project: Project) -> list[Path]:
+    """Proposals whose source changed after they were written (and that someone has since edited)."""
+    out = []
+    for p in proposals(project):
+        meta, _ = _proposal_header(p)
+        now = _source_sha(project, meta.get("source", ""))
+        if meta.get("source-sha256") and now and now != meta["source-sha256"]:
+            out.append(p)
+    return out
+
+
 def _statement_query(text: str, value: str) -> str:
     words = [w for w in re.findall(r"[A-Za-z][A-Za-z'-]+", text.replace(value, " "))
              if w.lower() not in facts.STOPWORDS and len(w) > 2]
@@ -252,7 +290,7 @@ def write_fact_proposals(project: Project) -> list[Path]:
 
     Each row is the exact statement from the source, served by a lookup tool, with the
     source wired in. It's written as facts/_proposed-<source>.yaml, which the loader
-    ignores. Check it, rename it without the leading underscore, and it's live.
+    ignores. Check it, rename it to facts/<source>.yaml, and it's live.
     Reshaping rows into real fields (price_usd: 39) is better still; this gets you there.
     """
     import yaml
@@ -271,8 +309,16 @@ def write_fact_proposals(project: Project) -> list[Path]:
         found = candidates(src.path)
         target = _proposal_path(project, src)
         stem = target.name.removeprefix(PROPOSAL_PREFIX).removesuffix(".yaml")
-        if not found or target.exists() or (project.facts_dir / f"{stem}.yaml").exists():
+        if not found or live_name(target).exists():
             continue
+        if target.exists():
+            meta, body = _proposal_header(target)
+            untouched = meta.get("body-sha256") == _sha(body)
+            changed = meta.get("source-sha256") != _source_sha(project, src.rel)
+            if not (changed and untouched):
+                continue  # current, or edited by someone: stale_proposals() flags the edited-and-stale case
+            for t in (yaml.safe_load(body) or {}).get("tools") or []:
+                taken.discard(t.get("name"))
         base = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
         tool = f"get_{base}_fact"[:64] if base and base[0].isalpha() else f"get_fact_{base}"[:64]
         n = 2
@@ -301,15 +347,18 @@ def write_fact_proposals(project: Project) -> list[Path]:
             }],
             "rows": rows,
         }
+        body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=10_000)  # one line per statement
         header = (f"# PROPOSED by ./gt compile from {src.rel}" + (f" ({origin})" if origin else "") + ".\n"
                   "# Not live yet: files whose names start with _ are ignored.\n"
                   "# To make it live: check every row against the source, delete what isn't a fact,\n"
-                  "# give the tool a sharper name and description, then rename this file without\n"
-                  "# the leading underscore (facts/" + stem + ".yaml). Better still, reshape rows into\n"
-                  "# real fields (price_usd: 39) as shown in docs/facts.md.\n")
+                  "# give the tool a sharper name and description, then rename this file to\n"
+                  f"# {project.rel(live_name(target))}. Better still, reshape rows into real fields\n"
+                  "# (price_usd: 39) as shown in docs/facts.md.\n"
+                  f"# source: {src.rel}\n"
+                  f"# source-sha256: {_source_sha(project, src.rel) or ''}\n"
+                  f"# body-sha256: {_sha(body)}\n")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100),
-                          encoding="utf-8")
+        target.write_text(header + body, encoding="utf-8")
         out.append(target)
     return out
 
@@ -455,12 +504,16 @@ def packet(project: Project) -> Path:
                 lines.append(f"  - draft page waiting for you: `{project.rel(drafts[src.rel])}`")
             proposal = _proposal_path(project, src)
             if proposal.exists():
-                lines.append(f"  - proposed facts waiting for review: `{project.rel(proposal)}` (rename it "
-                             f"without the `_` to make it live)")
+                lines.append(f"  - proposed facts waiting for review: `{project.rel(proposal)}` (rename it to "
+                             f"`{project.rel(live_name(proposal))}` to make it live)")
+                if proposal in stale_proposals(project):
+                    lines.append("    - ! the source changed after this was proposed, and the proposal has been "
+                                 "edited since: compare every row with the current source")
             found = candidates(src.path)
             if found:
                 lines.append(f"  - exact values in it ({len(found)} line(s); each is a facts row, not prose):")
-                lines += [f"    - line {n} ({kind}): {text}" for n, kind, text in found[:CANDIDATES_SHOWN]]
+                lines += [f"    - line {n} ({kind}): {text if len(text) <= 240 else text[:240] + ' [...]'}"
+                          for n, kind, text in found[:CANDIDATES_SHOWN]]
                 if len(found) > CANDIDATES_SHOWN:
                     lines.append(f"    - ...and {len(found) - CANDIDATES_SHOWN} more: the complete list is in "
                                  f"`build/fact-candidates.md`")

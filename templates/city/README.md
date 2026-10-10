@@ -9,7 +9,7 @@ commands below from there; `-p {{HERE}}` points them at this folder.
 | `facts/` | Anything exact: prices, dates, hours, phone numbers, limits. One YAML file per kind of thing. Each file says which tools the model gets. | You (or a coding agent) |
 | `wiki/` | Explanations: how-tos, policies, "what is". Plain markdown with a sources table. No dates or dollar amounts in the prose. | You, `./gt compile`, or a coding agent |
 | `sources/pages/` | The evidence everything above came from. | `./gt ingest` |
-| `prompts/system_prompt.md` | Your assistant's instructions. Paste them into your chat platform too. | You |
+| `prompts/system_prompt.md` | Your assistant's instructions. MCP clients get them automatically; `./gt prompt` prints them ready to paste anywhere else. | You |
 | `evals/golden.yaml` | Questions with known answers. Your launch gate. | You |
 
 ## Make it yours
