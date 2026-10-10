@@ -67,6 +67,7 @@ Without an API key, `./gt ask` shows what the model would look up
 ./gt compile                                # proposed facts, draft pages, and a work order
 # now the real work: check the proposed facts, finish the pages, write eval
 # questions (or have Claude Code / Codex do the work order). ./gt status guides you.
+./gt review --done                          # record that your facts match the sources
 ./gt check --production && ./gt eval        # prove it
 ./gt connect claude-desktop --install       # use it
 ```

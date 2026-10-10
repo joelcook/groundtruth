@@ -34,6 +34,7 @@ from groundtruth.project import Project
 
 STALE_DAYS = int(os.environ.get("GT_STALE_DAYS", "0"))  # 0 = only flag pages whose sources changed
 CANDIDATES_SHOWN = 60  # per source in the packet; the count is always shown in full
+TABLE_RULE_RE = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
 
 
 @dataclass
@@ -151,7 +152,23 @@ def candidates(path: Path) -> list[tuple[int, str, str]]:
     m = checks.FRONTMATTER_RE.match(text)
     offset = text[: m.end()].count("\n") if m else 0
     out = []
-    for i, line in enumerate((text[m.end():] if m else text).splitlines()):
+    lines = (text[m.end():] if m else text).splitlines()
+    header: list[str] | None = None
+    for i, line in enumerate(lines):
+        row = line.strip()
+        if row.startswith("|"):  # a markdown table: each row with a number becomes "Column: value; ..."
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            if TABLE_RULE_RE.match(row):
+                continue
+            if header is None and i + 1 < len(lines) and TABLE_RULE_RE.match(lines[i + 1].strip()):
+                header = cells
+                continue
+            if header and any(re.search(r"\d", c) for c in cells):
+                pairs = [f"{h}: {c}" if h else c for h, c in zip(header, cells) if c]
+                out.append((i + 1 + offset, "table row", "; ".join(pairs)))
+                continue
+        else:
+            header = None
         kinds = [k for k, rx in checks.PATTERNS if rx.search(line)]
         if kinds:
             clean = " ".join(line.strip().lstrip("#*-> ").split())
@@ -511,7 +528,8 @@ def packet(project: Project) -> Path:
                                  "edited since: compare every row with the current source")
             found = candidates(src.path)
             if found:
-                lines.append(f"  - exact values in it ({len(found)} line(s); each is a facts row, not prose):")
+                lines.append(f"  - exact values in it ({len(found)} line(s); each is a facts row, not prose; "
+                             f"full text in `build/fact-candidates.md`):")
                 lines += [f"    - line {n} ({kind}): {text if len(text) <= 240 else text[:240] + ' [...]'}"
                           for n, kind, text in found[:CANDIDATES_SHOWN]]
                 if len(found) > CANDIDATES_SHOWN:
@@ -588,8 +606,9 @@ def write_candidates(project: Project, srcs: list[SourceInfo]) -> Path:
     """build/fact-candidates.md: every line with an exact value, in every source nothing covers yet."""
     lines = ["# Fact candidates", "",
              "Every line in an uncovered source with a value the prose check recognizes (a price, a date,",
-             "a duration, a limit, a contact). Each belongs in a facts/ row. The patterns cover common",
-             "formats, not every possible one, so read the sources too.", ""]
+             "a duration, a limit, a contact), and every table row with a number in it. Each belongs in a",
+             "facts/ row. The patterns cover common formats, not every possible one, so read the sources too.",
+             ""]
     for src in srcs:
         found = candidates(src.path)
         lines += [f"## `{src.rel}` ({len(found)} line(s))", ""]
@@ -623,6 +642,9 @@ def _golden_stubs(project: Project, drafts: dict[str, Path]) -> list[str]:
             continue
         value = next((rx.search(row["statement"]).group(0) for _, rx in checks.PATTERNS
                       if rx.search(row["statement"])), "")
+        if not value:  # a table row: the first number is the value to check
+            hit = re.search(r"(?<=: )\d[\d,.]*", row["statement"]) or re.search(r"\d[\d,.]*", row["statement"])
+            value = hit.group(0).rstrip(".,") if hit else "TODO"
         out += [f"- id: {row['id']}"[:70] + f"          # once {prop.name} is live",
                 f"  question: \"TODO: how a real person would ask this ({row['statement'][:60]})\"",
                 "  category: hard_fact", f"  must_call_tool: {tool}",

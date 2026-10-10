@@ -79,7 +79,8 @@ out of date, then `./gt review --done`. Two documents with the same name (say,
 This does three things, no API key needed:
 
 - **Proposed facts.** One file per new source, `facts/_proposed-<source>.yaml`:
-  every line with an exact value becomes a row holding that exact statement,
+  every line with a value it recognizes (and every table row with a number in
+  it, column names included) becomes a row holding that exact statement,
   served by a lookup tool, with the source wired in. Files starting with `_`
   are ignored, so it isn't live yet. Check each row against the source, delete
   what isn't a fact, and rename it without the `_proposed-` prefix
@@ -118,7 +119,14 @@ the whole format.
 
 First, make sure `evals/golden.yaml` holds questions you know the answers to
 (the packet has starters; aim for ten or more) instead of the template's. See
-[evals.md](evals.md). Then:
+[evals.md](evals.md). Then record that your facts and pages match the sources
+they cite (until you do, `./gt check` says they're "not yet reviewed"):
+
+```bash
+./gt review --done
+```
+
+Then:
 
 ```bash
 ./gt check                # facts valid, no dates or $ in wiki prose, links resolve, evals wired up

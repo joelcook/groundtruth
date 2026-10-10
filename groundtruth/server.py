@@ -64,6 +64,7 @@ class Gate:
         self.listeners: list = []  # called after each validated reload (the server syncs prompt + tools)
         self._checked = 0.0
         self._lock = threading.Lock()
+        self._stopped = threading.Event()
         facts.store(project).auto_reload = False
 
     def _signature(self):
@@ -128,6 +129,19 @@ class Gate:
             self.rejected, self.rejected_sig, self.errors = errors[0], sig, len(errors)
             print(f"groundtruth: rejected an update that fails ./gt check, still serving the last good version: "
                   f"{errors[0]}", file=sys.stderr)
+
+    def watch(self, every: float = 1.0) -> None:
+        """Check for changes in the background, so updates land even between requests (and on stdio)."""
+        def loop() -> None:
+            while not self._stopped.wait(every):
+                try:
+                    self.refresh()
+                except Exception as exc:  # noqa: BLE001 - keep watching; the last good version keeps serving
+                    print(f"groundtruth: reload failed: {exc}", file=sys.stderr)
+        threading.Thread(target=loop, name="groundtruth-gate", daemon=True).start()
+
+    def stop(self) -> None:
+        self._stopped.set()
 
     def status(self) -> dict[str, Any]:
         self.refresh()
@@ -436,6 +450,9 @@ class GatewayMiddleware:
             if not presented or not hmac.compare_digest(presented, self.api_key):
                 return await self._send_json(send, 401, {"error": "unauthorized",
                                                          "hint": "send Authorization: Bearer <GT_MCP_API_KEY>"})
+        if self.gate is not None:  # every request sees the latest checked version (initialize, tools/list...)
+            import anyio
+            await anyio.to_thread.run_sync(self.gate.refresh)
         if headers.get(b"x-groundtruth-probe"):
             token = observability.PROBE.set(True)
             try:
@@ -471,11 +488,14 @@ def run(project: Project, *, stdio: bool = False, host: str | None = None, port:
         print(msg + " Serving anyway (--force).", file=sys.stderr)
     gate = Gate(project, production=production, allow_unvalidated=True)
     gate.refresh(force=True)
+    if stdio:
+        mcp_server = build_server(project, gate)
+        gate.watch()
     if os.environ.get("GT_DATA_URL", "").strip():
         from groundtruth import bundle
         bundle.start_polling(project)
     if stdio:
-        build_server(project, gate).run(transport="stdio")
+        mcp_server.run(transport="stdio")
         return 0
     import uvicorn
 
@@ -486,5 +506,7 @@ def run(project: Project, *, stdio: bool = False, host: str | None = None, port:
     print(f"groundtruth: serving {project.name!r} at http://{shown}:{port}/mcp "
           f"(auth {'ON' if key else 'OFF - set GT_MCP_API_KEY before exposing this'})", file=sys.stderr)
     print(f"groundtruth: health check at http://{shown}:{port}/healthz", file=sys.stderr)
-    uvicorn.run(http_app(project, gate), host=host, port=port, log_level=os.environ.get("GT_LOG_LEVEL", "warning"))
+    app = http_app(project, gate)
+    gate.watch()
+    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("GT_LOG_LEVEL", "warning"))
     return 0

@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import sys
 import textwrap
 from pathlib import Path
@@ -67,8 +69,29 @@ def _where(project: Project) -> str:
 
 
 def _gt(args, project: Project) -> str:
-    """The ./gt prefix for a suggested command: keeps -p when the user gave one."""
-    return f"./gt -p {_where(project)}" if getattr(args, "project", None) else "./gt"
+    """The ./gt prefix for a suggested command: keeps -p (shell-quoted) when the user gave one."""
+    return f"./gt -p {shlex.quote(_where(project))}" if getattr(args, "project", None) else "./gt"
+
+
+SUGGESTION_RE = re.compile(r"\./gt (?!-p |init\b|use\b|demo\b|setup\b|doctor\b)")
+
+
+class _KeepProject:
+    """Wraps stdout/stderr so every suggested `./gt ...` command keeps the user's -p.
+
+    Messages come from all over (checks, review, status); rewriting them on the way
+    out means a copied suggestion always targets the project you were working on.
+    """
+
+    def __init__(self, stream, prefix: str) -> None:
+        self._stream, self._prefix = stream, prefix
+
+    def write(self, text: str) -> int:
+        self._stream.write(SUGGESTION_RE.sub(self._prefix + " ", text))
+        return len(text)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
 
 
 # ===================================================================== commands
@@ -667,6 +690,13 @@ def main(argv: list[str] | None = None) -> int:
             where = f"(none: {exc})"
         print(MENU.format(version=__version__, project=where))
         return 0
+    out, err = sys.stdout, sys.stderr
+    if args.project and args.fn.__name__ not in ("cmd_serve", "cmd_init", "cmd_use", "cmd_demo"):
+        try:
+            prefix = f"./gt -p {shlex.quote(_where(resolve(args.project)))}"
+            sys.stdout, sys.stderr = _KeepProject(out, prefix), _KeepProject(err, prefix)
+        except ProjectError:
+            pass
     try:
         return int(args.fn(args) or 0)
     except ProjectError as exc:
@@ -674,3 +704,5 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except KeyboardInterrupt:
         return 130
+    finally:
+        sys.stdout, sys.stderr = out, err
