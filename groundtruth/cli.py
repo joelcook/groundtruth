@@ -366,8 +366,15 @@ def cmd_refresh(args) -> int:
 
 
 def cmd_bundle(args) -> int:
-    from groundtruth import bundle
+    from groundtruth import bundle, checks
     project = _p(args)
+    report = checks.run(project, production=True)
+    if not report.ok:  # servers trust bundles, so nothing unchecked gets packaged
+        _bad("won't bundle a project that fails ./gt check --production:")
+        for kind, errs in report.errors.items():
+            for e in errs[:5]:
+                print(f"      {kind}: {e}")
+        return 1
     path = bundle.build(project)
     _ok(f"{project.rel(path)} ({path.stat().st_size // 1024} KB)")
     return 0

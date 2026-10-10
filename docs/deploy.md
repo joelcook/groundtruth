@@ -105,7 +105,8 @@ Rebuilding the image works, but you don't have to:
 
 1. Set the repo variable `GT_PUBLISH_DATA=true`. `.github/workflows/publish-data.yml`
    then runs the gates on every push to main, builds a bundle (`./gt bundle`), and
-   attaches it to a `data-latest` release.
+   attaches it to a `data-latest` release. `./gt bundle` refuses a project that
+   fails `./gt check --production`, because servers trust a verified bundle.
 2. Start the server with
    `GT_DATA_URL=https://github.com/<you>/<repo>/releases/download/data-latest/groundtruth-data.tar.gz`
    (add `GT_DATA_TOKEN` for a private repo).

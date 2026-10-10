@@ -117,5 +117,16 @@ class TestEvalBreakdown(unittest.TestCase):
             tmp.cleanup()
 
 
+class TestBundleGate(unittest.TestCase):
+    def test_bundle_refuses_template_examples(self):
+        from groundtruth import cli
+        with tempfile.TemporaryDirectory() as d:
+            root = scaffold.init(Path(d) / "acme", "saas", activate=False)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(["-p", str(root), "bundle"]), 1)
+            self.assertIn("check --production", out.getvalue())
+            self.assertFalse((root / "build" / "groundtruth-data.tar.gz").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

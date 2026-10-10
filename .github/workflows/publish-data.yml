@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
-      - run: python -m groundtruth check && python -m groundtruth eval
+      - run: python -m groundtruth check --production && python -m groundtruth eval
       - run: python -m groundtruth bundle
       - name: upload to the data-latest release
         env:
