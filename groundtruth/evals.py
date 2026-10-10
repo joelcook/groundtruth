@@ -142,7 +142,10 @@ def run_tools_tier(project: Project, items: list[dict]) -> list[dict]:
                 for needle in item.get("must_not_contain", []) or []:
                     if str(needle).lower() in payload_text.lower():
                         reasons.append(f"{tool}({args}) result contains the stale value {needle!r}")
-        reasons += _retrieval_check(project, item)
+        data_ok = not reasons if tool else None
+        retrieval = _retrieval_check(project, item)
+        retrieval_ok = not retrieval if item.get("must_cite_page") else None
+        reasons += retrieval
         if cat == "narrative" and item.get("must_cite_page") and not tool:
             page = server.call_tool(project, "read_wiki_page", {"path_or_slug": item["must_cite_page"]}, log=False)
             content = (page or {}).get("content", "")
@@ -153,8 +156,21 @@ def run_tools_tier(project: Project, items: list[dict]) -> list[dict]:
                     reasons.append(f"page {item['must_cite_page']!r} never mentions {needle!r}")
         if cat == "hard_fact" and not tool:
             reasons.append("hard_fact items need must_call_tool")
-        results.append(_result(item, not reasons, reasons, tool_calls=[{"name": tool, "input": item.get("tool_args") or {}}] if tool else []))
+        results.append(_result(item, not reasons, reasons, data_ok=data_ok, retrieval_ok=retrieval_ok,
+                               tool_calls=[{"name": tool, "input": item.get("tool_args") or {}}] if tool else []))
     return results
+
+
+def _breakdown(results: list[dict]) -> list[str]:
+    """What the free tier actually proved, and what it can't."""
+    def line(key: str, label: str, what: str) -> str | None:
+        rs = [r for r in results if r.get(key) is not None]
+        score = f"{sum(1 for r in rs if r[key])}/{len(rs)}"
+        return f"  {label:<10} {score:<6} {what}" if rs else None
+    out = [line("data_ok", "data", "fact tools return the expected values for the recorded tool_args"),
+           line("retrieval_ok", "retrieval", "search_wiki finds the expected page for the question")]
+    return [x for x in out if x] + ["  not tested: whether a model picks that tool and those arguments, "
+                                    "and answers faithfully (--tier live)"]
 
 
 # ===================================================================== graders (live + replay)
@@ -328,6 +344,8 @@ def run(project: Project, tier: str = "tools", *, only: str | None = None, judge
         why = "not in the recorded run" if tier == "replay" else "need a model"
         extra = f" ({len(skipped)} skipped: {why}, run --tier live)" if skipped else ""
         print(f"{tier}: {passed}/{len(graded)} passed{extra}")
+        if tier == "tools":
+            print("\n".join(_breakdown(graded)))
         if regressions:
             print(f"  REGRESSIONS since the last live run: {', '.join(regressions)}")
         if tier == "replay" and source:

@@ -44,7 +44,7 @@ def _source(template: str) -> Path:
     return path
 
 
-def init(dest: str | Path, template: str = "blank", name: str | None = None) -> Path:
+def init(dest: str | Path, template: str = "blank", name: str | None = None, *, activate: bool = True) -> Path:
     src = _source(template)
     target = Path(dest).expanduser()
     if not target.is_absolute():
@@ -55,11 +55,19 @@ def init(dest: str | Path, template: str = "blank", name: str | None = None) -> 
                     ignore=shutil.ignore_patterns("build", "logs", "reports", "*-tools.json", "*-replay.json",
                                                   "__pycache__", ".DS_Store"))
     display = name or target.name.replace("-", " ").replace("_", " ").title()
+    from groundtruth.project import REPO_ROOT
+    try:
+        here = str(target.relative_to(REPO_ROOT))
+    except ValueError:
+        here = str(target)
+    fill = {"{{NAME}}": display, "{{GT}}": str(REPO_ROOT), "{{HERE}}": here}
     for path in target.rglob("*"):
         if path.is_file() and path.suffix in TEXT_SUFFIXES:
             text = path.read_text(encoding="utf-8")
-            if "{{NAME}}" in text:
-                path.write_text(text.replace("{{NAME}}", display), encoding="utf-8")
+            if any(k in text for k in fill):
+                for k, v in fill.items():
+                    text = text.replace(k, v)
+                path.write_text(text, encoding="utf-8")
     cfg = target / "groundtruth.yaml"
     text = cfg.read_text(encoding="utf-8")
     text = re.sub(r"(?m)^template_description:.*\n", "", text)
@@ -69,7 +77,8 @@ def init(dest: str | Path, template: str = "blank", name: str | None = None) -> 
     from groundtruth import review
     from groundtruth.project import load
     review.mark_reviewed(load(target))
-    set_current(target)
+    if activate:
+        set_current(target)
     return target
 
 

@@ -3,7 +3,8 @@
 #   docker build -t my-assistant --build-arg PROJECT=my-assistant .
 #   docker run -p 8765:8765 -e GT_MCP_API_KEY=... my-assistant
 #
-# The build runs ./gt check, so an image with broken facts never gets made.
+# The build runs ./gt check --production, so an image with broken facts (or leftover
+# template examples) never gets made.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -23,7 +24,7 @@ COPY groundtruth ./groundtruth
 RUN pip install --no-cache-dir .
 
 COPY ${PROJECT} /app/project
-RUN python -m groundtruth build && python -m groundtruth check && chown -R app:app /app
+RUN python -m groundtruth build && python -m groundtruth check --production && chown -R app:app /app
 
 USER app
 EXPOSE 8765

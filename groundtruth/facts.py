@@ -507,10 +507,13 @@ class FactStore:
         self.rows: dict[str, list[dict]] = {}
         self.tools: dict[str, dict] = {}
         self.meta: dict[str, str] = {}
+        self.auto_reload = True  # the server turns this off and reloads only validated data
 
     def refresh(self, force: bool = False) -> None:
         import time
         now = time.monotonic()
+        if not force and self._loaded_mtime is not None and not self.auto_reload:
+            return
         if not force and now - self._checked_at < 1.0 and self._loaded_mtime is not None:
             return
         with self._lock:

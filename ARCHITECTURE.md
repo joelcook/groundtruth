@@ -34,10 +34,13 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
    into SQLite deterministically, and answers tool calls with forgiving matching
    and exact values. No per-domain Python.
 3. **Explanations are linted.** The wiki is markdown with frontmatter and a
-   lineage table. `./gt check` fails on dates or dollar amounts in prose, so facts
-   can't drift into pages and go stale there.
-4. **Serving is read-only.** `groundtruth/server.py` generates the MCP tool
-   surface from the project. Data and pages reload live.
+   lineage table. `./gt check` fails on the common ways of writing dates, times,
+   money, durations, limits, and contacts in prose, so facts don't drift into
+   pages and go stale there.
+4. **Serving is read-only, and gated.** `groundtruth/server.py` generates the MCP
+   tool surface from the project. Edits reload live, but only after they pass
+   `./gt check`; a failing edit is rejected, the last good version keeps
+   serving, and `/healthz` reports the rejection.
 
 ## Modules
 
@@ -81,7 +84,7 @@ don't need for correctness you can't live without.
 
 ## What "ready to ship" means
 
-- `./gt check` and `./gt eval` pass (CI enforces both);
+- `./gt check --production` and `./gt eval` pass (CI and the Docker build enforce them);
 - `./gt eval --tier release` passes 100% on the production model;
 - no facts in wiki prose; every fact has a source;
 - the server is deployed with an API key, watched by the watchdog, and the

@@ -5,8 +5,12 @@ Two ways to run it:
     ./gt compile            writes build/compile-packet.md: a precise work order for
                             a coding agent. Open the repo in Claude Code (or Codex,
                             Cursor...) and say "do build/compile-packet.md". It lists
-                            new sources no page covers yet, pages whose sources
-                            changed, the rules, and how to verify. No API key needed.
+                            new sources no page covers yet, the exact values found in
+                            each (the fact candidates), pages whose sources changed,
+                            starter eval questions, the rules, and how to verify. It
+                            also writes a draft page skeleton per new source
+                            (status: draft, not served until you finish it).
+                            No API key needed.
 
     ./gt compile --write    does the wiki part itself with Claude: drafts a page for
                             each uncovered source and refreshes each stale page.
@@ -68,10 +72,16 @@ def sources(project: Project) -> list[SourceInfo]:
     return out
 
 
-def cited_sources(project: Project) -> set[str]:
-    """Every source path referenced by a wiki page or a facts file."""
+def _is_draft(path: Path) -> bool:
+    return str(_frontmatter(path).get("status", "")).lower() == "draft"
+
+
+def cited_sources(project: Project, *, drafts: bool = False) -> set[str]:
+    """Every source path referenced by a wiki page or a facts file (draft pages only if asked)."""
     cited: set[str] = set()
     for page in checks.wiki_pages(project):
+        if not drafts and _is_draft(page):
+            continue
         for s in _frontmatter(page).get("sources") or []:
             cited.add(str(s).strip("[]").split("|")[0])
     try:
@@ -105,7 +115,7 @@ def stale_pages(project: Project) -> list[tuple[Path, str]]:
     today = dt.date.today()
     out = []
     for page in checks.wiki_pages(project):
-        if "internal" in page.relative_to(project.wiki_dir).parts:
+        if "internal" in page.relative_to(project.wiki_dir).parts or _is_draft(page):
             continue
         meta = _frontmatter(page)
         cited = [str(s).strip("[]").split("|")[0] for s in (meta.get("sources") or [])]
@@ -123,6 +133,85 @@ def stale_pages(project: Project) -> list[tuple[Path, str]]:
             out.append((page, f"source changed since {compiled}: {', '.join(map(str, newer))}"))
         elif STALE_DAYS and (today - compiled).days > STALE_DAYS:
             out.append((page, f"compiled {(today - compiled).days} days ago"))
+    return out
+
+
+# ===================================================================== scaffolding
+
+
+def candidates(path: Path, limit: int = 20) -> list[tuple[int, str, str]]:
+    """(line, kind, the line itself) for each line of a source with an exact value in it.
+
+    These are the fact candidates: each one belongs in a facts/ row, not in wiki prose.
+    It uses the same patterns as the prose check, so it finds common formats, not all.
+    """
+    text = path.read_text(encoding="utf-8")
+    m = checks.FRONTMATTER_RE.match(text)
+    offset = text[: m.end()].count("\n") if m else 0
+    out = []
+    for i, line in enumerate((text[m.end():] if m else text).splitlines()):
+        kinds = [k for k, rx in checks.PATTERNS if rx.search(line)]
+        if kinds:
+            clean = " ".join(line.strip().lstrip("#*-> ").split())
+            out.append((i + 1 + offset, ", ".join(dict.fromkeys(kinds)), clean[:160]))
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or "page"
+
+
+def write_drafts(project: Project) -> list[Path]:
+    """A page skeleton for each source nothing covers yet. Status draft: not served, not in evals.
+
+    Finishing one means writing the explanation, picking page_type, and setting
+    status: published. Re-running skips sources that already have a draft.
+    """
+    drafted = cited_sources(project, drafts=True)
+    today = dt.date.today().isoformat()
+    out = []
+    for src in uncovered(project):
+        if src.rel in drafted:
+            continue
+        slug = _slug(src.title)
+        target = project.wiki_dir / "drafts" / f"{slug}.md"
+        n = 2
+        while target.exists():
+            target, n = target.with_name(f"{slug}-{n}.md"), n + 1
+        words = [w for w in re.findall(r"[a-z0-9]+", src.title.lower()) if len(w) > 2][:6]
+        captured = src.captured.isoformat() if src.captured else today
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"""---
+title: {src.title}
+page_type: guide
+last_compiled: {today}
+compiled_by: ./gt compile (draft)
+sources:
+  - {src.rel}
+status: draft
+tags: [{", ".join(words)}]
+---
+
+# {src.title}
+
+<!-- DRAFT. Not served until you finish it:
+     1. Write the explanation from {src.rel} in plain words. Lead with the answer.
+     2. Exact values (prices, dates, hours, limits, contacts) go in facts/, not here.
+        Name the tool instead: "the assistant looks up the current fee with get_fee".
+        build/compile-packet.md lists the exact values found in this source.
+     3. Set page_type (journey, process, policy, entity, comparison, faq, guide),
+        add the words people would search for to tags, set status: published,
+        and move it out of drafts/ if you like. Then run ./gt check. -->
+
+## Sources & Lineage
+
+| Source | Captured | URL |
+|---|---|---|
+| [[{src.rel}]] | {captured} | {src.url or ""} |
+""", encoding="utf-8")
+        out.append(target)
     return out
 
 
@@ -223,13 +312,17 @@ def packet(project: Project) -> Path:
                       f"({len(c.rows)} rows; tools: {', '.join(t.name for t in c.tools)})" for c in collections]
     except facts.FactsError as exc:
         coll_lines = ["- (facts currently fail validation:)"] + [f"  - {p}" for p in exc.problems]
-    pages = [project.rel(p) for p in checks.wiki_pages(project)]
+    pages = [project.rel(p) for p in checks.wiki_pages(project) if not _is_draft(p)]
+    drafts = {str(s).strip("[]"): p for p in checks.wiki_pages(project) if _is_draft(p)
+              for s in (_frontmatter(p).get("sources") or [])}
+    gt = f"./gt -p {_where(project)}"
 
     lines = [
         f"# Compile packet: {project.name}",
         "",
         f"Generated {today} by `./gt compile`. You are a coding agent working in this repo.",
-        f"The project lives in `{_where(project)}/`. Work only inside it.",
+        f"The project lives in `{_where(project)}/`: edit files only inside it. Run the `./gt`",
+        "commands below from the repo root (the folder with the `gt` script).",
         "",
         "## Goal",
         "",
@@ -246,7 +339,7 @@ def packet(project: Project) -> Path:
                   "them with the current source (`./gt review --diff` shows what changed), fix anything out of",
                   "date, then run `./gt review --done`. `./gt check` fails until you do.", ""]
         for ch in changed:
-            lines.append(f"- `{ch.source}` ({ch.reason})")
+            lines.append(f"- `{ch.source}` ({ch.reason}): `{gt} review --diff {ch.source}`")
             lines += [f"  - facts: `{f}`" for f in ch.facts]
             lines += [f"  - wiki: `{w}`" for w in ch.wiki]
         lines.append("")
@@ -254,7 +347,14 @@ def packet(project: Project) -> Path:
         lines += [f"### New sources nothing covers yet ({len(new)})", "",
                   "For each: decide what's a fact (goes in `facts/`) and what's explanation (a wiki",
                   "page). Several related sources can share one page.", ""]
-        lines += [f"- `{s.rel}`: {s.title}" + (f" ({s.url})" if s.url else "") for s in new]
+        for src in new:
+            lines.append(f"- `{src.rel}`: {src.title}" + (f" ({src.url})" if src.url else ""))
+            if src.rel in drafts:
+                lines.append(f"  - draft page waiting for you: `{project.rel(drafts[src.rel])}`")
+            found = candidates(src.path)
+            if found:
+                lines.append("  - exact values in it (each is a facts row, not prose):")
+                lines += [f"    - line {n} ({kind}): {text}" for n, kind, text in found]
         lines.append("")
     if stale:
         lines += [f"### Pages whose sources changed ({len(stale)})", "",
@@ -291,15 +391,25 @@ def packet(project: Project) -> Path:
         "",
         *([f"- `{p}`" for p in pages] or ["- (none yet)"]),
         "",
+        "## Eval questions to add",
+        "",
+        "Add these to `evals/golden.yaml` as you go (full format: docs/evals.md). One `hard_fact`",
+        "per fact tool, one `narrative` per published page. Write the question the way a real",
+        "person would ask it.",
+        "",
+        "```yaml",
+        *_golden_stubs(project, drafts),
+        "```",
+        "",
         "## When you're done",
         "",
         "Run these from the repo root and fix everything they report:",
         "",
         "```bash",
-        "./gt check          # fix everything it reports, except 'changed since the last review'",
-        "./gt eval           # free: tools return the expected facts, search finds the pages",
-        "./gt review --done  # only after the facts and pages match the current sources",
-        "./gt check          # must be fully green now",
+        f"{gt} check          # fix everything except 'changed since the last review'",
+        f"{gt} eval           # free: tools return the expected facts, search finds the pages",
+        f"{gt} review --done  # only after the facts and pages match the current sources",
+        f"{gt} check --production   # must be fully green: no examples, no unreviewed sources",
         "```",
         "",
         "Then summarize what you added and anything in the sources you couldn't place.",
@@ -308,6 +418,32 @@ def packet(project: Project) -> Path:
     out = project.build_dir / "compile-packet.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
+    return out
+
+
+def _golden_stubs(project: Project, drafts: dict[str, Path]) -> list[str]:
+    from groundtruth import examples
+    out = []
+    fictional = {p.resolve() for p in examples.find(project).facts}
+    try:
+        collections = [c for c in facts.load(project) if Path(c.file).resolve() not in fictional]
+    except facts.FactsError:
+        collections = []
+    for c in collections:
+        for t in c.tools[:1]:
+            out += [f"- id: {t.name.replace('_', '-')}-1", f"  question: \"TODO: a real question {t.name} answers\"",
+                    "  category: hard_fact", f"  must_call_tool: {t.name}",
+                    "  tool_args: {TODO: the arguments a model would pass}",
+                    "  must_contain: [\"TODO: the exact value the answer must include\"]", ""]
+    if not collections:
+        out += ["- id: team-plan-price           # one like this per fact tool you add",
+                "  question: \"How much is the Team plan?\"", "  category: hard_fact",
+                "  must_call_tool: get_plan     # the tool from facts/*.yaml",
+                "  tool_args: {plan: team}      # what a model would pass", "  must_contain: [\"39\"]", ""]
+    for page in sorted(set(drafts.values())):
+        slug = page.stem
+        out += [f"- id: {slug}", f"  question: \"TODO: how would someone ask about {_frontmatter(page).get('title', slug)}?\"",
+                "  category: narrative", f"  must_cite_page: {slug}", ""]
     return out
 
 

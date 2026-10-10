@@ -120,7 +120,7 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
     except Exception as exc:  # noqa: BLE001
         checks.fail(f"healthz unreachable: {exc}")
         return {}
-    if r.status_code != 200 or not body.get("ok"):
+    if r.status_code not in (200, 503) or "name" not in body:
         checks.fail(f"healthz: {r.status_code} {body}")
         return {}
     checks.ok(f"healthz: {body.get('name')} data {body.get('data_version')}, built {body.get('built_at')}")
@@ -128,6 +128,8 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
     if status and not status.get("ok", True):
         checks.fail(f"the server is serving content that fails ./gt check ({status.get('errors')} problem(s)): "
                     f"{status.get('first')}")
+    elif status.get("update_rejected"):
+        checks.fail(f"an update was rejected (still serving the last good version): {status.get('first')}")
     if max_age_hours and body.get("built_at"):
         built = dt.datetime.strptime(body["built_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
         age = (dt.datetime.now(dt.timezone.utc) - built).total_seconds() / 3600
@@ -152,6 +154,8 @@ def _explain(exc: BaseException) -> str:
         return "401 unauthorized: pass the server's key with --api-key or GT_MCP_API_KEY"
     if status == 421 or "Invalid Host" in str(leaf):
         return f"{status or ''} host rejected: set GT_ALLOWED_HOSTS on the server (or an API key)".strip()
+    if status == 404 or "Session terminated" in str(leaf):
+        return f"{status or ''} no MCP endpoint at that URL: the MCP path is usually /mcp".strip()
     if status:
         return f"HTTP {status} from the server"
     return f"{type(leaf).__name__}: {leaf}"
@@ -160,6 +164,11 @@ def _explain(exc: BaseException) -> str:
 def run(project: Project, url: str | None = None, api_key: str | None = None,
         max_age_hours: float | None = None) -> int:
     checks = Checks()
+    if url and not url.rstrip("/").endswith("/mcp"):
+        from urllib.parse import urlparse
+        if urlparse(url).path in ("", "/"):
+            url = url.rstrip("/") + "/mcp"
+            print(f"(no path given; using {url})")
     try:
         if url:
             print(f"watchdog: {url}")

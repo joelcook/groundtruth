@@ -60,9 +60,18 @@ out of date, then `./gt review --done`. Two documents with the same name (say,
 ./gt compile
 ```
 
-This writes `build/compile-packet.md`, a work order listing the sources nothing
-covers yet, pages whose sources changed, the rules, and how to verify. Open the
-repo in Claude Code, Codex, or Cursor and say:
+This does two things, no API key needed:
+
+- **Draft pages.** One skeleton per new source in `wiki/drafts/`, with the
+  frontmatter and lineage table filled in. They're `status: draft`, so they
+  aren't served (or counted against you) until you write them and set
+  `status: published`.
+- **A work order**, `build/compile-packet.md`: the sources nothing covers yet,
+  every exact value found in each one (a price, a date, a phone number: each is
+  a fact row waiting to happen), starter eval questions, the rules, and the
+  exact commands to verify.
+
+Open the repo in Claude Code, Codex, or Cursor and say:
 
 > Do the work in my-assistant/build/compile-packet.md
 
@@ -82,13 +91,19 @@ the whole format.
 
 ## 5. Prove it
 
+First, make sure `evals/golden.yaml` holds questions you know the answers to
+(the packet has starters; aim for ten or more) instead of the template's. See
+[evals.md](evals.md). Then:
+
 ```bash
-./gt check     # facts valid, no dates or $ in wiki prose, links resolve, evals wired up
-./gt eval      # free: every fact question answerable from your data, every how-to findable
+./gt check                # facts valid, no dates or $ in wiki prose, links resolve, evals wired up
+./gt eval                 # free: your data answers each fact question, search finds each how-to
+./gt check --production   # what the server and Docker require: also no template examples left
 ```
 
-Then replace the template's example questions in `evals/golden.yaml` with ten
-you know the answers to. See [evals.md](evals.md).
+`./gt eval` says what it proved: `data` (the tools return the expected values)
+and `retrieval` (search finds the expected page). Whether a model picks the
+right tool for the question is what `./gt eval --tier live` tests.
 
 ## 6. Talk to it
 
@@ -103,7 +118,9 @@ asked and what came up empty.
 
 ## 7. Put it online
 
-`./gt serve` runs the HTTP server locally. For a public endpoint (Copilot
+`./gt serve` runs the HTTP server locally. It needs `./gt check --production`
+to pass (`--force` skips that for local testing), and from then on it only
+switches to an edited version once that version passes the checks. For a public endpoint (Copilot
 Studio, ChatGPT, claude.ai, your own app), see [deploy.md](deploy.md). Set
 `GT_MCP_API_KEY` before you expose it.
 

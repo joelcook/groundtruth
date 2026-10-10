@@ -116,8 +116,11 @@ A file with no `tools:` gets one lookup tool named `get_<file name>`.
 - Filters and `match` name fields that exist; `ref` names a real collection.
 - `date_field` values are `YYYY-MM-DD`.
 
-Warnings (they don't fail the check): a source file that doesn't exist, or a
-`ref` value that isn't a key in the referenced file.
+- A `source_path` points at a file that exists. (A typo'd path fails, with the
+  closest real file suggested.)
+
+Warning (doesn't fail the check): a `ref` value that isn't a key in the
+referenced file.
 
 And one more that does fail: if a source a facts file cites has changed since
 the last `./gt review --done`, the facts may be stale. `./gt review` names them.

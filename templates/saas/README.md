@@ -1,7 +1,8 @@
 # {{NAME}}
 
-This folder is your assistant. The code lives one level up; everything that
-makes the assistant *yours* lives here, and `./gt` works on it.
+This folder is your assistant: everything that makes it *yours* lives here.
+The groundtruth code (and the `./gt` command) lives in `{{GT}}`. Run the
+commands below from there; `-p {{HERE}}` points them at this folder.
 
 | Folder | What goes in it | Who edits it |
 |---|---|---|
@@ -14,12 +15,14 @@ makes the assistant *yours* lives here, and `./gt` works on it.
 ## Make it yours
 
 ```bash
-./gt ingest https://your-site.example     # pull your pages into sources/pages/
-./gt compile                               # work order for Claude Code / Codex: pages + facts
-./gt check                                 # facts valid, no facts in prose, links resolve
-./gt eval                                  # free: tools return the right facts, search finds the pages
-./gt ask "a question a real person asked"  # see what the assistant finds
-./gt connect claude-desktop --install      # talk to it in Claude
+cd {{GT}}
+./gt -p {{HERE}} ingest https://your-site.example      # pull your pages into sources/pages/
+./gt -p {{HERE}} compile                               # draft pages + a work order for Claude Code / Codex
+./gt -p {{HERE}} check                                 # facts valid, no facts in prose, links resolve
+./gt -p {{HERE}} eval                                  # free: tools return the right facts, search finds the pages
+./gt -p {{HERE}} check --production                    # before you ship: no template examples left
+./gt -p {{HERE}} ask "a question a real person asked"  # see what the assistant finds
+./gt -p {{HERE}} connect claude-desktop --install      # talk to it in Claude
 ```
 
 Everything the template shipped with is fictional and marked `example: true`.

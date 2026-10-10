@@ -14,8 +14,9 @@ get to make facts up.**
   them in plain YAML, and each file becomes tools the model has to call. No
   Python, no SQL.
 - **Explanations live in a small wiki.** How-tos and policies in markdown, every
-  page citing its sources. `./gt check` fails, and the server refuses to serve,
-  if a date, a time, a price, a deadline, or a phone number sneaks into the prose.
+  page citing its sources. `./gt check` fails if a date, a time, a price, a
+  limit, or a phone number sneaks into the prose, and the server only serves
+  versions that pass.
 - **Changed evidence can't hide.** Re-capture your sources and anything built on
   a page that changed, or disappeared, gets flagged for review with a diff.
   Green means reconciled, not just well-formed.
@@ -77,14 +78,17 @@ Without an API key, `./gt ask` shows what the model would look up
    with the same name separate. If a page your facts or wiki cite changed or
    disappeared upstream, `./gt check` fails until you've re-checked them
    (`./gt review --diff` shows exactly what changed) and run `./gt review --done`.
-3. **`compile`** writes `build/compile-packet.md`: a precise work order. Open the
-   repo in Claude Code (or Codex, or Cursor) and say *"do the work in
-   my-assistant/build/compile-packet.md"*. It turns the evidence into wiki pages
-   and fact rows, swaps out the template examples, adds eval questions, and runs
-   the checks. Have an API key? `./gt compile --write` drafts the pages with
-   Claude directly.
+3. **`compile`** writes a draft page for each new source (not served until you
+   finish it) and `build/compile-packet.md`: a work order that lists every exact
+   value it found in your sources (each one a fact row waiting to happen),
+   starter eval questions, and the commands to verify. Open the repo in Claude
+   Code (or Codex, or Cursor) and say *"do the work in
+   my-assistant/build/compile-packet.md"*. It writes the fact rows and pages,
+   swaps out the template examples, and runs the checks. Have an API key?
+   `./gt compile --write` drafts the pages with Claude directly.
 4. **`check` and `eval`** catch facts in prose, broken links, bad YAML, and
-   questions your data can't answer.
+   questions your data can't answer. `./gt check --production` also fails on
+   leftover template examples: that's the gate the server and Docker use.
 5. **`connect`** prints setup for every common client with your real paths filled
    in. `--install` does it for you: it writes Claude Desktop, Cursor, or Windsurf
    config (backing up the old file) or runs `claude mcp add` / `codex mcp add`.
@@ -116,8 +120,8 @@ rows:
 
 That file gives the model a `get_plan` tool. Lookups are forgiving ("pro",
 "business plan", "how much is team") and answers are exact, each with a `source`
-(the URL, or the file for local documents) so the assistant can cite it. Edit the YAML and the running server picks
-it up. `list` tools add filters (`get_hours(branch="main", day="sat")`),
+(the URL, or the file for local documents) so the assistant can cite it. Edit
+the YAML and the running server picks it up as soon as it passes `./gt check`. `list` tools add filters (`get_hours(branch="main", day="sat")`),
 references between files, and "upcoming only" for dated rows. Full reference:
 [docs/facts.md](docs/facts.md).
 
@@ -144,7 +148,9 @@ the exact window with `get_limit`, so it's always current.
 
 Notice what's missing: the number. "Within 30 days" in prose is a fact that goes
 stale silently, so `./gt check` fails on it, along with dates, times, prices,
-percentages, size limits, phone numbers, and emails. See [docs/wiki.md](docs/wiki.md).
+percentages, limits, phone numbers, and emails. It knows the common ways of
+writing those, not every possible one, so the rule still applies to what it
+misses. See [docs/wiki.md](docs/wiki.md).
 
 ## Evals that grade the lookup, not the vibes
 
@@ -160,7 +166,9 @@ percentages, size limits, phone numbers, and emails. See [docs/wiki.md](docs/wik
 
 - `./gt eval` (free, no key): calls each tool and confirms the answer is in your
   data, and confirms search finds the right wiki page for each how-to question.
-  It catches data and retrieval regressions before anyone sees them.
+  It catches data and retrieval regressions before anyone sees them, and says
+  so: it reports data and retrieval separately, and it doesn't claim to know
+  whether a model would pick that tool.
 - `./gt eval --tier live`: runs every question through Claude with the real tools.
   A correct-looking price that wasn't looked up still fails, because next month
   it won't be correct.
@@ -183,10 +191,11 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 
 - **Deploy anywhere that runs a container**: Fly.io, Render, Railway, Azure
   Container Apps, Google Cloud Run, a VPS. Recipes in [docs/deploy.md](docs/deploy.md).
-- **It won't serve unchecked content.** `./gt serve` refuses to start if
-  `./gt check` fails, `/healthz` reports whether the live content passes, and
-  **`./gt watchdog --url ...`** checks a deployed server end to end, daily via
-  `.github/workflows/watchdog.yml`.
+- **It only serves checked content.** `./gt serve` won't start on a project
+  that fails `./gt check --production`. While it runs, every edit is checked
+  first: one that fails is rejected, the last good version keeps serving, and
+  `/healthz` says so. **`./gt watchdog --url ...`** checks a deployed server end
+  to end, daily via `.github/workflows/watchdog.yml`.
 - **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
   rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
   and costs nothing.
@@ -203,8 +212,8 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt ask "..."` | What the assistant would answer, and from which tools |
 | `./gt init NAME -t TEMPLATE` | Start your own assistant (`./gt init --list` for templates) |
 | `./gt ingest URL\|FOLDER` | Pull a site, sitemap, or folder into `sources/pages/` |
-| `./gt compile [--write]` | Work order for a coding agent, or draft wiki pages with Claude |
-| `./gt check` | Facts, source review, wiki structure, no facts in prose, eval wiring |
+| `./gt compile [--write]` | Draft pages, fact candidates, and a work order for a coding agent (or draft pages with Claude) |
+| `./gt check [--production]` | Facts, source review, wiki structure, no facts in prose, eval wiring (`--production`: no template examples) |
 | `./gt review [--diff] [--done]` | Sources that changed (or vanished) since your facts and wiki were checked against them |
 | `./gt examples [--remove]` | The template's fictional example content |
 | `./gt eval [--tier live]` | Run the golden set (free tier needs nothing) |

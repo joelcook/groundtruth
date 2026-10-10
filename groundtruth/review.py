@@ -82,6 +82,8 @@ def dependents(project: Project) -> dict[str, dict[str, list[str]]]:
         pass
     for page in checks.wiki_pages(project):
         meta, _ = checks.split_frontmatter(page.read_text(encoding="utf-8"))
+        if str((meta or {}).get("status", "")).lower() == "draft":
+            continue  # not served yet; its sources need review once it's published
         for src in (meta or {}).get("sources") or []:
             add(str(src).strip("[]").split("|")[0], "wiki", project.rel(page))
     return out
@@ -96,7 +98,7 @@ def changes(project: Project) -> list[Change]:
     out = []
     for src, deps in sorted(dependents(project).items()):
         if src not in now:
-            continue  # a missing source is reported by ./gt check as a warning
+            continue  # a missing source is reported by ./gt check as an error
         if src not in lock:
             out.append(Change(src, "not yet reviewed", deps["facts"], deps["wiki"]))
         elif lock[src] != now[src]:

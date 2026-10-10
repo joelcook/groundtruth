@@ -30,7 +30,8 @@ groundtruth uses 1.x (`mcp>=1.27,<2`). Run `./gt setup`.
 reserved. Use `arg: name` (or anything else).
 
 **I added a tool and the client doesn't see it**: restart the server (or the
-client, for stdio). Data changes reload live; new tools need a restart.
+client, for stdio). Data changes reload live once they pass `./gt check` (a failing edit is
+rejected and shows in `/healthz`); new tools need a restart.
 
 **A lookup returns the wrong row**: add `aliases:` to the right row, or narrow
 `match:` to the fields that should be searched. `./gt ask --offline "..."` shows

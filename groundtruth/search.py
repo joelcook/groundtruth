@@ -133,6 +133,8 @@ def _parse_pages(project: Project) -> list[WikiPage]:
         page_type = str(meta.get("page_type") or "").strip().lower()
         if page_type not in PUBLIC_PAGE_TYPES or str(meta.get("audience", "public")) == "internal":
             continue
+        if str(meta.get("status", "")).lower() == "draft":
+            continue
         body = _strip_lineage(body)
         title = str(meta.get("title") or path.stem.replace("-", " ").title())
         tags = [str(t) for t in (meta.get("tags") or [])]
@@ -287,7 +289,8 @@ def _search_auto(query: str, limit: int, pages: list[WikiPage], project: Project
 
 # ---------------------------------------------------------------- public API
 
-def search_wiki(query: str, limit: int = 5, project: Project | None = None) -> list[dict]:
+def search_wiki(query: str, limit: int = 5, project: Project | None = None,
+                pages: list[WikiPage] | None = None) -> list[dict]:
     """Search the curated wiki for how/why/process/policy context.
 
     Exact values (dates, dollars, hours, phone numbers) come from the fact
@@ -299,7 +302,7 @@ def search_wiki(query: str, limit: int = 5, project: Project | None = None) -> l
     if not query:
         return []
     limit = max(1, min(int(limit or 5), 10))
-    pages = load_pages(project)
+    pages = pages if pages is not None else load_pages(project)
     backend = os.environ.get("GT_SEARCH_BACKEND", "scan").strip().lower()
     if backend == "semantic":
         return _search_semantic(query, limit, pages, project) or _search_scan(query, limit, pages, project.synonyms)
@@ -312,13 +315,14 @@ def _normalize(value: str) -> str:
     return (value or "").strip().lower().removeprefix("wiki/").removesuffix(".md").replace("_", "-")
 
 
-def read_wiki_page(path_or_slug: str, max_chars: int = 10000, project: Project | None = None) -> dict | None:
+def read_wiki_page(path_or_slug: str, max_chars: int = 10000, project: Project | None = None,
+                   pages: list[WikiPage] | None = None) -> dict | None:
     """Read one wiki page in full by path, slug ("fines-and-fees"), or title."""
     project = project or resolve()
     needle = _normalize(path_or_slug)
     if not needle:
         return None
-    for page in load_pages(project):
+    for page in (pages if pages is not None else load_pages(project)):
         candidates = {
             _normalize(page.rel_path),
             _normalize(Path(page.rel_path).name),

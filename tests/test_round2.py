@@ -8,7 +8,7 @@ from pathlib import Path
 
 from helpers import copy_project, write
 
-from groundtruth import checks, cli, ingest, review, server
+from groundtruth import checks, cli, facts, ingest, project, review, scaffold, search, server
 
 
 class TestLintCoverage(unittest.TestCase):
@@ -83,7 +83,6 @@ class TestServingIsGated(unittest.TestCase):
         page = self.p.wiki_dir / "journeys" / "getting-a-library-card.md"
         page.write_text(page.read_text().replace("## Sources & Lineage", "Cards renew on 2026-11-01.\n\n"
                                                  "## Sources & Lineage", 1))
-        server._check_cache.clear()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -100,6 +99,60 @@ class TestServingIsGated(unittest.TestCase):
         status = server.health(self.p)["checks"]
         self.assertFalse(status["ok"])
         self.assertIn("2026-11-01", status["first"])
+
+
+class TestGateKeepsLastGoodVersion(unittest.TestCase):
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+        self.page = self.p.wiki_dir / "journeys" / "getting-a-library-card.md"
+        self.gate = server.Gate(self.p, allow_unvalidated=True)
+        self.gate.refresh(force=True)
+
+    def tearDown(self):
+        facts.store(self.p).auto_reload = True
+        self.tmp.cleanup()
+
+    def read(self):
+        return server.call_tool(self.p, "read_wiki_page", {"path_or_slug": "getting-a-library-card"},
+                                log=False, gate=self.gate)["content"]
+
+    def test_bad_edit_is_rejected_and_reported(self):
+        self.assertTrue(self.gate.validated)
+        self.page.write_text(self.page.read_text().replace(
+            "## Sources & Lineage", "Cards renew on 2026-11-01.\n\n## Sources & Lineage", 1))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.gate.refresh(force=True)
+        self.assertNotIn("2026-11-01", self.read())  # still the last good version
+        body = server.health(self.p, self.gate)
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["checks"]["update_rejected"])
+        self.assertIn("2026-11-01", body["checks"]["first"])
+
+    def test_good_edit_goes_live(self):
+        self.page.write_text(self.page.read_text().replace(
+            "## Sources & Lineage", "Bring a photo ID.\n\n## Sources & Lineage", 1))
+        self.gate.refresh(force=True)
+        self.assertIn("Bring a photo ID", self.read())
+        self.assertFalse(server.health(self.p, self.gate)["checks"]["update_rejected"])
+
+    def test_bad_fact_edit_keeps_old_answer(self):
+        path = self.p.facts_dir / "fees.yaml"
+        path.write_text(path.read_text() + "\nbroken: [oops\n")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.gate.refresh(force=True)
+        self.assertTrue(server.call_tool(self.p, "get_fee", {"name": "color printing"}, log=False, gate=self.gate))
+
+    def test_production_blocks_examples_and_drafts_are_hidden(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = project.load(scaffold.init(Path(d) / "acme", "saas", activate=False))
+            self.assertTrue(checks.run(p).ok)  # templates start green for exploring...
+            prod = checks.run(p, production=True)  # ...but can't ship with fictional data
+            self.assertIn("examples", prod.errors)
+            page = sorted(p.wiki_dir.rglob("*.md"))[0]
+            page.write_text(page.read_text().replace("---\n", "---\nstatus: draft\n", 1))
+            served = [pg.rel_path for pg in search.load_pages(p)]
+            self.assertNotIn(p.rel(page), served)
+            self.assertTrue(served)
 
 
 class TestAskAndYaml(unittest.TestCase):

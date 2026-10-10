@@ -6,9 +6,10 @@ The server is one small container. Anything that runs a container can host it.
 
 1. **Point the image at your project.** In `Dockerfile`, change
    `ARG PROJECT=examples/library` to your folder (e.g. `ARG PROJECT=my-assistant`),
-   or pass `--build-arg PROJECT=my-assistant`. The build runs `./gt check`, so a
-   project with broken facts never becomes an image. (`./gt serve` also refuses to
-   start on a project that fails the checks; `--force` overrides for local testing.)
+   or pass `--build-arg PROJECT=my-assistant`. The build runs
+   `./gt check --production`, so a project with broken facts, or leftover
+   template examples, never becomes an image. (`./gt serve` refuses the same
+   things; `--force` overrides for local testing.)
 2. **Make a key** and keep it out of git:
    ```bash
    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -16,8 +17,8 @@ The server is one small container. Anything that runs a container can host it.
    Set it as `GT_MCP_API_KEY` on the platform. Every request must then send
    `Authorization: Bearer <key>` (or `x-api-key: <key>`). `/healthz` stays open
    for load balancers. It shows counts, a data version, one page title (the
-   watchdog searches for it), and whether the content passes the checks; nothing
-   that isn't already public knowledge in your assistant.
+   watchdog searches for it), and the check status; nothing that isn't already
+   public knowledge in your assistant.
 3. **Serving without a key?** (Needed for ChatGPT and claude.ai connectors, which
    use OAuth or no auth.) Set `GT_ALLOWED_HOSTS=your.host`; otherwise the MCP SDK
    rejects requests for your domain with a 421 to prevent DNS rebinding.
@@ -87,6 +88,16 @@ mcp.example.org {
 
 No Docker? `GT_MCP_HOST=0.0.0.0 GT_MCP_API_KEY=<key> ./gt serve` under systemd,
 behind the same proxy.
+
+## What `/healthz` means
+
+- **200, `"ok": true`**: the server is serving a version that passed the checks.
+- **`"checks": {"update_rejected": true, "first": "..."}`**: someone changed the
+  files on the server and that change fails `./gt check`. It was not applied;
+  the last good version is still serving. The watchdog fails on this so you
+  hear about it.
+- **503, `"ok": false`**: the server was started with `--force` on content that
+  fails the checks. Load balancers will treat it as down, on purpose.
 
 ## Update data without redeploying
 

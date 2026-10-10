@@ -150,8 +150,8 @@ def cmd_review(args) -> int:
 def cmd_check(args) -> int:
     from groundtruth import checks
     project = _p(args)
-    report = checks.run(project)
-    print(f"check: {project.name} ({_where(project)})")
+    report = checks.run(project, production=args.production)
+    print(f"check{' --production' if args.production else ''}: {project.name} ({_where(project)})")
     for section in ("facts", "sources", "wiki", "prose", "evals", "prompt", "examples"):
         errs = report.errors.get(section, [])
         warns = report.warnings.get(section, [])
@@ -302,9 +302,13 @@ def cmd_compile(args) -> int:
             print(f"    ! fact in prose: {p}")
         print("next: review with git diff, then ./gt check && ./gt eval")
         return 0
+    drafts = comp.write_drafts(project)
     status = comp.status(project)
     path = comp.packet(project)
     _ok(f"{len(status['uncovered'])} new source(s), {len(status['stale'])} stale page(s)")
+    if drafts:
+        _ok(f"{len(drafts)} draft page(s) in {project.rel(project.wiki_dir / 'drafts')}/ (not served until "
+            f"you set status: published)")
     print(f"\nWork order written to {project.rel(path)}.")
     print("Open this repo in Claude Code (or Codex, Cursor) and say:\n")
     print(f'    "Do the work in {_where(project)}/build/compile-packet.md"\n')
@@ -586,7 +590,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--limit", type=int, default=20)
     sp = add("build", cmd_build, "rebuild the facts database")
     sp.add_argument("--index", action="store_true", help="also build the semantic search index")
-    add("check", cmd_check, "facts, wiki, no-facts-in-prose, eval wiring")
+    sp = add("check", cmd_check, "facts, wiki, no-facts-in-prose, eval wiring")
+    sp.add_argument("--production", action="store_true", help="also fail on template examples (what serve and Docker use)")
     sp = add("examples", cmd_examples, "list (or --remove) the template's fictional example content")
     sp.add_argument("--remove", action="store_true")
     sp = add("review", cmd_review, "what changed in your sources since facts and wiki were last reviewed")

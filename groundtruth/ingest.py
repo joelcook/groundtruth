@@ -133,13 +133,22 @@ def save_history(project: Project, path: Path) -> None:
         dest.write_bytes(path.read_bytes())
 
 
+def capture_for(project: Project, origin: str) -> Path | None:
+    """The existing capture of this URL or file, whatever it's named."""
+    for path, meta in _existing_pages(project):
+        if _origin(meta) == origin:
+            return path
+    return None
+
+
 def write_page(project: Project, slug: str, title: str, body: str, origin: dict, result: IngestResult,
                dry_run: bool = False) -> None:
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     me = _origin(origin)
-    path = project.pages_dir / f"{slug}.md"
+    existing = capture_for(project, me) if me else None
+    path = existing or project.pages_dir / f"{slug}.md"
     meta = page_meta(path)
-    if path.exists() and _origin(meta) not in (None, me):
+    if existing is None and path.exists() and _origin(meta) not in (None, me):
         # Two different documents want the same name: keep both, deterministically.
         path = project.pages_dir / f"{slug}-{hashlib.sha1(str(me).encode()).hexdigest()[:6]}.md"
         meta = page_meta(path)
@@ -382,6 +391,7 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
 def run(project: Project, targets: list[str], *, max_pages: int | None = None, dry_run: bool = False,
         save: bool = True, delay: float = 0.25) -> IngestResult:
     result = IngestResult()
+    from_config = not targets
     targets = targets or project.ingest_sources
     if not targets:
         raise ValueError("nothing to ingest: pass a URL or folder, or list them under ingest.sources "
@@ -392,13 +402,29 @@ def run(project: Project, targets: list[str], *, max_pages: int | None = None, d
         else:
             path = Path(target).expanduser()
             if not path.is_absolute():
-                path = (Path.cwd() / path).resolve()
+                path = ((project.root if from_config else Path.cwd()) / path).resolve()
             if not path.exists():
                 raise ValueError(f"{target}: no such file or folder")
             ingest_folder(project, path, result, dry_run)
-    if save and not dry_run:
-        _remember(project, targets)
+    if save and not dry_run and not from_config:
+        _remember(project, [_portable(project, t) for t in targets])
     return result
+
+
+def _portable(project: Project, target: str) -> str:
+    """URLs and absolute paths as-is; relative folders become relative to the project,
+    so the saved config works no matter where you run ./gt from."""
+    if target.startswith(("http://", "https://")):
+        return target
+    path = Path(target).expanduser()
+    if path.is_absolute():
+        return str(path)
+    path = (Path.cwd() / path).resolve()
+    try:
+        import os
+        return os.path.relpath(path, project.root)
+    except ValueError:  # different drive on Windows
+        return str(path)
 
 
 def _remember(project: Project, targets: list[str]) -> None:

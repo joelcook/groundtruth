@@ -43,6 +43,10 @@ task), `policy` (rules, plainly), `entity` (a program, place, or thing),
 **Every page ends with `## Sources & Lineage`.** It's the audit trail, and
 `./gt check` requires it.
 
+**`status: draft`** keeps a page out of search and out of the source-review
+gate until it's done. `./gt compile` writes drafts to `wiki/drafts/`; set
+`status: published` when one is ready (move it to another folder if you like).
+
 ## The one rule: no facts in prose
 
 `./gt check` fails if a wiki page contains any of these outside the frontmatter
@@ -50,13 +54,17 @@ and the lineage table:
 
 | Kind | Examples |
 |---|---|
-| dates | `July 4, 2026`, `2026-07-04`, `7/4/2026` |
+| dates | `July 4, 2026`, `November 1`, `2026-07-04`, `7/4/2026` |
 | times | `09:00`, `5 pm` |
-| money | `$5`, `5 dollars` |
+| money | `$5`, `USD 39`, `5 dollars` |
 | durations | `within 30 days`, `14-day trial`, `seven days` (approximate wording like "about two weeks" is fine) |
 | percentages | `20%` |
 | size limits | `2 GB`, `100 MiB` |
+| limits | `up to 25`, `at most 3`, `allows 10`, `no more than 5` |
 | phone numbers, emails | `555-0100`, `help@example.com` |
+
+It recognizes the common ways of writing these, not every possible one. It's a
+safety net, not a guarantee: the rule still applies to anything it misses.
 
 Write around the fact and name the tool:
 

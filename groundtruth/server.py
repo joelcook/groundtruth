@@ -27,6 +27,7 @@ import inspect
 import json
 import os
 import sys
+import threading
 import time
 from typing import Annotated, Any
 
@@ -41,17 +42,99 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 # ===================================================================== dispatch
 
 
-def call_tool(project: Project, name: str, args: dict[str, Any] | None = None, *, log: bool = True) -> Any:
-    """Run any tool by name. The server, the evals, and ``./gt ask`` all use this."""
+class Gate:
+    """What the server actually serves: the last version of the project that passed ./gt check.
+
+    Every second or so it looks for changes on disk (facts, wiki, sources, prompt,
+    evals, the review lock). A changed project is checked first; only a passing one
+    replaces what's being served. A failing edit is rejected and reported through
+    /healthz and ./gt watchdog, while the last good version keeps serving.
+    """
+
+    def __init__(self, project: Project, *, production: bool = False, allow_unvalidated: bool = False):
+        self.project = project
+        self.production = production
+        self.allow_unvalidated = allow_unvalidated
+        self.pages: list | None = None
+        self.validated = False
+        self.serving_sig = None
+        self.rejected_sig = None
+        self.rejected: str | None = None
+        self.errors = 0
+        self._checked = 0.0
+        self._lock = threading.Lock()
+        facts.store(project).auto_reload = False
+
+    def _signature(self):
+        p = self.project
+        parts: list = [str(p.data_root)]
+        for d in (p.facts_dir, p.wiki_dir, p.pages_dir):
+            if d.exists():
+                parts += [(str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in sorted(d.rglob("*")) if f.is_file()]
+        for f in (p.prompt_path, p.golden_path, p.root / "sources.lock.yaml", p.root / "groundtruth.yaml"):
+            if f.exists():
+                parts.append((str(f), f.stat().st_mtime_ns, f.stat().st_size))
+        return hash(tuple(parts))
+
+    def _load(self) -> None:
+        facts.ensure_built(self.project)
+        facts.store(self.project).refresh(force=True)
+        self.pages = search._parse_pages(self.project)
+
+    def refresh(self, force: bool = False) -> None:
+        from groundtruth import checks
+        now = time.monotonic()
+        if not force and now - self._checked < 1.0:
+            return
+        with self._lock:
+            self._checked = now
+            sig = self._signature()
+            if not force and sig in (self.serving_sig, self.rejected_sig):
+                return
+            if self.project.data_root is not None:  # a published bundle was checked before publishing
+                self._load()
+                self.validated, self.serving_sig, self.rejected, self.rejected_sig = True, sig, None, None
+                return
+            report = checks.run(self.project, production=self.production)
+            errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
+            if report.ok or (self.pages is None and self.allow_unvalidated):
+                self._load()
+                self.validated, self.serving_sig = report.ok, sig
+                self.rejected, self.rejected_sig, self.errors = (None, None, 0) if report.ok else \
+                    (errors[0], None, len(errors))
+                return
+            if self.pages is None:
+                raise RuntimeError(errors[0] if errors else "the project fails ./gt check")
+            self.rejected, self.rejected_sig, self.errors = errors[0], sig, len(errors)
+            print(f"groundtruth: rejected an update that fails ./gt check, still serving the last good version: "
+                  f"{errors[0]}", file=sys.stderr)
+
+    def status(self) -> dict[str, Any]:
+        self.refresh()
+        return {"ok": self.validated, "update_rejected": self.rejected is not None and self.validated,
+                "errors": self.errors, "first": self.rejected}
+
+
+def call_tool(project: Project, name: str, args: dict[str, Any] | None = None, *, log: bool = True,
+              gate: Gate | None = None) -> Any:
+    """Run any tool by name. The server, the evals, and ``./gt ask`` all use this.
+
+    With a ``gate`` (the server), answers come from the last validated version.
+    """
     args = dict(args or {})
     t0 = time.perf_counter()
     ok, result, error = True, None, None
+    pages = None
+    if gate is not None:
+        gate.refresh()
+        pages = gate.pages
     try:
         if name == "search_wiki":
-            result = search.search_wiki(args.get("query", ""), int(args.get("limit") or 5), project=project)
+            result = search.search_wiki(args.get("query", ""), int(args.get("limit") or 5), project=project,
+                                        pages=pages)
         elif name == "read_wiki_page":
             result = search.read_wiki_page(args.get("path_or_slug", ""), int(args.get("max_chars") or 10000),
-                                           project=project)
+                                           project=project, pages=pages)
             if result is None:
                 result = {"found": False, "hint": "No page by that name. Try search_wiki first."}
         else:
@@ -152,7 +235,7 @@ def instructions(project: Project) -> str:
     return _generated_instructions(project)
 
 
-def _make_fact_tool(project: Project, spec: dict[str, Any]):
+def _make_fact_tool(project: Project, spec: dict[str, Any], gate: Gate | None = None):
     params: list[inspect.Parameter] = []
     kw = inspect.Parameter.KEYWORD_ONLY
     if spec["kind"] == "lookup":
@@ -173,7 +256,7 @@ def _make_fact_tool(project: Project, spec: dict[str, Any]):
         annotation=Annotated[int, Field(description="Max rows to return.")]))
 
     def tool(**kwargs):
-        return call_tool(project, spec["name"], kwargs)
+        return call_tool(project, spec["name"], kwargs, gate=gate)
 
     tool.__signature__ = inspect.Signature(params, return_annotation=dict)
     tool.__annotations__ = {p.name: p.annotation for p in params} | {"return": dict}
@@ -181,7 +264,7 @@ def _make_fact_tool(project: Project, spec: dict[str, Any]):
     return tool
 
 
-def build_server(project: Project):
+def build_server(project: Project, gate: Gate | None = None):
     """Construct the FastMCP server for a project."""
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
@@ -200,20 +283,21 @@ def build_server(project: Project):
         name = spec_out["name"]
         if name in ("search_wiki", "read_wiki_page"):
             continue
-        fn = _make_fact_tool(project, store.tools[name])
+        fn = _make_fact_tool(project, store.tools[name], gate)
         server.add_tool(fn, name=name, description=spec_out["description"], annotations=annotations)
 
     def search_wiki(
         query: Annotated[str, Field(description="What the person is asking about.")],
         limit: Annotated[int, Field(description="Max pages.")] = 5,
     ) -> list[dict]:
-        return call_tool(project, "search_wiki", {"query": query, "limit": limit})
+        return call_tool(project, "search_wiki", {"query": query, "limit": limit}, gate=gate)
 
     def read_wiki_page(
         path_or_slug: Annotated[str, Field(description="e.g. 'fines-and-fees' or a path from search_wiki.")],
         max_chars: Annotated[int, Field(description="Truncate long pages.")] = 10000,
     ) -> dict:
-        return call_tool(project, "read_wiki_page", {"path_or_slug": path_or_slug, "max_chars": max_chars})
+        return call_tool(project, "read_wiki_page", {"path_or_slug": path_or_slug, "max_chars": max_chars},
+                         gate=gate)
 
     wiki_specs = {s["name"]: s for s in tool_specs(project) if s["kind"] == "wiki"}
     server.add_tool(search_wiki, name="search_wiki", description=wiki_specs["search_wiki"]["description"],
@@ -248,53 +332,43 @@ def _transport_security():
                                      allowed_origins=origins)
 
 
-_check_cache: dict[str, tuple[float, dict]] = {}
-
-
-def check_status(project: Project) -> dict[str, Any]:
-    """Does the content being served pass ./gt check? Cached for 30 seconds."""
-    from groundtruth import checks
-    key = str(project.data_root or project.root)
-    hit = _check_cache.get(key)
-    if hit and time.monotonic() - hit[0] < 30:
-        return hit[1]
-    if project.data_root is not None:
-        status = {"ok": True, "errors": 0, "note": "published bundle (checked before publishing)"}
-    else:
+def health(project: Project, gate: Gate | None = None) -> dict[str, Any]:
+    """What /healthz returns. ``ok`` means: serving a version that passed ./gt check."""
+    if gate is not None:
+        status = gate.status()
+        pages = gate.pages or []
+    else:  # outside a server: just check what's on disk
+        from groundtruth import checks
         report = checks.run(project)
         errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
-        status = {"ok": not errors, "errors": len(errors), "first": errors[0] if errors else None}
-    _check_cache[key] = (time.monotonic(), status)
-    return status
-
-
-def health(project: Project) -> dict[str, Any]:
+        status = {"ok": report.ok, "update_rejected": False, "errors": len(errors),
+                  "first": errors[0] if errors else None}
+        pages = search.load_pages(project)
     store = facts.store(project)
     store.refresh()
     db = project.db_path
-    counts = json.loads(store.meta.get("counts", "{}"))
-    pages = search.load_pages(project)
     return {
-        "ok": True,
+        "ok": status["ok"],
         "name": project.name,
         "groundtruth": __version__,
         "data_version": store.meta.get("fingerprint"),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(db.stat().st_mtime)) if db.exists() else None,
-        "facts": counts,
+        "facts": json.loads(store.meta.get("counts", "{}")),
         "wiki_pages": len(pages),
         "probe": pages[0].title if pages else None,  # a query ./gt watchdog knows must find something
         "tools": len(store.tools) + 2,
-        "checks": check_status(project),
+        "checks": status,
     }
 
 
 class GatewayMiddleware:
     """Adds /healthz (no auth, for load balancers and ./gt watchdog) and API-key auth."""
 
-    def __init__(self, app, project: Project, api_key: str) -> None:
+    def __init__(self, app, project: Project, api_key: str, gate: Gate | None = None) -> None:
         self.app = app
         self.project = project
         self.api_key = api_key
+        self.gate = gate
 
     async def _send_json(self, send, status: int, body: dict) -> None:
         data = json.dumps(body).encode()
@@ -309,7 +383,8 @@ class GatewayMiddleware:
         path = scope.get("path", "")
         if path in ("/healthz", "/health"):
             try:
-                return await self._send_json(send, 200, health(self.project))
+                body = health(self.project, self.gate)
+                return await self._send_json(send, 200 if body["ok"] else 503, body)
             except Exception as exc:  # noqa: BLE001 - health must report, not crash
                 return await self._send_json(send, 503, {"ok": False, "error": str(exc)})
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
@@ -333,30 +408,38 @@ class GatewayMiddleware:
         return await self.app(scope, receive, send)
 
 
-def http_app(project: Project):
-    server = build_server(project)
+def http_app(project: Project, gate: Gate | None = None):
+    if gate is None:
+        gate = Gate(project, production=True, allow_unvalidated=True)
+        gate.refresh(force=True)
+    server = build_server(project, gate)
     app = server.streamable_http_app()
-    return GatewayMiddleware(app, project, os.environ.get("GT_MCP_API_KEY", "").strip())
+    return GatewayMiddleware(app, project, os.environ.get("GT_MCP_API_KEY", "").strip(), gate)
 
 
 def run(project: Project, *, stdio: bool = False, host: str | None = None, port: int | None = None,
         force: bool = False) -> int:
+    from groundtruth import checks
     facts.ensure_built(project)
-    status = check_status(project)
-    if not status["ok"]:
-        msg = (f"groundtruth: this project fails ./gt check ({status['errors']} problem(s)); first: "
-               f"{status['first']}")
+    production = not stdio
+    report = checks.run(project, production=production)
+    if not report.ok:
+        errors = [f"{k}: {e}" for k, v in report.errors.items() for e in v]
+        msg = f"groundtruth: this project fails ./gt check{' --production' if production else ''} " \
+              f"({len(errors)} problem(s)); first: {errors[0]}"
         if not stdio and not force:
             print(msg + "\nRefusing to serve content that hasn't passed the checks. Fix it, or run "
                   "./gt serve --force to serve anyway (local testing only).", file=sys.stderr)
             return 1
         print(msg + " Serving anyway" + (" (--force)." if force else " because this is a local stdio session."),
               file=sys.stderr)
+    gate = Gate(project, production=production, allow_unvalidated=True)
+    gate.refresh(force=True)
     if os.environ.get("GT_DATA_URL", "").strip():
         from groundtruth import bundle
         bundle.start_polling(project)
     if stdio:
-        build_server(project).run(transport="stdio")
+        build_server(project, gate).run(transport="stdio")
         return 0
     import uvicorn
 
@@ -367,5 +450,5 @@ def run(project: Project, *, stdio: bool = False, host: str | None = None, port:
     print(f"groundtruth: serving {project.name!r} at http://{shown}:{port}/mcp "
           f"(auth {'ON' if key else 'OFF - set GT_MCP_API_KEY before exposing this'})", file=sys.stderr)
     print(f"groundtruth: health check at http://{shown}:{port}/healthz", file=sys.stderr)
-    uvicorn.run(http_app(project), host=host, port=port, log_level=os.environ.get("GT_LOG_LEVEL", "warning"))
+    uvicorn.run(http_app(project, gate), host=host, port=port, log_level=os.environ.get("GT_LOG_LEVEL", "warning"))
     return 0

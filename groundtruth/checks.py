@@ -33,7 +33,11 @@ MONTHS = (
 DATE_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:\s*[–-]\s*\d{{1,2}})?,?\s+\d{{4}}\b")
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 SLASH_DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
-MONEY_RE = re.compile(r"(?:\$\s?\d|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|dollars)\b)")
+MONEY_RE = re.compile(r"(?:[$€£¥]\s?\d|\b(?:USD|EUR|GBP|CAD|AUD)\s?\d|\b\d[\d,]*(?:\.\d+)?\s?"
+                      r"(?:USD|EUR|GBP|CAD|AUD|dollars?|euros?|pounds|cents)\b)", re.I)
+MONTH_DAY_RE = re.compile(rf"\b(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?!\s*(?:%|percent))")
+LIMIT_RE = re.compile(r"\b(?:up to|maximum of|max(?:imum)?|limit(?:ed)? (?:of|to)|allows?|at most|at least|"
+                      r"minimum of|capped at|cap of|no more than|no fewer than)\s+\d[\d,]*", re.I)
 NUMBER_WORDS = ("one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|"
                 "twenty|thirty|forty|forty-five|fifty|sixty|ninety|hundred")
 UNITS = r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?)"
@@ -48,7 +52,8 @@ SIZE_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:[KMGT]i?B|bytes|megabytes|gigabytes)
 PHONE_RE = re.compile(r"(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b|\b\d{3}-\d{4}\b")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 FACT_OK_RE = re.compile(r"<!--\s*fact-ok:")
-PATTERNS = (("date", DATE_RE), ("date", ISO_DATE_RE), ("date", SLASH_DATE_RE), ("money", MONEY_RE),
+PATTERNS = (("date", DATE_RE), ("date", ISO_DATE_RE), ("date", SLASH_DATE_RE), ("date", MONTH_DAY_RE),
+            ("money", MONEY_RE), ("limit", LIMIT_RE),
             ("time", TIME_RE), ("duration", DURATION_RE), ("percentage", PERCENT_RE), ("size limit", SIZE_RE),
             ("phone number", PHONE_RE), ("email", EMAIL_RE))
 GOLDEN_CATEGORIES = {"hard_fact", "narrative", "out_of_scope", "contradiction"}
@@ -286,6 +291,17 @@ def check_sources(project: Project, report: Report) -> None:
         affected = ", ".join(ch.facts + ch.wiki) or "nothing yet"
         report.error("sources", f"{ch.source} {ch.reason} since the last review. Re-check {affected} "
                                 f"against it (./gt review --diff shows what changed), then run ./gt review --done")
+    by_origin: dict[str, list[str]] = {}
+    if project.pages_dir.exists():
+        for page in sorted(project.pages_dir.rglob("*.md")):
+            meta, _ = split_frontmatter(page.read_text(encoding="utf-8"))
+            origin = (meta or {}).get("source_url") or (meta or {}).get("source_path")
+            if origin:
+                by_origin.setdefault(str(origin), []).append(project.rel(page))
+    for origin, pages in by_origin.items():
+        if len(pages) > 1:
+            report.error("sources", f"{', '.join(pages)} are captures of the same document ({origin}). "
+                                    f"Keep one, point facts and pages at it, and delete the rest")
     deps = review.dependents(project)
     for src, when in gone.items():
         affected = ", ".join(deps[src]["facts"] + deps[src]["wiki"])
@@ -295,7 +311,8 @@ def check_sources(project: Project, report: Report) -> None:
     report.notes["sources"] = f"{n} source(s), all reviewed" if not pending else f"{n} source(s)"
 
 
-def run(project: Project) -> Report:
+def run(project: Project, production: bool = False) -> Report:
+    """All checks. ``production`` also fails on template examples still being live."""
     report = Report()
     collections = check_facts(project, report)
     check_sources(project, report)
@@ -306,9 +323,16 @@ def run(project: Project) -> Report:
     from groundtruth import examples
     found = examples.find(project)
     if found.total:
-        report.warn("examples", f"template examples are still live (fictional data): {len(found.facts)} facts "
-                                f"file(s), {len(found.wiki)} page(s), {len(found.sources)} source(s), "
-                                f"{len(found.questions)} question(s). Replace them, or run ./gt examples --remove")
+        msg = (f"template examples are still live (fictional data): {len(found.facts)} facts file(s), "
+               f"{len(found.wiki)} page(s), {len(found.sources)} source(s), {len(found.questions)} question(s). "
+               f"Replace them, or run ./gt examples --remove")
+        (report.error if production else report.warn)("examples", msg)
+    drafts = [p for p in wiki_pages(project) if str((split_frontmatter(p.read_text(encoding="utf-8"))[0] or {})
+                                                    .get("status", "")).lower() == "draft"]
+    if drafts:
+        report.warn("wiki", f"{len(drafts)} draft page(s) aren't served until you finish them and set "
+                            f"status: published ({', '.join(project.rel(p) for p in drafts[:3])}"
+                            f"{'...' if len(drafts) > 3 else ''})")
     return report
 
 
