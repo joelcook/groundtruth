@@ -18,6 +18,7 @@ a fixed problem fixed.
   must_cite_page: refunds-and-cancellation   # optional: the wiki page that must be read/found
   expected_summary: >                   # narrative only: the rubric the live judge grades against
     ...
+  expected_response: "..."              # optional: what a right answer says, for --export (below)
   notes: "why this question exists"     # optional, for humans
 ```
 
@@ -65,6 +66,28 @@ regressions since the last live run are called out.
 Models: `GT_MODEL` (default `claude-opus-5-5`) and `GT_JUDGE_MODEL`. **Evaluate
 on the model you run in production**, or you're grading a different assistant
 than your users talk to.
+
+## Grading a model that isn't Claude
+
+If your users talk to the assistant through Copilot Studio, the model they get
+is whatever that agent runs, not the one `--tier live` grades. Grade that one
+where it runs:
+
+```bash
+./gt eval --export copilot-studio     # build/copilot-studio-testset.csv
+```
+
+In Copilot Studio, open your agent's evaluation, create a test set, and upload
+the file. Each question becomes a row graded by meaning against what a right
+answer does. That comes from the question's `expected_response` if it has one,
+otherwise from its `expected_summary`, `must_contain`, and `must_not_contain`.
+Copilot Studio can't import tool-use checks, so keep `./gt eval` as the gate
+for "did it look the fact up". It also takes at most 100 questions per test
+set. Re-export whenever you change `golden.yaml`.
+
+Its judge can mark a correct refusal ("I can't see your account; check the
+portal") as unanswered. Review those against the question by hand rather than
+weakening the refusal to raise the score.
 
 ## Growing the set
 

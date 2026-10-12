@@ -49,7 +49,9 @@ server's `/mcp` URL, and send your key as the header
 `Authorization: Bearer <GT_MCP_API_KEY>` (`x-api-key` and `x-ms-apikey` work
 too). Paste the output of `./gt prompt` into the agent's instructions, so the
 agent and your evals agree. (MCP clients that read server instructions get it
-automatically.)
+automatically.) Then grade the model that agent runs:
+`./gt eval --export copilot-studio` writes your golden questions as a test set
+to upload to its evaluation ([evals.md](evals.md#grading-a-model-that-isnt-claude)).
 
 **ChatGPT and claude.ai**: add a custom connector pointing at your `/mcp` URL.
 These currently support OAuth or no authentication, not an API-key header.

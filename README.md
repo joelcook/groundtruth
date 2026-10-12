@@ -61,6 +61,18 @@ Without an API key, `./gt ask` shows what the model would look up
 
 ## Make your own
 
+The fastest way: fork this repo, open it in Claude Code (or Codex, or Cursor),
+and say what you want:
+
+> Build an assistant for our organization from https://our-site.example and
+> our policy folder, then take it to production and keep it current.
+
+[CLAUDE.md](CLAUDE.md) walks the agent through every step. It builds the
+facts, pages, and eval questions, then deploys, connects your users, and sets
+up the refresh host and the watchdog. It asks you for what only you can do:
+the hosting account, the secrets, and the machine. `./gt status` shows where
+you are at any point. By hand, it's these commands:
+
 ```bash
 ./gt init my-assistant --template saas    # or: college, city, clinic, blank
 ./gt ingest https://your-site.example      # pull your pages (or a folder) in as evidence
@@ -238,7 +250,7 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt check [--production]` | Facts, source review, wiki structure, no facts in prose, eval wiring (`--production`: no template examples) |
 | `./gt review [--diff] [--done]` | Sources that changed (or vanished) since your facts and wiki were checked against them |
 | `./gt examples [--remove]` | The template's fictional example content |
-| `./gt eval [--tier live]` | Run the golden set (free tier needs nothing) |
+| `./gt eval [--tier live]` | Run the golden set (free tier needs nothing; `--export copilot-studio` to grade the model there) |
 | `./gt serve [--stdio]` | The MCP server |
 | `./gt connect [CLIENT] [--install]` | Setup for Claude, Codex, Cursor, VS Code, Copilot Studio... |
 | `./gt tools` | The tools your assistant gets |

@@ -15,7 +15,7 @@ from groundtruth.project import Project
 @dataclass
 class Step:
     title: str
-    done: bool
+    done: bool | None  # None: can't be told from the files here (launch steps)
     detail: str
     next: str  # the command (or action) that moves this step forward
 
@@ -44,6 +44,32 @@ def next_action(project: Project, todo: list[Step], gt: str = "./gt") -> str | N
 
 REVIEW = "Review changed sources"
 BUILD = "Turn it into facts and pages"
+
+
+def launch_steps(project: Project, gt: str = "./gt") -> list[Step]:
+    """After the road: put it online and keep it current without you.
+
+    Most of this lives outside the repo (a cloud account, GitHub settings, another
+    machine), so ``done`` is None where these files can't tell. CLAUDE.md's "Take it
+    to production" job walks a coding agent through each one.
+    """
+    from groundtruth import host
+    named = host.configured_name(project.config)
+    url = "https://YOUR-HOST/mcp"
+    return [
+        Step("Put it online", None, "a container with GT_MCP_API_KEY and GT_BUILD_COMMIT (docs/deploy.md)",
+             f"{gt} watchdog --url {url}"),
+        Step("Connect your users", None, "Copilot Studio, Claude, ChatGPT, or your app (docs/connect.md)",
+             f"{gt} connect CLIENT --url {url}"),
+        Step("Ship data without deploys", None, "GT_PUBLISH_DATA on GitHub, GT_DATA_URL on the server",
+             "docs/deploy.md#update-data-without-redeploying"),
+        Step("Keep it current", bool(named),
+             f"refresh host: {named} (./gt host check there)" if named else
+             "no refresh host named in groundtruth.yaml (docs/operations.md)",
+             f"{gt} host install on an always-on machine, after naming it as host: in groundtruth.yaml"),
+        Step("Watch it", None, "GT_WATCHDOG_URL variable and GT_MCP_API_KEY secret on GitHub",
+             "gh workflow run watchdog.yml, then check it passes"),
+    ]
 
 
 def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:

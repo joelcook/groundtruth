@@ -84,7 +84,7 @@ watchdog fails on, so GitHub emails you.
 
 | When | Job | What it does | Commits it pushes |
 |---|---|---|---|
-| nightly (03:00) | `./gt host run refresh` | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)` |
+| nightly (03:00) | `./gt host run refresh` | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)`, or an empty `refresh: no source changes (date)` so the watchdog knows it ran |
 | every 5 minutes | `./gt host watch` | publishes new alerts; every 2 hours from 05:00 to 22:00, a quick refresh of just the sources facts cite; a full refresh when a person pushes main; alerts about stale pages (if rewrites aren't scheduled) and about a deployed server running old code (with `GT_WATCHDOG_URL`) | `alerts: ...`, `refresh: quick sources (...)` |
 | every 30 minutes | `./gt host run rewrite` | `./gt rewrite` on stale pages (below) | `wiki: rewrite <page> from current sources`, `wiki: rewrite log: ...` |
 | daily, in GitHub | `watchdog.yml` | `./gt watchdog --repo`: open alerts, refresh age, CI on main, deployed code lag | (none) |

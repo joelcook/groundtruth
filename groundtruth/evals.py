@@ -22,6 +22,10 @@ Tiers:
     live      Run every question through Claude with the real tools. Needs
               ANTHROPIC_API_KEY. Saves a run you can replay later.
     release   live, whole set, 100% required.
+
+Your production model isn't Claude? ``./gt eval --export copilot-studio`` writes
+the same questions as a test set Copilot Studio imports, so you grade the model
+your users actually talk to.
 """
 from __future__ import annotations
 
@@ -272,6 +276,66 @@ def run_replay(project: Project, items: list[dict]) -> tuple[list[dict], Path | 
 
 
 # ===================================================================== runner
+
+
+# ===================================================================== grading another platform's model
+
+COPILOT_COLUMNS = ["Question", "Expected response", "Testing method"]
+COPILOT_MAX_ROWS = 100
+COPILOT_MAX_QUESTION = 1000
+COMPARE = "Compare meaning"
+
+
+def expected_response(item: dict) -> str:
+    """What a correct answer does, in words a platform's judge can grade.
+
+    ``expected_response`` in the question wins. Otherwise it's built from the
+    question's own checks. Exact values stay in it on purpose: the golden set
+    already pins them, and regenerating the export keeps the two in step.
+    """
+    if item.get("expected_response"):
+        return " ".join(str(item["expected_response"]).split())
+    base = {
+        "hard_fact": "Answers with the organization's current information, not a guess, and says where it came from.",
+        "out_of_scope": ("Declines, because the assistant can't see personal or account information, and points "
+                         "the person to where they can get it."),
+    }.get(item.get("category"), "Answers from the organization's published information and says where it came from.")
+    text = " ".join(str(item.get("expected_summary") or "").split()) or base
+    must = [json.dumps(str(x)) for x in item.get("must_contain") or []]
+    never = [json.dumps(str(x)) for x in item.get("must_not_contain") or []]
+    if must:
+        text += f" The answer includes {', '.join(must)}."
+    if never:
+        text += f" It does NOT say {', '.join(never)}."
+    return text
+
+
+def export_copilot_studio(project: Project, out: Path | None = None) -> tuple[Path, int]:
+    """Write the golden set as a Copilot Studio test set: Question, Expected response, Testing method.
+
+    Copilot Studio can't import tool-use assertions, so every row is graded by
+    meaning against what a correct answer does. Its limits: 100 rows, 1000
+    characters per question.
+    """
+    import csv
+    items, problem = checks.read_golden(project)
+    if problem:
+        raise ValueError(problem)
+    if len(items) > COPILOT_MAX_ROWS:
+        raise ValueError(f"{len(items)} questions; Copilot Studio imports at most {COPILOT_MAX_ROWS} per test set")
+    rows = []
+    for item in items:
+        question = " ".join(str(item.get("question") or "").split())
+        if len(question) > COPILOT_MAX_QUESTION:
+            raise ValueError(f"{item.get('id')}: the question is over {COPILOT_MAX_QUESTION} characters")
+        rows.append({"Question": question, "Expected response": expected_response(item), "Testing method": COMPARE})
+    out = out or project.build_dir / "copilot-studio-testset.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=COPILOT_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    return out, len(rows)
 
 
 def run(project: Project, tier: str = "tools", *, only: str | None = None, judge: bool = True,

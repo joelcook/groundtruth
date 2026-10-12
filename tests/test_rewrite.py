@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.helpers import LIBRARY, write
+from helpers import LIBRARY, write
 
 from groundtruth import alerts, host, project, review, rewrite
 

@@ -200,7 +200,19 @@ def cmd_check(args) -> int:
 
 def cmd_eval(args) -> int:
     from groundtruth import evals
-    return evals.run(_p(args), args.tier, only=args.only, judge=not args.no_judge)
+    project = _p(args)
+    if args.export:
+        try:
+            out, n = evals.export_copilot_studio(project, Path(args.out) if args.out else None)
+        except ValueError as exc:
+            _bad(str(exc))
+            return 1
+        _ok(f"{n} question(s) -> {project.rel(out)}")
+        print("  In Copilot Studio: your agent > Evaluation > new test set > upload this file. Every row grades by\n"
+              "  meaning (Copilot Studio can't import tool-use checks). Its judge may call a correct refusal\n"
+              "  \"not answered\": review those by hand against the question instead of weakening the refusal.")
+        return 0
+    return evals.run(project, args.tier, only=args.only, judge=not args.no_judge)
 
 
 def cmd_serve(args) -> int:
@@ -562,8 +574,18 @@ def cmd_status(args) -> int:
     action = progress.next_action(project, todo, gt)
     if action:
         print(f"\nnext: {action}")
-    else:
-        print("\nReady. Put it online: docs/deploy.md. Then ./gt report shows what people ask.")
+        return 0
+    launch = progress.launch_steps(project, gt)
+    print("\nReady to launch. Most of this lives outside the repo, so · means it can't be checked from here:")
+    width = max(len(s.title) for s in launch) + 2
+    numw = len(f"{len(todo) + len(launch)}.")
+    for i, s in enumerate(launch, len(todo) + 1):
+        mark = "·" if s.done is None else "✓" if s.done else "✗"
+        print(f"  {mark} {f'{i}.':<{numw}} {s.title:<{width}} {s.detail}")
+        if not s.done:
+            print(f"  {' ' * (numw + 3)}{' ' * width}-> {s.next}")
+    print("\nCLAUDE.md (\"Take it to production\") walks a coding agent through each one. After launch,\n"
+          f"{gt} report shows what people ask and what's missing.")
     return 0
 
 
@@ -717,6 +739,9 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--tier", default="tools", choices=["tools", "replay", "fast", "live", "release"])
     sp.add_argument("--only")
     sp.add_argument("--no-judge", action="store_true", help="live: skip the LLM judge for narrative answers")
+    sp.add_argument("--export", choices=["copilot-studio"],
+                    help="write the questions as a test set for that platform, to grade your production model there")
+    sp.add_argument("--out", help="--export: where to write it (default build/copilot-studio-testset.csv)")
     sp = add("serve", cmd_serve, "run the MCP server")
     sp.add_argument("--stdio", action="store_true")
     sp.add_argument("--force", action="store_true", help="serve even if ./gt check fails (local testing only)")

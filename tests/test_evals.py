@@ -69,5 +69,41 @@ class TestGrading(unittest.TestCase):
         self.assertFalse(evals.grade(item, "", [], use_judge=False)[0])
 
 
+class TestCopilotStudioExport(unittest.TestCase):
+    """Grade the production model where it runs: the golden set as a Copilot Studio test set."""
+
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_every_question_becomes_a_row_graded_by_meaning(self):
+        import csv
+        out, n = evals.export_copilot_studio(self.p)
+        rows = list(csv.DictReader(out.open()))
+        self.assertEqual(list(rows[0]), evals.COPILOT_COLUMNS)
+        self.assertEqual(len(rows), n)
+        self.assertEqual({r["Testing method"] for r in rows}, {"Compare meaning"})
+        self.assertTrue(str(out).startswith(str(self.p.build_dir)))  # generated: never committed
+
+    def test_expected_responses_come_from_the_checks(self):
+        fact = {"category": "hard_fact", "must_call_tool": "get_fee", "must_contain": ["0.10"]}
+        self.assertIn('includes "0.10"', evals.expected_response(fact))
+        self.assertNotIn("get_fee", evals.expected_response(fact))  # the judge only sees the answer
+        refusal = {"category": "out_of_scope", "must_contain": ["account"]}
+        self.assertIn("Declines", evals.expected_response(refusal))
+        stale = {"category": "contradiction", "expected_summary": "We're fine-free.", "must_not_contain": ["$10"]}
+        self.assertEqual(evals.expected_response(stale), 'We\'re fine-free. It does NOT say "$10".')
+        self.assertEqual(evals.expected_response({**fact, "expected_response": "Ten cents a page."}),
+                         "Ten cents a page.")
+
+    def test_copilot_studio_limits(self):
+        long = "x" * (evals.COPILOT_MAX_QUESTION + 1)
+        self.p.golden_path.write_text(f"- id: long\n  question: {long}\n  category: narrative\n")
+        with self.assertRaises(ValueError):
+            evals.export_copilot_studio(self.p)
+
+
 if __name__ == "__main__":
     unittest.main()

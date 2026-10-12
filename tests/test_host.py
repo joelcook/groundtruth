@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.helpers import LIBRARY, copy_project, write
+from helpers import LIBRARY, copy_project, write
 
 from groundtruth import alerts, host, ingest, project, refresh, watchdog
 
@@ -137,6 +137,15 @@ class HostTests(RemoteRepo):
         self.assertEqual(sh(self.checkout, "status", "--porcelain"), "")  # the checkout is untouched
         files = sh(self.origin, "ls-tree", "-r", "--name-only", "main", "assistant/sources/pages")
         self.assertIn("opening", files)
+        # A quiet night still leaves a trace, so the watchdog can tell it from a dead host.
+        self.assertEqual(host.run(self.p, "refresh"), 0)
+        self.assertTrue(self.origin_subject().startswith("refresh: no source changes ("))
+
+    def test_a_quiet_quick_refresh_leaves_no_trace(self):
+        head = sh(self.checkout, "rev-parse", "HEAD")
+        with mock.patch.object(ingest, "recapture", return_value=ingest.IngestResult()):  # no network in tests
+            self.assertEqual(refresh.run(self.p, push=True, quick=True), 0)
+        self.assertEqual(sh(self.checkout, "rev-parse", "HEAD"), head)
 
     def test_alerts_reach_alerts_md_on_main_once(self):
         host.publish_alerts(self.p)  # first run: older alerts aren't news
@@ -234,6 +243,17 @@ class WatchdogRepoTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         with mock.patch.dict(os.environ, {"GT_BUILD_COMMIT": "abc1234"}):
             self.assertEqual(server.health(p)["commit"], "abc1234")
+
+
+class LaunchStepsTests(unittest.TestCase):
+    def test_only_the_host_can_be_checked_from_the_files(self):
+        from groundtruth import progress
+        p, tmp = copy_project()
+        self.addCleanup(tmp.cleanup)
+        steps = progress.launch_steps(p)
+        self.assertEqual([s.done for s in steps], [None, None, None, False, None])
+        p.config["host"] = "box"
+        self.assertTrue(progress.launch_steps(p)[3].done)
 
 
 if __name__ == "__main__":

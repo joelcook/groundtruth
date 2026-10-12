@@ -203,7 +203,14 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
         # 5. publish
         if push:
             made = _git(project, "log", f"{start}..HEAD", "--oneline", check=False) if start else ""
-            print("done: committed; the refresh host pushes it" if made else "quiet run: nothing changed")
+            if made:
+                print("done: committed; the refresh host pushes it")
+            elif not quick:  # a quiet night still says it ran, or the watchdog can't tell it from a dead host
+                _git(project, "commit", "-q", "--allow-empty", "-m", f"refresh: no source changes ({today})",
+                     "-m", "\n".join(lines) or "No ingest sources are configured.")
+                print("quiet run: no source changed; recorded the run with an empty commit for the watchdog")
+            else:
+                print("quiet run: nothing changed")
             return finish(0)
         if write and branch and original:
             changed = _git(project, "log", f"{original}..{branch}", "--oneline", check=False)
