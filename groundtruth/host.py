@@ -14,6 +14,7 @@ pushes main itself whenever every gate passes:
 The schedule:
 
     nightly        ./gt host run refresh    ingest, build, check, eval; push `refresh: ...`
+    2h later       ./gt host run repair     the live eval, then ./gt repair on what it got wrong
     every 5 min    ./gt host watch          publish alerts to ALERTS.md; a quick refresh of the
                                             sources facts cite every 2 hours by day; a full
                                             refresh when a person pushes main
@@ -60,8 +61,8 @@ from groundtruth.project import Project
 
 BOT_PREFIXES = ("refresh:", "wiki: rewrite", "wiki: cover", "facts: update", "alerts:")  # the host's own commits
 CODE_PATHS = ("groundtruth", "Dockerfile", "pyproject.toml")  # what a server image runs; data ships in bundles
-JOBS = ("refresh", "rewrite")
-JOB_ARGS = {"refresh": ["refresh", "--write", "--push"], "rewrite": ["rewrite"]}
+JOBS = ("refresh", "rewrite", "repair")
+JOB_ARGS = {"refresh": ["refresh", "--write", "--push"], "rewrite": ["rewrite"], "repair": ["repair", "--eval"]}
 PUSH_TRIES = 3
 REWRITE_PUSH_WAIT_SECONDS = 30 * 60
 ALERTS_PUSH_WAIT_SECONDS = 60
@@ -698,6 +699,8 @@ def cron_block(project: Project, *, at: str = "03:00", rewrite: bool = True) -> 
     ]
     if rewrite:
         lines.append(f"*/30 * * * * {gt} host run rewrite >> {shlex.quote(str(logs / 'rewrite.log'))} 2>&1")
+        repair_hour = (hour + 2) % 24  # after the night's refresh and its first rewrites
+        lines.append(f"{minute} {repair_hour} * * * {gt} host run repair >> {shlex.quote(str(logs / 'repair.log'))} 2>&1")
     lines.append(f"# END {cron_marker(project)}")
     return "\n".join(lines) + "\n"
 

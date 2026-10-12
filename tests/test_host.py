@@ -229,6 +229,8 @@ class HostTests(RemoteRepo):
         self.assertIn("*/5 * * * *", block)
         self.assertIn("*/30 * * * *", block)
         self.assertIn("GT_REFRESH_AT=04:15", block)
+        self.assertIn("15 6 * * * cd", block)  # the live eval and repair, two hours after the refresh
+        self.assertIn("host run repair", block)
         self.assertNotIn("host run rewrite", host.cron_block(self.p, rewrite=False))
         mine = "0 1 * * * echo keep me\n"
         self.assertEqual(host.strip_block(mine + block, host.cron_marker(self.p)), mine)

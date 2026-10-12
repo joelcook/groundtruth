@@ -183,7 +183,9 @@ def repair_question(project: Project, cfg: rewrite.Config, item: dict, result: d
     return rewrite.Outcome("failed", problems=errors)
 
 
-def run(project: Project, *, max_items: int | None = None) -> int:
+def run(project: Project, *, max_items: int | None = None, live_first: bool = False) -> int:
+    """Repair what the latest live run got wrong. ``live_first`` runs the live eval first (a machine host's
+    nightly job); then whatever stays wrong is an alert, and a clean run clears it."""
     import os
     try:
         cfg = rewrite.config(project)
@@ -193,6 +195,8 @@ def run(project: Project, *, max_items: int | None = None) -> int:
     if rewrite.changed_paths(cfg.cwd):
         print("  ✗ the checkout has uncommitted changes; commit or stash them first")
         return 2
+    if live_first:
+        evals.run(project, "live", quiet=True)
     failed, passed = failing(project)
     golden = {str(i.get("id")): i for i in checks.load_golden(project) if isinstance(i, dict)}
     queue = [r for r in failed if str(r.get("id")) in golden][: max_items or int(os.environ.get("GT_REPAIR_MAX") or 2)]
@@ -223,4 +227,9 @@ def run(project: Project, *, max_items: int | None = None) -> int:
     remaining, _ = failing(project)
     if not remaining:
         alerts.resolve(project, "the live eval failed")
+    elif live_first:
+        alerts.notify(project, "the live eval failed",
+                      f"the assistant answers {len(remaining)} golden question(s) wrong on the production model, and "
+                      f"./gt repair couldn't fix them ({', '.join(str(r['id']) for r in remaining[:3])}). "
+                      f"Run ./gt eval --tier live to see why.")
     return 0 if fixed or not remaining else 1

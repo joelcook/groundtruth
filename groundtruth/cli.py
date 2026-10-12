@@ -436,7 +436,7 @@ def cmd_rewrite(args) -> int:
 
 def cmd_repair(args) -> int:
     from groundtruth import repair
-    return repair.run(_p(args), max_items=args.max)
+    return repair.run(_p(args), max_items=args.max, live_first=args.eval)
 
 
 def cmd_alerts(args) -> int:
@@ -792,11 +792,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="ignore a usage pause and the failed-page list")
     sp = add("repair", cmd_repair, "fix what the latest live eval got wrong (headless Claude Code, checked)")
     sp.add_argument("--max", type=int, help="questions to try (default GT_REPAIR_MAX or 2)")
+    sp.add_argument("--eval", action="store_true", help="run the live eval first, and alert on what stays wrong")
     sp = add("alerts", cmd_alerts, "open alerts from the refresh host")
     sp.add_argument("--last", type=int, default=10, help="lines of this machine's alert log to show")
     sp = add("host", cmd_host, "run the unattended refresh host on this machine")
     sp.add_argument("action", choices=["check", "install", "uninstall", "print", "run", "watch", "autopilot"])
-    sp.add_argument("job", nargs="?", choices=["refresh", "rewrite"])
+    sp.add_argument("job", nargs="?", choices=["refresh", "rewrite", "repair"])
     sp.add_argument("--quick", action="store_true", help="run refresh: re-capture only the sources facts cite")
     sp.add_argument("--at", default="03:00", help="install: when the nightly refresh runs (default 03:00)")
     sp.add_argument("--no-rewrite", action="store_true", help="install: don't schedule ./gt rewrite")

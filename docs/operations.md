@@ -107,9 +107,11 @@ and anything else stands down, so exactly one pushes main.
 | daily, in GitHub | `watchdog.yml`: `./gt watchdog --repo` checks open alerts, refresh age, CI on main, and the deployed server | (none) |
 | after CI passes on main | `publish-data.yml`: a data bundle your servers hot-swap ([deploy.md](deploy.md#update-data-without-redeploying)) | (none) |
 
-A machine host also re-runs a full refresh whenever a person pushes main, and
-warns you when the deployed server runs code older than main. In Actions,
-schedules run in UTC.
+A machine host runs the live eval and `./gt repair` two hours after its nightly
+refresh (its rewrites are already pushed by then, so there's nothing to hold
+back). It also re-runs a full refresh whenever a person pushes main, and warns
+you when the deployed server runs code older than main. In Actions, schedules
+run in UTC.
 
 ### Set it up: GitHub Actions
 
