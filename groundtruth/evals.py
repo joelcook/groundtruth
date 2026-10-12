@@ -226,8 +226,35 @@ def _grade_calls(item: dict, calls: list[dict]) -> list[str]:
     return reasons
 
 
+EXACT_KINDS = {"money", "date", "time", "phone number", "email"}
+
+
+def invented_values(question: str, response: str, calls: list[dict]) -> list[str]:
+    """Exact values in an answer that no tool returned and the question didn't contain: said from memory.
+
+    Only for runs that recorded tool results (older recorded runs can't be judged this way).
+    """
+    if not any("result" in c for c in calls):
+        return [] if calls else _exact_in(response)
+    from groundtruth import grounding
+    evidence = question + "\n" + "\n".join(json.dumps(c.get("result"), default=str) for c in calls if "result" in c)
+    index = grounding.SourceIndex.of(evidence)
+    return [raw for raw in _exact_in(response)
+            if not all(index.has(k, n) for k, n, _ in grounding.exact_values(raw))]
+
+
+def _exact_in(text: str) -> list[str]:
+    found = []
+    for kind, rx in checks.PATTERNS:
+        if kind in EXACT_KINDS:
+            found += [m.group(0) for m in rx.finditer(text) if m.group(0) not in found]
+    return found
+
+
 def grade(item: dict, response: str, calls: list[dict], *, use_judge: bool) -> tuple[bool, list[str]]:
     reasons = _grade_calls(item, calls) + _grade_text(item, response)
+    reasons += [f"answer states {v!r}, which no tool returned (from memory?)"
+                for v in invented_values(str(item.get("question") or ""), response, calls)]
     if item.get("category") == "narrative" and use_judge and not reasons and item.get("expected_summary"):
         from groundtruth import llm
         evidence = "\n\n".join(f"{c['name']}({json.dumps(c.get('input'), default=str)}):\n"
@@ -247,16 +274,20 @@ def system_prompt(project: Project) -> str:
 
 
 def run_live(project: Project, items: list[dict], *, use_judge: bool) -> list[dict]:
-    from groundtruth import llm
+    from groundtruth import claude_code, llm
 
     tools = server.tool_specs(project)
     system = system_prompt(project)
+    via_api = llm.available()
     results = []
     for item in items:
         print(f"  [{item['id']}] {item['question'][:70]}", file=sys.stderr)
         try:
-            out = llm.agent(item["question"], system, tools,
-                            lambda name, args: server.call_tool(project, name, args, log=False))
+            if via_api:
+                out = llm.agent(item["question"], system, tools,
+                                lambda name, args: server.call_tool(project, name, args, log=False))
+            else:  # a Claude plan, no API key: the same questions through Claude Code and the MCP server
+                out = claude_code.agent(project, item["question"], system, model=llm.model())
         except Exception as exc:  # noqa: BLE001
             results.append(_result(item, False, [f"agent failed: {exc}"], tool_calls=[], response=""))
             continue
@@ -392,10 +423,11 @@ def run(project: Project, tier: str = "tools", *, only: str | None = None, judge
     elif tier == "replay":
         results, source = run_replay(project, items)
     else:
-        from groundtruth import llm
-        if not llm.available():
-            print("live evals need Claude: set ANTHROPIC_API_KEY (console.anthropic.com) or run "
-                  "`ant auth login`. The free `./gt eval` (tools tier) needs nothing.", file=sys.stderr)
+        from groundtruth import claude_code, llm
+        if not llm.available() and not claude_code.available():
+            print("live evals need Claude: set ANTHROPIC_API_KEY (console.anthropic.com), or have the claude CLI "
+                  "logged in (CLAUDE_CODE_OAUTH_TOKEN). The free `./gt eval` (tools tier) needs nothing.",
+                  file=sys.stderr)
             return 2
         prev_path = latest_live_run(project)
         if prev_path:

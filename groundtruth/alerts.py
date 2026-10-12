@@ -141,5 +141,58 @@ def pending(project: Project) -> tuple[list[tuple[str, str]], int]:
     return parse_log(complete.decode("utf-8", errors="replace")), offset + len(complete)
 
 
+def resolve(project: Project, prefix: str) -> None:
+    """Something that alerted works again: the next publish removes its open alert from ALERTS.md.
+
+    ``prefix`` is the start of the alert's text ("title — first words"), compared like ``normalize``.
+    """
+    path = state_dir(project) / "resolved.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(" ".join(prefix.split()) + "\n")
+
+
+def resolved(project: Project) -> list[str]:
+    path = state_dir(project) / "resolved.log"
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.exists() else []
+
+
+def clear_resolved(project: Project, done: list[str]) -> None:
+    path = state_dir(project) / "resolved.log"
+    left = [line for line in resolved(project) if line not in done]
+    if left:
+        path.write_text("\n".join(left) + "\n", encoding="utf-8")
+    elif path.exists():
+        path.unlink()
+
+
+def drop(text: str, prefixes: list[str]) -> tuple[str, list[str]]:
+    """ALERTS.md without the open alerts these prefixes resolve, and the messages removed."""
+    keys = [normalize(p) for p in prefixes]
+    kept, removed = [], []
+    for line in text.splitlines():
+        m = ENTRY_RE.match(line.strip())
+        if m and any(normalize(m.group(2)).startswith(k) for k in keys):
+            removed.append(m.group(2))
+            continue
+        kept.append(line)
+    return ("\n".join(kept) + "\n" if removed else text), removed
+
+
+def update(current: str, new: list[tuple[str, str]], prefixes: list[str]) -> tuple[str, list[str], list[str]]:
+    """ALERTS.md after adding new alerts and removing resolved ones: (text, added, removed)."""
+    text, added = merge(current, new)
+    text, removed = drop(text, prefixes)
+    added = [a for a in added if a not in removed]
+    return text, added, removed
+
+
+def commit_message(added: list[str], removed: list[str]) -> str:
+    if added:
+        more = f" (+{len(added) - 1} more)" if len(added) > 1 else ""
+        return f"alerts: {added[0][:60].rstrip()}{more}" + (f"; resolved {len(removed)}" if removed else "")
+    return f"alerts: resolved {removed[0][:60].rstrip()}" + (f" (+{len(removed) - 1} more)" if len(removed) > 1 else "")
+
+
 def mark_published(project: Project, offset: int) -> None:
     (state_dir(project) / "alerts-published-bytes").write_text(f"{offset}\n")

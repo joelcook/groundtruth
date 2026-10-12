@@ -64,6 +64,8 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `reconcile.py` | Updates facts from a changed source; ships only grounded, gated, model-checked rows |
 | `cover.py` | Writes a page (and facts) for a source nothing covers yet, under the same checks |
 | `grounding.py` | Every exact value in `facts/` must appear in the source its row cites |
+| `repair.py` | Fixes what the live eval got wrong (synonyms, prompt, pages, aliases), then re-asks live |
+| `claude_code.py` | Live evals through headless Claude Code and the MCP server, for a Claude plan with no API key |
 | `host.py` | The refresh host: GitHub Actions (`autopilot`) or a machine (worktrees at main, locks, the watcher, cron); one named pusher |
 | `alerts.py` | What the unattended jobs can't handle, into `ALERTS.md` where the watchdog sees it |
 | `bundle.py` | Data bundles and hot-swap for deployed servers |
@@ -85,7 +87,8 @@ don't need for correctness you can't live without.
 2. build        re-derive facts (deterministic)
 3. compile      flag new, changed, and stale coverage; draft pages (agent or Claude)
 4. check, eval  the gates; check stays red while cited sources are unreviewed
-5. review       a human reconciles changed evidence (./gt review --done) and merges the PR
+5. review       changed evidence is reconciled: by the refresh host's checked rewrites, or a person
+                (./gt review --done) merging the weekly PR
 ```
 
 `./gt refresh` runs it; `.github/workflows/refresh.yml` schedules it weekly, and a
@@ -113,7 +116,8 @@ What it can't handle lands in `ALERTS.md`, and the daily watchdog fails on it.
 
 ## What "ready to ship" means
 
-- `./gt check --production` and `./gt eval` pass (CI and the Docker build enforce them);
+- `./gt check --production` and `./gt eval` pass (the Docker build, data bundles, and
+  publish-data enforce them; CI runs `./gt check` and `./gt eval`);
 - `./gt eval --tier release` passes 100% on the production model;
 - no facts in wiki prose; every fact has a source;
 - the server is deployed with an API key, watched by the watchdog, and the

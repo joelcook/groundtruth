@@ -12,6 +12,7 @@ permissions:
   pull-requests: write
 jobs:
   refresh:
+    if: vars.GT_AUTOPILOT != 'true'  # with the autopilot on, it already keeps main current; no PR needed
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

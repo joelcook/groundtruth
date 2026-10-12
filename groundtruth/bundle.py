@@ -61,7 +61,10 @@ def build(project: Project) -> Path:
         members["search-index.db"] = project.index_path.read_bytes()
     for page in sorted(project.wiki_dir.rglob("*.md")):
         rel = page.relative_to(project.wiki_dir)
-        if "internal" in rel.parts or (page.name not in checks.SKIP and checks.is_draft(page)):
+        meta, _ = checks.split_frontmatter(page.read_text(encoding="utf-8"))
+        staff = "internal" in rel.parts or str((meta or {}).get("page_type", "")).lower() == "internal" \
+            or str((meta or {}).get("audience", "")).lower() == "internal"
+        if staff or (page.name not in checks.SKIP and checks.is_draft(page)):
             continue  # a release asset is downloadable: staff-only and unfinished pages stay home
         members["wiki/" + rel.as_posix()] = page.read_bytes()
     if project.prompt_path.exists():

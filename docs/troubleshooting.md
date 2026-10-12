@@ -136,6 +136,12 @@ annual one) fails on purpose; store what the source says.
 Claude credential. Set the `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` repo
 secret.
 
+**"the live eval got worse"**: after a night's rewrites, the assistant got wrong
+a golden question it answered right the night before, so those rewrites were
+held back and users saw no change. `./gt eval --tier live` shows which question.
+Usually a rewritten page now reads ambiguously, or a synonym is missing; fix
+that, and the next run's rewrites go through.
+
 **The autopilot ran but pushed nothing**: check that the repo variable
 `GT_AUTOPILOT` is `true`, that `host: github-actions` is on main, and that
 workflows may write (Settings > Actions > General > Workflow permissions).

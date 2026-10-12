@@ -171,11 +171,43 @@ class HostTests(RemoteRepo):
         sh(self.checkout, "push", "-q", "origin", "HEAD:main")
         self.assertIn("github-actions", host.stand_down(self.p))  # machines step aside
         with mock.patch.object(host, "claude_ready", return_value="no Claude credential (test)"):
-            self.assertEqual(host.autopilot(self.p), 0)
+            self.assertEqual(host.autopilot(self.p), 1)  # it raised an alert: the run shows red
         log = sh(self.origin, "log", "-3", "--format=%s", "main").splitlines()
         self.assertTrue(log[1].startswith("refresh: sources ("), log)
         self.assertTrue(log[0].startswith("alerts: pages and facts wait for a rewrite"), log)  # no silent stall
         self.assertEqual(sh(self.checkout, "status", "--porcelain"), "")
+
+    def test_the_token_never_lands_in_git_config(self):
+        with mock.patch.dict(os.environ, {"GT_GIT_TOKEN": "ghs_test_token_value"}):
+            env = host._git_env()
+            host.git(self.checkout, "status")
+        self.assertIn("GIT_CONFIG_VALUE_0", env)
+        self.assertNotIn("ghs_test", (self.checkout / ".git" / "config").read_text())
+
+    def test_a_fixed_alert_leaves_alerts_md(self):
+        alerts.start_publishing(self.p)
+        alerts.notify(self.p, "the refresh failed", "./gt check fails after the refresh (x)")
+        host.publish_alerts(self.p)
+        self.assertIn("the refresh failed", sh(self.origin, "show", "main:assistant/ALERTS.md"))
+        alerts.resolve(self.p, "the refresh failed")
+        host.publish_alerts(self.p)
+        self.assertNotIn("the refresh failed", sh(self.origin, "show", "main:assistant/ALERTS.md"))
+        self.assertTrue(self.origin_subject().startswith("alerts: resolved"))
+
+    def test_the_live_gate_holds_back_only_what_got_worse(self):
+        import json
+
+        def step(regressions, rc):
+            def run(*args):
+                self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+                (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps({"regressions": regressions}))
+                return rc
+            return run
+        self.assertEqual(host.live_gate(self.p, step([], 0)), "pass")
+        self.assertTrue((alerts.state_dir(self.p) / "last-live.json").exists())  # the next run compares to it
+        self.assertEqual(host.live_gate(self.p, step(["card-fee"], 1)), "worse")
+        self.assertEqual(json.loads((alerts.state_dir(self.p) / "last-live.json").read_text())["regressions"], [])
+        self.assertEqual(host.live_gate(self.p, step([], 1)), "failing")  # wrong before too: not a regression
 
     def test_alerts_reach_alerts_md_on_main_once(self):
         alerts.start_publishing(self.p)

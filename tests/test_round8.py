@@ -115,6 +115,9 @@ class TestEvals(unittest.TestCase):
                  "result": {"count": 1, "results": [{"fee_type": "printing-color", "amount_usd": 0.5}]}}]
         self.assertFalse(evals.grade(item, "It's $999.", good, use_judge=False)[0])  # the answer must say it
         self.assertTrue(evals.grade(item, "Color printing is $0.50 a page.", good, use_judge=False)[0])
+        ok, reasons = evals.grade(item, "Color printing is $0.50 a page, and binding is $999.", good, use_judge=False)
+        self.assertFalse(ok)  # a right value doesn't excuse an invented one
+        self.assertTrue(any("$999" in r for r in reasons))
 
 
 class TestFacts(unittest.TestCase):
@@ -239,3 +242,41 @@ class TestPrivacy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRoundTwo(unittest.TestCase):
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+        self.env = mock.patch.dict(os.environ, {"GT_HOST_STATE": str(Path(self.tmp.name) / "state")})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def test_a_removal_that_persists_is_accepted(self):
+        from groundtruth import refresh
+        gone = ingest.IngestResult(removed=["sources/pages/a.md", "sources/pages/b.md", "sources/pages/c.md"])
+        self.assertFalse(refresh._outage_persists(self.p, gone, push=True))  # night one: looks like an outage
+        self.assertFalse(refresh._outage_persists(self.p, gone, push=True))
+        self.assertTrue(refresh._outage_persists(self.p, gone, push=True))  # night three: it's real
+        other = ingest.IngestResult(removed=["sources/pages/d.md"] * 3)
+        self.assertFalse(refresh._outage_persists(self.p, other, push=True))  # a different set starts over
+        self.assertFalse(refresh._outage_persists(self.p, gone, push=False))  # never by hand
+
+    def test_claude_code_streams_become_graded_tool_calls(self):
+        from groundtruth import claude_code
+        events = [
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "mcp__groundtruth__get_fee", "input": {"fee_type": "color"}}]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1",
+                 "content": [{"type": "text", "text": '{"count": 1, "results": [{"amount_usd": 0.5}]}'}]}]}},
+            {"type": "result", "is_error": False, "result": "It's $0.50 a page."},
+        ]
+        out = claude_code.parse(events)
+        self.assertEqual(out["response"], "It's $0.50 a page.")
+        self.assertEqual(out["tool_calls"], [{"name": "get_fee", "input": {"fee_type": "color"},
+                                              "result": {"count": 1, "results": [{"amount_usd": 0.5}]}}])
+        item = {"category": "hard_fact", "must_call_tool": "get_fee", "must_match": {"amount_usd": 0.5}}
+        self.assertTrue(evals.grade(item, out["response"], out["tool_calls"], use_judge=False)[0])

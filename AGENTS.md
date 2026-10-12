@@ -142,12 +142,14 @@ Never write a credential into a file, a commit, or your reply.
    and `./gt eval` pass.
 2. **Their own repo.** The project lives in a repo they control (a fork or a
    copy of this one), pushed, with CI (`ci.yml`) green.
-3. **Deploy** (docs/deploy.md). `docker build` builds the active project; pass
-   `--build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)`. Make the server's key
-   without ever showing it, and give it to the platform and to GitHub in the same
-   step, e.g.:
-   `KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); fly secrets set GT_MCP_API_KEY="$KEY"; gh secret set GT_MCP_API_KEY --body "$KEY"`.
-   Add `url: https://HOST/mcp` to `groundtruth.yaml`, commit, and push.
+3. **Deploy** (docs/deploy.md has a no-prompts recipe per platform; use its
+   flags, not an interactive setup). `docker build` builds the active project;
+   stamp it with `GT_BUILD_COMMIT`. Make the server's key without ever showing
+   it, and give it to the platform and to GitHub in the same step, e.g.:
+   `KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); fly secrets set --app "$APP" --stage GT_MCP_API_KEY="$KEY"; gh secret set GT_MCP_API_KEY --body "$KEY"`.
+   Add `url: https://HOST/mcp` to `groundtruth.yaml`, commit, and push. Then turn
+   on automatic redeploys for code changes (`deploy.yml`, docs/deploy.md
+   "Redeploy when the code changes").
    Verify: `GT_MCP_API_KEY=... ./gt watchdog --repo` passes, or have GitHub run it
    (`gh workflow run watchdog.yml`).
 4. **Data without deploys.** `gh variable set GT_PUBLISH_DATA --body true`; set
@@ -177,8 +179,9 @@ an always-on Linux or macOS box runs the same jobs (docs/operations.md).
 
 ### "Fix what ALERTS.md lists"
 
-Each line is something the unattended jobs couldn't handle. Pull first. Fix the
-cause, run the gates, and delete the line in the same commit:
+Each line is something the unattended jobs couldn't handle, even after retrying
+on a stronger model; an alert whose cause recovers clears itself. Pull first.
+Fix the cause, run the gates, and delete the line in the same commit:
 - **a wiki page would not rewrite / a new source would not get a page:** the
   alert names the failed check. Write or fix the page yourself, following
   docs/wiki.md, from its sources.
@@ -189,11 +192,15 @@ cause, run the gates, and delete the line in the same commit:
 - **the refresh failed / looks like an outage:** read the message. A site that's
   down needs nothing; the next run retries. A source that's really gone needs
   what cites it updated.
-- **the live eval failed:** `./gt eval --tier live` shows which question. Fix the
-  fact, the page, the synonyms, or the prompt (see "The assistant got X wrong").
+- **the live eval failed / got worse:** `./gt repair` already tried and
+  couldn't fix it. `./gt eval --tier live` shows which question. Fix the fact, the page, the synonyms, or the prompt (see "The
+  assistant got X wrong"). "Got worse" means that night's rewrites were held back.
 - **Claude Code needs a login / pages wait for a rewrite that can't run:** the
   refresh host needs a working Claude credential (step 5 above).
-- **the deployed server needs a redeploy:** rebuild and deploy the image (step 3).
+- **the deployed server needs a redeploy:** rebuild and deploy the image (step 3),
+  or turn on `deploy.yml` so it happens by itself.
+- **the autopilot can't push main:** let GitHub Actions push (branch protection,
+  and workflow permissions: read and write).
 
 ### "Do the work in build/compile-packet.md"
 
@@ -201,6 +208,9 @@ Read the packet, do every item, run the gates, and summarize what you added and
 anything in the sources you couldn't place.
 
 ### "The assistant got X wrong"
+
+(On a refresh host, `./gt repair` does this every night for the questions the
+live eval got wrong. These steps are for a new X, or one it couldn't fix.)
 
 1. Add X to `evals/golden.yaml` first, and watch `./gt eval` fail (or, for
    model behavior, `./gt eval --tier live --only ID`).

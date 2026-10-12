@@ -39,8 +39,10 @@ jobs:
           python-version: "3.12"
       - if: steps.head.outputs.skip != 'true'
         run: pip install -e .
-      - if: steps.head.outputs.skip != 'true'
-        run: python -m groundtruth check --production && python -m groundtruth eval && python -m groundtruth bundle
+      - if: steps.head.outputs.skip != 'true'  # the same gates as ci, so a dispatched run is just as safe
+        run: |
+          python -m unittest discover -s tests
+          python -m groundtruth check --production && python -m groundtruth eval && python -m groundtruth bundle
       - name: upload to the data-latest release
         if: steps.head.outputs.skip != 'true'
         run: |

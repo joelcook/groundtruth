@@ -63,6 +63,16 @@ skip). Each live run is saved in `evals/runs/` (commit a good one as your
 baseline; `replay` re-grades it for free and skips questions added since), and
 regressions since the last live run are called out.
 
+No API key, but the `claude` CLI is logged in (a Claude plan, or
+`CLAUDE_CODE_OAUTH_TOKEN`)? Then live runs through headless Claude Code,
+connected to your project's MCP server over stdio with the server's
+instructions and no other tools, so it reaches the facts exactly the way a
+client does. The judge runs the same way.
+
+A live answer also fails if it states a price, date, time, phone number, or
+email that no tool returned and the question didn't contain: that value came
+from memory.
+
 Models: `GT_MODEL` (default `claude-opus-5-5`) and `GT_JUDGE_MODEL`. **Evaluate
 on the model you run in production**, or you're grading a different assistant
 than your users talk to.

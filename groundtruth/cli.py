@@ -40,6 +40,7 @@ Keep it honest
   watchdog             outside-in health check (--url for a deployed server, --repo for alerts/CI)
   refresh              the weekly agent: ingest, build, compile, check, eval, PR
   rewrite              update changed facts, cover new sources, rewrite stale pages (checked)
+  repair               fix what the latest live eval got wrong (checked, then re-asked live)
   host                 the refresh host: autopilot (GitHub Actions) or a machine (install, check)
   alerts               what the unattended jobs need a person for
   bundle               package data so deployed servers update without a redeploy
@@ -433,6 +434,11 @@ def cmd_rewrite(args) -> int:
                         force=args.force, listing=args.list)
 
 
+def cmd_repair(args) -> int:
+    from groundtruth import repair
+    return repair.run(_p(args), max_items=args.max)
+
+
 def cmd_alerts(args) -> int:
     from groundtruth import alerts
     project = _p(args)
@@ -784,6 +790,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--max-pages", type=int, help="pages per run (default GT_REWRITE_MAX_PAGES or 10)")
     sp.add_argument("--dry-run", action="store_true", help="rewrite and check, but keep nothing")
     sp.add_argument("--force", action="store_true", help="ignore a usage pause and the failed-page list")
+    sp = add("repair", cmd_repair, "fix what the latest live eval got wrong (headless Claude Code, checked)")
+    sp.add_argument("--max", type=int, help="questions to try (default GT_REPAIR_MAX or 2)")
     sp = add("alerts", cmd_alerts, "open alerts from the refresh host")
     sp.add_argument("--last", type=int, default=10, help="lines of this machine's alert log to show")
     sp = add("host", cmd_host, "run the unattended refresh host on this machine")

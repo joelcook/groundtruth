@@ -51,7 +51,9 @@ class TestIngest(unittest.TestCase):
             second = ingest.run(self.p, [d])
             self.assertEqual(len(second.unchanged), 2)
             self.assertFalse(second.changed)
-            self.assertIn(d, self.p.ingest_sources)  # remembered in groundtruth.yaml
+            saved = self.p.ingest_sources[-1]  # remembered in groundtruth.yaml, relative to the project
+            self.assertFalse(Path(saved).is_absolute())
+            self.assertEqual((self.p.root / saved).resolve(), Path(d).resolve())
 
     def test_crawl_respects_robots_and_dedupes(self):
         with tempfile.TemporaryDirectory() as site:
@@ -88,7 +90,7 @@ class TestRemember(unittest.TestCase):
                 ingest.run(p, [d])
             reloaded = project.load(p.root)
             self.assertEqual(reloaded.ingest_max_pages, 12)
-            self.assertEqual(reloaded.ingest_sources, [d])
+            self.assertEqual([(p.root / s).resolve() for s in reloaded.ingest_sources], [Path(d).resolve()])
             self.assertEqual(reloaded.name, "Maplewood Public Library")
             self.assertIn("synonyms", reloaded.config["search"])
         finally:

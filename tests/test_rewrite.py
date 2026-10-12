@@ -13,7 +13,8 @@ from unittest import mock
 
 from helpers import LIBRARY, write
 
-from groundtruth import alerts, compile as comp, cover, host, project, reconcile, review, rewrite
+from groundtruth import (alerts, claude_code, compile as comp, cover, evals, host, project, reconcile,
+                         repair, review, rewrite)
 
 NOW = 1_800_000_000.0
 
@@ -104,6 +105,9 @@ class SmallPartsTests(unittest.TestCase):
         self.assertTrue(rewrite.parse_verdict('{"verdict": "fail", "unsupported": []}')[1])
         self.assertIsNone(rewrite.parse_verdict("Looks fine to me!")[0])
         self.assertIsNone(rewrite.parse_verdict('{"verdict": "maybe"}')[0])
+        verdict, problems = rewrite.parse_verdict('{"verdict": "pass", "unsupported": [], "dropped": ["the age limit"]}')
+        self.assertEqual(verdict, "fail")  # a rewrite that loses what the sources still say isn't a pass
+        self.assertIn("the age limit", problems[0])
 
     def test_the_checker_can_only_read(self):
         self.assertNotIn("Edit", rewrite.CHECK_TOOLS)
@@ -137,8 +141,15 @@ with open(os.environ["FAKE_LOG"], "a") as fh:
 print(json.dumps({"type": "system", "subtype": "init", "model": model}))
 if prompt.startswith("Reply with just OK"):
     text = "OK"
+elif "isn't worth a page" in prompt:
+    text = os.environ.get("FAKE_SKIP_VERDICT", '{"verdict": "agree", "why": "just navigation"}')
 elif prompt.startswith("Check"):
     text = os.environ.get("FAKE_VERDICT", '{"verdict": "pass", "unsupported": []}')
+elif "The assistant got a golden" in prompt:
+    for path, old, new in json.loads(os.environ.get("FAKE_REPAIR", "[]")):  # [file, from, to]
+        text = open(path).read()
+        open(path, "w").write(text.replace(old, new))
+    text = "Added a synonym so the question finds the hours."
 elif prompt.startswith("You maintain this repo's knowledge base"):
     src = re.search(r"captured: `([^`]+)`", prompt).group(1)
     page = re.search(r"at exactly `([^`]+)`", prompt).group(1)
@@ -214,8 +225,8 @@ class RewriteLoopTests(unittest.TestCase):
         # the fake claude reads its script from FAKE_* variables; real runs pass only what claude needs
         self.prefixes = mock.patch.object(rewrite, "CLAUDE_ENV_PREFIXES", rewrite.CLAUDE_ENV_PREFIXES + ("FAKE_",))
         self.prefixes.start()
-        for key in ("GT_REWRITE_MODEL", "GT_REWRITE_CHECK_MODEL", "GT_HOST_JOB", "FAKE_VERDICT", "FAKE_FACT",
-                    "FAKE_STRAY", "FAKE_EDITS", "FAKE_COVER", "CLAUDE_CODE_OAUTH_TOKEN"):
+        for key in ("GT_REWRITE_MODEL", "GT_REWRITE_CHECK_MODEL", "GT_REWRITE_ESCALATION_MODEL", "GT_HOST_JOB", "FAKE_VERDICT", "FAKE_FACT",
+                    "FAKE_STRAY", "FAKE_EDITS", "FAKE_COVER", "FAKE_SKIP_VERDICT", "FAKE_REPAIR", "CLAUDE_CODE_OAUTH_TOKEN"):
             os.environ.pop(key, None)
 
     def tearDown(self):
@@ -277,6 +288,7 @@ class RewriteLoopTests(unittest.TestCase):
         self.assertEqual(sh(self.root, "status", "--porcelain"), "")
 
     def test_a_value_the_source_doesnt_state_never_ships(self):
+        os.environ["GT_REWRITE_ESCALATION_MODEL"] = "off"  # alert on the first failure
         self.fees_change([["assistant/facts/fees.yaml", "amount_usd: 2.00", "amount_usd: 4.00"]])
         rewrite.run(self.p)
         self.assertNotIn("facts: update", " ".join(self.subjects()))
@@ -284,6 +296,34 @@ class RewriteLoopTests(unittest.TestCase):
         state = rewrite.load_state(rewrite.state_path(self.p))
         self.assertIn("'4.0'", state["facts_failed"]["sources/pages/borrowing-policy.md"]["reason"])
         self.assertIn("facts would not update", alerts.log_path(self.p).read_text())
+
+    def test_a_dropped_fact_retires_its_row_and_its_question(self):
+        policy = self.p.root / "sources/pages/borrowing-policy.md"
+        policy.write_text(policy.read_text().replace(
+            "| Replacement library card (your first card is free) | $2.00 per card |\n", ""))
+        sh(self.root, "commit", "-qam", "refresh: the card fee is gone")
+        os.environ["FAKE_EDITS"] = json.dumps([
+            ["assistant/facts/fees.yaml", "  - fee_type: replacement-card\n    aliases: [lost card, new card]\n"
+             "    amount_usd: 2.00\n    unit: per card\n    notes: Replacing a lost library card. First card is free.\n", ""],
+            ["assistant/evals/golden.yaml", '- id: replacement-card-cost\n  question: "How much does it cost to '
+             'replace a lost library card?"\n  category: hard_fact\n  must_call_tool: get_fee\n  tool_args: '
+             '{fee_type: replacement card}\n  must_contain: ["2"]\n\n', ""]])
+        self.assertEqual(rewrite.run(self.p), 0)
+        body = sh(self.root, "log", "--format=%b", "-1", "--grep=^facts: update")
+        self.assertIn("(removed)", body)
+        self.assertIn("replacement-card-cost: retired", body)
+        self.assertNotIn("replacement-card", (self.p.root / "facts/fees.yaml").read_text())
+        self.assertEqual(review.changes(self.p), [])
+
+    def test_an_alias_the_source_never_uses_is_refused(self):
+        self.fees_change([["assistant/facts/fees.yaml", "amount_usd: 2.00", "amount_usd: 3.00"],
+                          ["assistant/facts/fees.yaml", "aliases: [lost card, new card]",
+                           "aliases: [lost card, new card, free stuff]"],
+                          ["assistant/evals/golden.yaml", 'must_contain: ["2"]', 'must_contain: ["3"]']])
+        rewrite.run(self.p)
+        self.assertNotIn("facts: update", " ".join(self.subjects()))
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertIn("free stuff", state["facts_failed"]["sources/pages/borrowing-policy.md"]["reason"])
 
     def test_leaving_a_stale_fact_alone_isnt_an_update(self):
         self.fees_change([])  # the writer changes nothing, though the source now says $3.00
@@ -324,13 +364,73 @@ class RewriteLoopTests(unittest.TestCase):
         self.assertIn("navigation", state["cover_skipped"]["sources/pages/gift-cards.md"]["why"])
         self.assertEqual(cover.todo(self.p, state), [])
 
+    def test_a_skip_the_checker_disputes_isnt_a_skip(self):
+        os.environ["GT_REWRITE_ESCALATION_MODEL"] = "off"  # alert on the first failure
+        os.environ.update({"FAKE_COVER": "skip",
+                           "FAKE_SKIP_VERDICT": '{"verdict": "disagree", "why": "it explains gift cards"}'})
+        self.new_source()
+        rewrite.run(self.p)
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertNotIn("sources/pages/gift-cards.md", state.get("cover_skipped", {}))
+        self.assertIn("it explains gift cards", state["cover_failed"]["sources/pages/gift-cards.md"]["reason"])
+        self.assertIn("a new source would not get a page", alerts.log_path(self.p).read_text())
+
     def test_a_page_without_a_question_doesnt_ship(self):
+        os.environ["GT_REWRITE_ESCALATION_MODEL"] = "off"  # alert on the first failure
         os.environ["FAKE_COVER"] = "noq"
         self.new_source()
         rewrite.run(self.p)
         self.assertNotIn("wiki: cover", " ".join(self.subjects()))
         self.assertFalse((self.p.root / "wiki/gift-cards.md").exists())
         self.assertIn("a new source would not get a page", alerts.log_path(self.p).read_text())
+
+    def live_failure(self, qid: str) -> None:
+        """What a nightly live run that got one question wrong leaves behind."""
+        self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+        (self.p.runs_dir / "20261012T030000.json").write_text(json.dumps({"tier": "live", "results": [
+            {"id": qid, "passed": False, "reasons": ["didn't call get_hours"], "response": "Probably 9.",
+             "tool_calls": []},
+            {"id": "printing-bw-cost", "passed": True, "reasons": []}]}))
+
+    def fake_live(self, passes):
+        """evals.run_live without a model: each question passes when passes(project, item) says so."""
+        def run_live(project, items, *, use_judge):
+            return [evals._result(i, passes(project, i), [] if passes(project, i) else ["wrong"], tool_calls=[],
+                                  response="") for i in items]
+        return mock.patch.multiple(evals, run_live=run_live), mock.patch.object(claude_code, "available",
+                                                                                return_value=True)
+
+    def test_repair_fixes_what_the_live_eval_got_wrong(self):
+        self.live_failure("central-saturday-open")
+        os.environ["FAKE_REPAIR"] = json.dumps([["assistant/groundtruth.yaml", "  synonyms:\n",
+                                                 "  synonyms:\n    open: [opening, hours]\n"]])
+        fixed = lambda project, item: "opening" in (project.root / "groundtruth.yaml").read_text()
+        live, cc = self.fake_live(fixed)
+        with live, cc:
+            self.assertEqual(repair.run(self.p), 0)
+        self.assertTrue(self.subjects()[0].startswith("fix: central-saturday-open:"))
+        self.assertIn("open: [opening, hours]", (self.p.root / "groundtruth.yaml").read_text())
+        self.assertIn("the live eval failed", alerts.resolved(self.p))
+        self.assertEqual(rewrite.changed_paths(self.root), [])  # nothing left over but the eval runs
+
+    def test_repair_may_not_touch_a_fact_value(self):
+        self.live_failure("central-saturday-open")
+        os.environ["FAKE_REPAIR"] = json.dumps([["assistant/facts/hours.yaml", 'opens: "10:00", closes: "17:00" }',
+                                                 'opens: "09:00", closes: "17:00" }']])
+        live, cc = self.fake_live(lambda project, item: True)
+        with live, cc:
+            self.assertEqual(repair.run(self.p), 1)
+        self.assertFalse(self.subjects()[0].startswith("fix:"))
+        self.assertEqual(rewrite.changed_paths(self.root), [])  # nothing left over but the eval runs
+
+    def test_repair_may_not_break_what_passed(self):
+        self.live_failure("central-saturday-open")
+        os.environ["FAKE_REPAIR"] = json.dumps([["assistant/groundtruth.yaml", "  synonyms:\n",
+                                                 "  synonyms:\n    open: [opening]\n"]])
+        live, cc = self.fake_live(lambda project, item: item["id"] != "printing-bw-cost")  # the fix broke this one
+        with live, cc:
+            repair.run(self.p)
+        self.assertFalse(self.subjects()[0].startswith("fix:"))
 
     def test_a_person_can_keep_facts_for_themselves(self):
         cfg = self.p.root / "groundtruth.yaml"
@@ -345,6 +445,14 @@ class RewriteLoopTests(unittest.TestCase):
         state = rewrite.load_state(rewrite.state_path(self.p))
         self.assertEqual(rewrite.todo(self.p, state), {})  # checked pages aren't redone while facts wait
 
+    def test_a_discarded_rewrite_is_done_again(self):
+        self.change(self.app, "You can also renew from the app.")
+        rewrite.run(self.p)
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertEqual(rewrite.todo(self.p, state), {})
+        sh(self.root, "reset", "-q", "--hard", "HEAD~1")  # the push failed, or the release was held back
+        self.assertIn(self.page, rewrite.todo(self.p, state))  # the page on disk isn't the one that was checked
+
     def test_an_unsupported_claim_sends_the_page_back_then_alerts(self):
         os.environ["FAKE_VERDICT"] = '{"verdict": "fail", "unsupported": [{"claim": "renew online", "why": "no"}]}'
         self.change(self.app, "Changed.")
@@ -355,8 +463,25 @@ class RewriteLoopTests(unittest.TestCase):
         writers = [c["alias"] for c in self.calls_made() if c["first"].startswith("You maintain")]
         self.assertEqual(writers, ["haiku", "sonnet"])  # one retry on sonnet
         state = rewrite.load_state(rewrite.state_path(self.p))
-        self.assertIn(self.page, state["failed"])
+        self.assertTrue(state["failed"][self.page]["escalate"])  # a stronger model still gets a try...
+        self.assertFalse(alerts.log_path(self.p).exists())  # ...so nobody is bothered yet
+        state["failed"][self.page]["until"] = 0  # a few hours later
+        rewrite.save_state(rewrite.state_path(self.p), state)
+        rewrite.run(self.p)
+        writers = [c["alias"] for c in self.calls_made() if c["first"].startswith("You maintain")]
+        self.assertEqual(writers, ["haiku", "sonnet", "opus"])
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertFalse(state["failed"][self.page]["escalate"])  # now it waits a week
         self.assertIn("renew online", alerts.log_path(self.p).read_text())
+
+    def test_a_later_success_clears_the_alert(self):
+        alerts.notify(self.p, "a wiki page would not rewrite", f"{self.page} failed its checks on every model (x).")
+        self.change(self.app, "Changed.")
+        rewrite.run(self.p)
+        self.assertIn(f"a wiki page would not rewrite — {self.page}", alerts.resolved(self.p))
+        text, added, removed = alerts.update(alerts.HEADER + f"\n- 2026-10-12T00:00:00 {alerts.parse_log(alerts.log_path(self.p).read_text())[0][1]}\n", [], alerts.resolved(self.p))
+        self.assertEqual(len(removed), 1)
+        self.assertEqual(alerts.open_entries(text), [])
 
     def test_facts_in_prose_and_stray_edits_never_land(self):
         os.environ.update({"FAKE_FACT": "1", "FAKE_STRAY": "1"})

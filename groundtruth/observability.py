@@ -85,7 +85,7 @@ def log_tool_call(project: Project, name: str, args: dict, *, ok: bool, ms: floa
         "result_count": result_count,
     }
     if error:
-        record["error"] = error[:300]
+        record["error"] = _scrub(error)
     if PROBE.get():
         record["probe"] = True
     try:

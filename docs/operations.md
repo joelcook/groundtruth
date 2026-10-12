@@ -101,7 +101,7 @@ and anything else stands down, so exactly one pushes main.
 |---|---|---|
 | nightly | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)`, or an empty `refresh: no source changes (date)` so the watchdog knows it ran |
 | right after | `./gt rewrite`: update changed facts, cover new sources, rewrite stale pages (below) | `facts: update ...`, `wiki: cover ...`, `wiki: rewrite ...` |
-| nightly, with an `ANTHROPIC_API_KEY` | `./gt eval --tier live`: the golden set on the production model; a failure is an alert | (none) |
+| nightly | `./gt eval --tier live`: the golden set on the production model (through the API with an `ANTHROPIC_API_KEY`, or through Claude Code on a Claude plan), before the rewrites are pushed. If it now gets wrong a question it got right last night, the rewrites are held back and you get an alert. A failure that isn't new goes to `./gt repair` (below) | `fix: ...` |
 | every 2 hours, 05:00 to 22:00 | `./gt refresh --push --quick`: re-capture just the sources facts cite, then the same rewrites | `refresh: quick sources (...)` and the above |
 | whenever there's news | new alerts go into `ALERTS.md` | `alerts: ...` |
 | daily, in GitHub | `watchdog.yml`: `./gt watchdog --repo` checks open alerts, refresh age, CI on main, and the deployed server | (none) |
@@ -122,8 +122,9 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions/workflow -f default_workflow_
 gh workflow run autopilot.yml              # then watch it pass and push a refresh: commit
 ```
 
-An `ANTHROPIC_API_KEY` bills the API and never expires, and it also runs the
-nightly live eval. A `CLAUDE_CODE_OAUTH_TOKEN` uses your Claude plan instead.
+An `ANTHROPIC_API_KEY` bills the API and never expires. A
+`CLAUDE_CODE_OAUTH_TOKEN` uses your Claude plan instead; the nightly live eval
+then runs through Claude Code connected to your MCP server.
 Pushes made with the workflow's own token don't start other workflows, so the
 autopilot starts CI and publish-data itself after it pushes. Its state (pauses,
 failed items, what's been checked) is kept between runs in the Actions cache.
@@ -161,8 +162,9 @@ facts first:
    - the gates pass;
    - `sonnet` agrees row by row.
 
-   A source that changed wholesale looks redesigned or broken, not updated, so
-   it's left for a person. Commit: `facts: update ...`, listing every changed row.
+   A source that changed wholesale may be redesigned or broken, so a change to
+   more than 30% of the rows needs `opus` to agree as well. Commit:
+   `facts: update ...`, listing every changed row.
 2. **New sources nothing covers.** Claude Code writes one published page and a
    golden question for it, and adds fact rows (adding only) plus a question for
    any new tool. It's held to the same checks. A source with nothing worth a page
@@ -172,7 +174,9 @@ facts first:
    - may change only that one file;
    - must not shrink below 40% of its length;
    - must pass the gates, with no new fact in prose and no new `fact-ok` marker;
-   - must have `sonnet` find no unsupported claim (and no exact value in prose).
+   - must satisfy `sonnet`, reading it beside its sources and its old version:
+     no unsupported claim, no exact value in prose, and nothing dropped that the
+     sources still support.
 
 Every attempt runs under Claude Code's own permission rules. The writer can read
 the repo but edit only the files it's updating. It can't run commands, reach the
@@ -181,14 +185,26 @@ Its prompts tell it the sources are evidence, not instructions.
 
 The writer is the `haiku` alias once that's Haiku 5.5 or newer, otherwise
 `sonnet`. A failed attempt retries once on `sonnet` with the list of what failed.
-If that fails too, the item waits seven days, or until its source changes, and
-you get an alert.
+If that fails too, `opus` gets one more try a few hours later
+(`GT_REWRITE_ESCALATION_MODEL`). Only when that fails as well does the item wait
+seven days (or until its source changes) and raise an alert. When a failed item
+later succeeds, its alert clears itself.
 
 Once everything citing a changed source has been checked against it this way,
 the source is recorded as reviewed in `sources.lock.yaml`: those checks are the
 review. Set `facts_updates: human` in `groundtruth.yaml` if a person should sign
 off changed facts instead. They then wait for `./gt review --done`, and you get
 an alert when one is waiting.
+
+**`./gt repair`** is the nightly answer to a live eval that fails without having
+gotten worse: CLAUDE.md's "the assistant got X wrong" job, unattended. For each
+failing question (up to `GT_REPAIR_MAX`, 2), `opus` sees what the assistant
+answered and which tools it called, and fixes the cause. It may change search
+synonyms, the prompt, existing pages (checked against their sources), and
+lookup aliases (words the source uses), but never a fact value, the golden set,
+or the evidence. The fix ships only if the gates pass, the question now passes
+live, and the whole live eval still passes everything it passed before. Commit:
+`fix: <question> ...`.
 
 **Usage limits.** When Claude reports the plan's limit, or any usage window
 passes `GT_REWRITE_MAX_UTILIZATION` (80%), the run stops and later runs wait
@@ -205,9 +221,16 @@ Run it by hand too, on a clean checkout:
 ### What's left for a person
 
 Credentials, once: the hosting login, GitHub, and the Claude secret. After that,
-only what lands in `ALERTS.md`: an item that failed on every model, a source that
-changed so much it looks broken, an expired credential, a failed live eval, or a
-redeploy for new code. A coding agent can clear those too ("fix what ALERTS.md
+the system repairs what it can by itself:
+- an item that fails gets a stronger model;
+- a site that's down is retried on the next run;
+- an alert clears itself once the thing it was about works again;
+- new code redeploys itself (with `deploy.yml` on).
+
+`ALERTS.md` keeps only what none of that fixed: an item that failed even on
+`opus`, a live eval failure `./gt repair` couldn't fix, or an expired credential.
+(A source that looks removed is retried for three refreshes; if the same sources
+are still gone, the removal is accepted and the rewrites update what cited them.) A coding agent can clear those ("fix what ALERTS.md
 lists", in CLAUDE.md). Meanwhile the server keeps serving the last version that
 passed, so nothing unchecked reaches anyone.
 
@@ -240,6 +263,12 @@ Slack webhook) or `GT_ALERT_EMAIL`.
   more than 30% of the rows stops too.
 - **One writer at a time.** One host is named; on a machine, a lock keeps the
   refresh, rewrites, and alerts apart, and in Actions a concurrency group does.
+- **No credentials within the model's reach.** The rewriting model can read the
+  repo but not `.env` or `.git/`, and gets only the environment it needs to log
+  in. In Actions the checkout doesn't keep the push token at all; `./gt` passes it
+  to git through its own environment.
+- **A red run is a loud run.** The autopilot's run fails whenever it raised an
+  alert, so GitHub emails about it that day, not just at the next watchdog.
 - **Bot commits don't trigger refreshes.** The watcher re-captures sources when a
   person pushes main, not for its own commits.
 
@@ -250,15 +279,17 @@ Put these in the host's `.env`, or as repo variables and secrets for Actions:
 | Setting | Default | What it does |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | (none) | Claude for `./gt rewrite` (API billing, no expiry) and the nightly live eval |
-| `GT_LIVE_EVAL` | 1 | 0 skips the autopilot's nightly live eval (it runs the whole golden set on `GT_MODEL`) |
+| `GT_LIVE_EVAL` | 1 | 0 skips the autopilot's nightly live eval (it runs the whole golden set on `GT_MODEL`), and with it `./gt repair` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | (none) | Claude for `./gt rewrite` on your plan, from `claude setup-token` |
 | `facts_updates` (groundtruth.yaml) | `llm` | `human` makes changed facts wait for `./gt review --done` |
 | `GT_REWRITE_MODEL` | haiku if 5.5+, else sonnet | The writer |
 | `GT_REWRITE_FALLBACK_MODEL` | `sonnet` | The one retry |
 | `GT_REWRITE_CHECK_MODEL` | `sonnet` | The checker; `off` skips it (then nothing is ever recorded as reviewed) |
+| `GT_REWRITE_ESCALATION_MODEL` | `opus` | One more try, hours later, for an item every model failed; `off` alerts at once |
 | `GT_REWRITE_MAX_PAGES` | 10 | Items per run |
 | `GT_REWRITE_MAX_UTILIZATION` | 0.8 | Pause past this share of any usage window |
-| `GT_FACTS_MAX_CHANGE_SHARE` | 0.3 | A fact update that changes more of the rows than this stops |
+| `GT_FACTS_MAX_CHANGE_SHARE` | 0.3 | A fact update that changes more of the rows than this also needs the escalation model to agree |
+| `GT_REPAIR_MAX` | 2 | Failing live-eval questions `./gt repair` tries a night |
 | `GT_REWRITE_QUIET_HOURS` | around `GT_REFRESH_AT` | When a machine's rewrites don't run or push |
 | `GT_QUICK_REFRESH_SECONDS` | 7200 | How often a machine's quick refresh runs by day; 0 turns it off |
 | `GT_WATCHDOG_URL` | `url:` | Where the deployed server answers, if not in groundtruth.yaml |

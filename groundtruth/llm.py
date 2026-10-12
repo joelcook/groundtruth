@@ -130,10 +130,13 @@ Reply with only JSON: {"pass": true|false, "reason": "<one sentence>"}"""
 
 def judge(question: str, rubric: str, answer: str, *, evidence: str = "",
           model_name: str | None = None) -> tuple[bool, str]:
-    client = _client()
     content = f"## Question\n{question}\n\n## Rubric\n{rubric}\n\n## Answer\n{answer}"
     if evidence:
         content += f"\n\n## Tool results the assistant got\n{evidence}"
+    if not available():  # a Claude plan with no API key: judge through Claude Code
+        from groundtruth import claude_code
+        return _verdict(claude_code.judge(JUDGE_SYSTEM, content, model=model_name or judge_model()))
+    client = _client()
     resp = _create(
         client, model=model_name or judge_model(), max_tokens=16000,
         system=[{"type": "text", "text": JUDGE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
@@ -142,7 +145,10 @@ def judge(question: str, rubric: str, answer: str, *, evidence: str = "",
     )
     if resp.stop_reason == "refusal":
         return False, "judge refused"
-    text = _text(resp)
+    return _verdict(_text(resp))
+
+
+def _verdict(text: str) -> tuple[bool, str]:
     m = re.search(r"\{.*\}", text, re.DOTALL)
     try:
         verdict = json.loads(m.group(0) if m else text)

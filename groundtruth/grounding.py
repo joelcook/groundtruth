@@ -7,15 +7,18 @@ would notice, because the tool would serve the wrong value faithfully. This
 checks every one against the text of its cited source, deterministically:
 
     numbers   39 matches "$39", "39.00", or "USD 39"; 1200 matches "1,200";
-              0.1 matches "$0.10" or "10 cents"
-    dates     2026-09-01 matches "September 1, 2026", "Sept. 1", "9/1/2026", or 2026-09-01
+              0.1 matches "$0.10" or "10 cents". Digits inside a date, a time,
+              or a phone number don't count: "8:00 p.m." doesn't state an 8
+    dates     2026-09-01 matches "September 1, 2026", "9/1/2026", 2026-09-01, or
+              "Sept. 1" on a page that says 2026; 5/6/2026 reads US-style (May 6)
     times     "13:00" matches "1 p.m.", "1:00 PM", "13:00", or an hours range like "9-1";
               "12:00" matches "noon"
-    contacts  phone numbers by their digits; emails and URLs as written
+    contacts  phone numbers by all their digits; emails and URLs as written
 
 Words (a weekday, a branch, a plan name) aren't checked here: they're names, not
 measurements, and ``./gt rewrite``'s second model reads those. Fields that are
-yours rather than the source's (the key, aliases, tags, notes, sources) are skipped.
+yours rather than the source's (the key, aliases, tags, sources) are skipped;
+``notes`` are checked, because the assistant reads them as part of the fact.
 
 ``./gt check`` warns about ungrounded values; ``./gt check --production``, which
 the server, Docker, and data bundles use, fails on them.
@@ -32,7 +35,7 @@ from typing import Any
 from groundtruth import checks
 from groundtruth.project import Project
 
-SKIP_FIELDS = {"id", "aliases", "tags", "notes", "source", "source_path", "source_url", "example"}
+SKIP_FIELDS = {"id", "aliases", "tags", "source", "source_path", "source_url", "example"}
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
           "october", "november", "december"]
 MONTH_RE = r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|" \
@@ -68,12 +71,14 @@ class SourceIndex:
     dates: set[tuple[int | None, int, int]] = field(default_factory=set)
     times: set[tuple[int, int]] = field(default_factory=set)
     phones: set[str] = field(default_factory=set)
+    years: set[int] = field(default_factory=set)
 
     @classmethod
     def of(cls, raw: str) -> "SourceIndex":
         m = checks.FRONTMATTER_RE.match(raw)
         text = raw[m.end():] if m else raw  # the capture date in the frontmatter isn't evidence
         idx = cls(text=" ".join(text.lower().split()))
+        idx.years = {int(y) for y in re.findall(r"\b(19\d\d|20\d\d|21\d\d)\b", text)}
         for y, mo, d in ISO_DATE.findall(text):
             idx.dates.add((int(y), int(mo), int(d)))
         for name, d, y in NAMED_DATE.findall(text):
@@ -82,9 +87,9 @@ class SourceIndex:
             idx.dates.add((int(y), _month(name), int(d)))
         for a, b, y in SLASH_DATE.findall(text):
             year = int(y) + (2000 if len(y) == 2 else 0)
-            idx.dates.add((year, int(a), int(b)))  # US order; the other order too, when it's a real date
-            if int(b) <= 12:
-                idx.dates.add((year, int(b), int(a)))
+            first, second = int(a), int(b)
+            # US order (month/day); day/month only when it can't be US, so 5/6 is never also June 5
+            idx.dates.add((year, second, first) if first > 12 else (year, first, second))
         for h, mi in TIME_24.findall(text):
             idx.times.add((int(h), int(mi)))
         for h, mi, half in TIME_12.findall(text):
@@ -98,27 +103,35 @@ class SourceIndex:
         if re.search(r"\bmidnight\b", text, re.I):
             idx.times.add((0, 0))
         for hit in checks.PHONE_RE.findall(text):
-            digits = re.sub(r"\D", "", hit)
-            idx.phones.update({digits, digits[-10:], digits[-7:]})
-        for hit in NUMBER.findall(text):
+            idx.phones.add(re.sub(r"\D", "", hit))
+        for amount in re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:cents?|¢)", text, re.I):
+            idx.numbers.add(Decimal(amount) / 100)  # "10 cents" states 0.10; "10 books" doesn't
+        # Numbers, once the dates, times, phone numbers, emails, and URLs are out of the way:
+        # "8:00 p.m." doesn't state an 8, and a phone number doesn't state its area code.
+        rest = text
+        for rx in (URL, EMAIL, ISO_DATE, NAMED_DATE, DAY_FIRST_DATE, SLASH_DATE, checks.PHONE_RE, TIME_12, TIME_24):
+            rest = rx.sub(" ", rest)
+        for hit in NUMBER.findall(rest):
             n = _num(hit)
             if n is not None:
                 idx.numbers.add(n)
+        idx.numbers.update(Decimal(y) for y in idx.years)  # "Fall 2026": a year is stated even inside a date
         return idx
-
-    def has_number(self, n: Decimal) -> bool:
-        return n in self.numbers or (n < 100 and n != n.to_integral_value() and n * 100 in self.numbers)
 
     def has(self, kind: str, value: Any) -> bool:
         if kind == "number":
-            return self.has_number(value)
+            return value in self.numbers
         if kind == "date":
             y, mo, d = value
-            return (y, mo, d) in self.dates or (None, mo, d) in self.dates
+            if y is None:
+                return any((m_, d_) == (mo, d) for _, m_, d_ in self.dates)
+            # "September 1" with no year only grounds a year the source states somewhere
+            return (y, mo, d) in self.dates or ((None, mo, d) in self.dates and y in self.years)
         if kind == "time":
             return value in self.times
-        if kind == "phone":
-            return value in self.phones or value[-10:] in self.phones or value[-7:] in self.phones
+        if kind == "phone":  # every digit counts: another area code is another number
+            n = 10 if len(value) >= 10 else 7
+            return any(len(p) >= n and p[-n:] == value[-n:] for p in self.phones)
         return value in self.text  # email, url
 
 

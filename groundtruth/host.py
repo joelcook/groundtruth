@@ -27,7 +27,7 @@ Why it's safe to leave alone:
   * One writer at a time. A lock keeps the refresh, the alerts publisher, and
     rewrite pushes apart, and a push replays onto a moved main instead of failing.
   * Gates first. Nothing is pushed unless ./gt check finds nothing new and ./gt eval
-    passes. A source your facts cite still waits for a person (./gt review --done).
+    passes, and every unattended change was checked against its sources first.
   * Problems become alerts. Each job writes to logs/host/alerts.log; the watcher
     copies new ones into ALERTS.md on main, and ./gt watchdog --repo fails until
     someone fixes the cause and deletes the line.
@@ -81,8 +81,21 @@ def log(message: str) -> None:
 # ===================================================================== git
 
 
+def _git_env() -> dict[str, str] | None:
+    """With GT_GIT_TOKEN (the autopilot's GitHub token), git authenticates from the environment of
+    this process alone, so the token is never written to .git/config where a model could read it."""
+    token = os.environ.get("GT_GIT_TOKEN", "").strip()
+    if not token:
+        return None
+    import base64
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}"}
+
+
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True, check=check)
+    return subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True, check=check,
+                          env=_git_env())
 
 
 def git_root(project: Project) -> Path:
@@ -485,6 +498,7 @@ def _deploy_alert(project: Project, head: str) -> None:
         return  # unreachable or unstamped: the daily watchdog reports those
     behind = code_commits_since(git_root(project), deployed, head)
     if behind == 0:
+        alerts.resolve(project, "the deployed server needs a redeploy")
         return
     reason = (f"it runs {deployed[:12]}, which isn't in main's history" if behind is None
               else f"{behind} code commit(s) on main since its build {deployed[:12]}")
@@ -493,9 +507,10 @@ def _deploy_alert(project: Project, head: str) -> None:
 
 
 def publish_alerts(project: Project) -> None:
-    """Copy new alerts from logs/host/alerts.log into ALERTS.md on main."""
+    """Copy new alerts from logs/host/alerts.log into ALERTS.md on main, and drop the resolved ones."""
     new, offset = alerts.pending(project)
-    if not new:
+    fixed = alerts.resolved(project)
+    if not new and not fixed:
         return
     wd = workdir(project, "alerts")
     rel = project_path(project)
@@ -506,17 +521,18 @@ def publish_alerts(project: Project) -> None:
         for _ in range(PUSH_TRIES):
             prepare(project, wd, locked=True)
             path = wd / rel / alerts.ALERTS_FILE
-            merged, added = alerts.merge(path.read_text(encoding="utf-8") if path.exists() else "", new)
-            if not added:
+            text, added, removed = alerts.update(path.read_text(encoding="utf-8") if path.exists() else "", new, fixed)
+            if not added and not removed:
                 alerts.mark_published(project, offset)
+                alerts.clear_resolved(project, fixed)
                 return
-            path.write_text(merged, encoding="utf-8")
-            more = f" (+{len(added) - 1} more)" if len(added) > 1 else ""
+            path.write_text(text, encoding="utf-8")
             git(wd, "add", "--", str(path))
-            git(wd, "commit", "--quiet", "-m", f"alerts: {added[0][:60].rstrip()}{more}")
+            git(wd, "commit", "--quiet", "-m", alerts.commit_message(added, removed))
             if git(wd, "push", "origin", "HEAD:main", check=False).returncode == 0:
-                log(f"published {len(added)} alert(s) to {alerts.ALERTS_FILE}")
+                log(f"ALERTS.md: {len(added)} new, {len(removed)} resolved")
                 alerts.mark_published(project, offset)
+                alerts.clear_resolved(project, fixed)
                 return
 
 
@@ -539,27 +555,30 @@ def claude_ready() -> str | None:
 def publish_alerts_here(project: Project) -> None:
     """Merge new alerts into ALERTS.md in this checkout and push (the autopilot's version of the watcher's)."""
     new, offset = alerts.pending(project)
-    if not new:
+    fixed = alerts.resolved(project)
+    if not new and not fixed:
         return
     root = git_root(project)
     path = project.root / alerts.ALERTS_FILE
-    merged, added = alerts.merge(path.read_text(encoding="utf-8") if path.exists() else "", new)
-    if added:
-        path.write_text(merged, encoding="utf-8")
-        more = f" (+{len(added) - 1} more)" if len(added) > 1 else ""
+    text, added, removed = alerts.update(path.read_text(encoding="utf-8") if path.exists() else "", new, fixed)
+    if added or removed:
+        path.write_text(text, encoding="utf-8")
         git(root, "add", "--", str(path))
-        git(root, "commit", "--quiet", "-m", f"alerts: {added[0][:60].rstrip()}{more}")
+        git(root, "commit", "--quiet", "-m", alerts.commit_message(added, removed))
         if push(project, root, locked=True) != "pushed":
             return  # the next run publishes them
     alerts.mark_published(project, offset)
+    alerts.clear_resolved(project, fixed)
 
 
 def autopilot(project: Project, *, quick: bool = False) -> int:
     """One unattended pass in this checkout, for a CI runner that is the refresh host.
 
-    refresh (and push), then ./gt rewrite (and push), then, nightly, the live eval; problems
-    go to ALERTS.md. .github/workflows/autopilot.yml runs it; ``host: github-actions`` in
-    groundtruth.yaml makes it the one pusher, so any machine with ./gt host installed stands down.
+    refresh (and push); ./gt rewrite; then, nightly with an ANTHROPIC_API_KEY, the live eval,
+    which holds the rewrites back if the assistant now answers worse than the last run; push;
+    publish alerts (and clear the ones that recovered). Returns 1 when it raised an alert, so
+    the run shows red and GitHub emails about it. .github/workflows/autopilot.yml runs it;
+    ``host: github-actions`` in groundtruth.yaml makes it the one pusher.
     """
     want = named_host(project)
     if want != ACTIONS_HOST:
@@ -569,6 +588,8 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
     env = _job_env(project, root)
     env.pop("GT_HOST_STATE", None)  # the runner's state lives in the project's logs/, which the workflow caches
     target = str(project.root)
+    log_file = alerts.log_path(project)
+    alerted_before = log_file.stat().st_size if log_file.exists() else 0
 
     def step(*args: str) -> int:
         log("+ ./gt " + " ".join(args))
@@ -581,6 +602,8 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
             alerts.notify(project, "the autopilot can't push main",
                           "its pushes are rejected. Let GitHub Actions push to main (branch protection, and "
                           "Settings > Actions > General > Workflow permissions: read and write).")
+        elif result == "pushed":
+            alerts.resolve(project, "the autopilot can't push main")
         if result in ("conflict", "rejected"):
             reset(root)
 
@@ -590,22 +613,63 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
     publish()
     why = claude_ready()
     if why is None:
+        alerts.resolve(project, "pages and facts wait for a rewrite that can't run")
         if step("rewrite") not in (0, 1):
             alerts.notify(project, "the wiki rewrite job crashed", "./gt rewrite crashed in GitHub Actions; see the run log.")
-        publish()
     else:
         listing = subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, "rewrite", "--list"], cwd=root,
                                  env=env, text=True, capture_output=True, check=False).stdout
         if listing.strip() and not listing.startswith("nothing"):
             alerts.notify(project, "pages and facts wait for a rewrite that can't run",
                           f"{why}. Until then, changed sources stay unreviewed and ./gt check stays red.")
-    if not quick and os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("GT_LIVE_EVAL", "1") != "0" \
-            and step("eval", "--tier", "live") != 0:
-        alerts.notify(project, "the live eval failed",
-                      "the assistant answered at least one golden question wrong on the production model. "
-                      "Run ./gt eval --tier live to see which, then fix the fact, page, or prompt.")
+    if not quick and (os.environ.get("ANTHROPIC_API_KEY") or why is None) and os.environ.get("GT_LIVE_EVAL", "1") != "0":
+        verdict = live_gate(project, step)
+        if verdict == "worse" and ahead(root):
+            alerts.notify(project, "the live eval got worse",
+                          f"after this run's rewrites, the assistant answers golden questions it used to get right "
+                          f"(see the run log). The {ahead(root)} rewrite commit(s) were held back; nothing changed "
+                          f"for users. Run ./gt eval --tier live to see which.")
+            reset(root)
+        elif verdict == "failing":
+            from groundtruth import repair
+            if why is None:  # it didn't get worse, it was already wrong: try to fix the cause
+                step("repair")
+            remaining, _ = repair.failing(project)
+            if remaining:
+                alerts.notify(project, "the live eval failed",
+                              f"the assistant answers {len(remaining)} golden question(s) wrong on the production "
+                              f"model, and ./gt repair couldn't fix them ({', '.join(str(r['id']) for r in remaining[:3])}). "
+                              f"Run ./gt eval --tier live to see why.")
+            else:
+                alerts.resolve(project, "the live eval failed")
+        elif verdict == "pass":
+            alerts.resolve(project, "the live eval failed")
+            alerts.resolve(project, "the live eval got worse")
+    publish()
     publish_alerts_here(project)
-    return 0
+    return 1 if (log_file.stat().st_size if log_file.exists() else 0) > alerted_before else 0
+
+
+def live_gate(project: Project, step) -> str:
+    """Run the live eval against the last run kept in the host's state: 'pass', 'failing' (as before),
+    or 'worse' (questions it used to answer right now fail)."""
+    from groundtruth import evals
+    keep = alerts.state_dir(project) / "last-live.json"
+    project.runs_dir.mkdir(parents=True, exist_ok=True)
+    if keep.exists():  # the runner starts fresh: put the last run where ./gt eval compares against it
+        shutil.copyfile(keep, project.runs_dir / "00000000T000000.json")
+    rc = step("eval", "--tier", "live")
+    latest = evals.latest_live_run(project)
+    if latest is None:
+        return "failing"
+    import json
+    run = json.loads(latest.read_text())
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    if not run.get("regressions"):
+        shutil.copyfile(latest, keep)  # a held-back run doesn't become the new baseline
+    if run.get("regressions"):
+        return "worse"
+    return "pass" if rc == 0 else "failing"
 
 
 # ===================================================================== scheduling

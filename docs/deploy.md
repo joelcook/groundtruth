@@ -17,9 +17,9 @@ The server is one small container. Anything that runs a container can host it.
    ```
    Set it as `GT_MCP_API_KEY` on the platform. Every request must then send
    `Authorization: Bearer <key>` (or `x-api-key: <key>`). `/healthz` stays open
-   for load balancers. It shows counts, a data version, one page title (the
-   watchdog searches for it), and the check status; nothing that isn't already
-   public knowledge in your assistant.
+   for load balancers, but without the key it shows only whether it's healthy,
+   the project's name, the build commit, and the data version; the details go to
+   callers with the key (below).
 3. **Stamp the build.** Pass `--build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)`,
    or set `GT_BUILD_COMMIT` in the server's environment (the recipes below do).
    `/healthz` then reports which commit the code came from, so the watchdog and
@@ -45,13 +45,20 @@ docker run --rm -p 8765:8765 -e GT_MCP_API_KEY=test-key my-assistant
 
 ## Fly.io
 
+No prompts, so a coding agent can run it as is (app names are global on Fly,
+hence the suffix):
+
 ```bash
-fly launch --no-deploy                  # detects the Dockerfile; keep internal_port = 8765
-fly secrets set GT_MCP_API_KEY=<key>
-fly deploy --build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)
+APP=my-assistant-$(python3 -c "import secrets; print(secrets.token_hex(3))")
+fly launch --name "$APP" --org personal --region iad --internal-port 8765 --no-deploy --yes
+fly secrets set --app "$APP" --stage GT_MCP_API_KEY="$KEY"
+fly deploy --app "$APP" --remote-only --build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)
+git add fly.toml && git commit -m "Deploy to Fly.io" && git push
 ```
 
-Your endpoint: `https://<app>.fly.dev/mcp`.
+Your endpoint: `https://$APP.fly.dev/mcp`. (Flag names can shift between flyctl
+versions; `fly launch --help` has the current ones.) To redeploy automatically
+when the code changes, see [below](#redeploy-when-the-code-changes).
 
 ## Render
 
@@ -101,6 +108,22 @@ mcp.example.org {
 
 No Docker? `GT_MCP_HOST=0.0.0.0 GT_MCP_API_KEY=<key> ./gt serve` under systemd,
 behind the same proxy.
+
+## Redeploy when the code changes
+
+Data reaches the server as bundles, but new groundtruth code needs a new image.
+`.github/workflows/deploy.yml` rebuilds and deploys whenever a push to main
+touches the code, if you give it the command. For Fly.io:
+
+```bash
+gh variable set GT_DEPLOY_PLATFORM --body fly
+gh variable set GT_DEPLOY_COMMAND --body 'flyctl deploy --app APP --remote-only --build-arg GT_BUILD_COMMIT=$GITHUB_SHA'
+fly tokens create deploy --app APP | gh secret set FLY_API_TOKEN
+```
+
+It runs the unit tests and `./gt check --production` first. For another
+platform, set `GT_DEPLOY_COMMAND` to its deploy command, and add the CLI and
+its secret to the workflow.
 
 ## A chat page for your users
 

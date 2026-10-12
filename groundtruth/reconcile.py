@@ -11,8 +11,8 @@ golden questions that check them. The change ships only if:
   2. every exact value in every row it changed or added (numbers, money, dates,
      times, phone numbers, emails, URLs) appears in that row's cited source
      (grounding.py). It can't introduce a number the source doesn't say;
-  3. it didn't change too much at once: past GT_FACTS_MAX_CHANGE_SHARE (0.3) of
-     the rows, a source looks redesigned or broken, not updated;
+  3. a change to more than GT_FACTS_MAX_CHANGE_SHARE (0.3) of the rows (a source
+     redesigned, or broken) needs a second, stronger checking model to agree too;
   4. ./gt check finds nothing new and ./gt eval passes;
   5. a second model, reading each changed row beside its source, agrees.
 
@@ -52,11 +52,11 @@ def todo(project: Project, state: dict) -> dict[str, list[str]]:
         return {}
     pending = {c.source for c in review.changes(project)} | set(review.removed_upstream(project))
     hashes = review.current(project)
-    done = state.get("facts_verified") or {}
     out = {}
     for src, deps in sorted(review.dependents(project).items()):
         files = deps.get("facts") or []
-        if src in pending and files and any((done.get(f) or {}).get(src) != hashes.get(src) for f in files):
+        if src in pending and files and any(
+                rewrite.checked_against(project, state, "facts_verified", f).get(src) != hashes.get(src) for f in files):
             out[src] = files
     return out
 
@@ -95,8 +95,10 @@ def build_prompt(project: Project, src: str, files: list[str], errors: list[str]
         "  source supports it any more.",
         "- Keep each file's key, tools, descriptions, and other settings as they are. Keep row ids",
         "  unless the source renamed the thing.",
-        "- When a fact a golden question checks changes, change that question's expected value to the",
-        "  new one. Don't add or remove questions.",
+        "- When a fact a golden question checks changes, change that question's expected value (and",
+        "  tool_args, if the thing was renamed) to match. If the source dropped a fact entirely, remove",
+        "  its row, and remove the questions that only checked it. A facts file left with no rows:",
+        "  empty it, and the script removes it. Don't add questions.",
         rewrite.UNTRUSTED,
     ]
     if gone:
@@ -128,8 +130,9 @@ def build_check_prompt(project: Project, src: str, files: list[str], changes: li
         "",
         f"Read `{pre}{src}`, then these facts files: {', '.join(f'`{pre}{f}`' for f in files)}.",
         "Every row in them that cites that source (a row's own `source`, or else the file's) must be",
-        "supported by it: every value, including names, days, and descriptions. Ignore `aliases`,",
-        "`tags`, and `notes`. A row that no current source supports any more should have been removed.",
+        "supported by it: every value, including names, days, descriptions, and `notes` (the assistant",
+        "reads them as part of the fact). Every alias must be a name the source uses for that thing.",
+        "A row that no current source supports any more should have been removed.",
         "",
         "These rows just changed (before and after):" if changes else "No rows changed: the update decided the "
         "facts already match the changed source. Check that this is true.",
@@ -169,6 +172,8 @@ def diff_facts(project: Project, rel: str, before: str, after: str, src: str) ->
     """What changed in one facts file, and whether every new exact value is grounded."""
     out = Diff()
     old, new = _yaml(before) or {}, _yaml(after)
+    if not after.strip() and before.strip():
+        new = {**old, "rows": []}  # the file was deleted: its last fact is gone, so is its tool
     if not isinstance(new, dict):
         out.problems.append(f"{rel} isn't a valid facts file any more")
         return out
@@ -192,6 +197,11 @@ def diff_facts(project: Project, rel: str, before: str, after: str, src: str) ->
                                                       if isinstance(old.get("source"), dict) else None) != sources
         fields = None if moved else {f for f in set(row) | set(prev) if row.get(f) != prev.get(f)}
         out.problems += grounding.row_problems(project, row, key, sources, rel, cache, fields)
+        old_aliases = {str(a).lower() for a in (prev or {}).get("aliases") or []}
+        for alias in [str(a) for a in row.get("aliases") or [] if str(a).lower() not in old_aliases]:
+            if not any((idx := grounding._load(project, s, cache)) and alias.lower() in idx.text for s in sources):
+                out.problems.append(f"{rel}: row {rid} gained the alias {alias!r}, a word its source doesn't use "
+                                    f"(an alias decides which row a question finds)")
         for s in sources:
             if s in review.removed_upstream(project):
                 out.problems.append(f"{rel}: row {rid} still cites {s}, which was removed upstream")
@@ -212,18 +222,24 @@ def diff_golden(project: Project, before: str, after: str, tools: list[str], src
         return [], ["evals/golden.yaml isn't a list of questions any more"]
     olds = {str(i.get("id")): i for i in old if isinstance(i, dict)}
     news = {str(i.get("id")): i for i in new if isinstance(i, dict)}
-    if olds.keys() != news.keys():
-        return [], ["evals/golden.yaml: questions were added or removed; only expected values may change"]
     index = grounding._load(project, src, {})
     changes, problems = [], []
-    for qid, item in news.items():
+    if news.keys() - olds.keys():
+        problems.append("evals/golden.yaml: questions were added; a fact update may only change or retire them")
+    for qid in olds.keys() - news.keys():
         prev = olds[qid]
-        if item == prev:
+        if prev.get("must_call_tool") not in tools or not _fact_gone(project, prev):
+            problems.append(f"evals/golden.yaml: question {qid} was removed, but the fact it checks is still there")
+        else:
+            changes.append(f"evals/golden.yaml question {qid}: retired (the fact it checked is gone)")
+    for qid, item in news.items():
+        prev = olds.get(qid)
+        if prev is None or item == prev:
             continue
         moved = {k for k in set(item) | set(prev) if item.get(k) != prev.get(k)}
-        if moved - EXPECTED_FIELDS or item.get("must_call_tool") not in tools:
+        if moved - EXPECTED_FIELDS - {"tool_args"} or item.get("must_call_tool") not in tools:
             problems.append(f"evals/golden.yaml: question {qid} changed {sorted(moved)}; only the expected values "
-                            f"of questions that call {', '.join(tools) or 'these tools'} may change")
+                            f"and tool_args of questions that call {', '.join(tools) or 'these tools'} may change")
             continue
         for k in moved & {"must_contain", "must_match"}:
             for kind, norm, raw in grounding.exact_values(item.get(k)):
@@ -232,6 +248,20 @@ def diff_golden(project: Project, before: str, after: str, tools: list[str], src
         changes.append(f"evals/golden.yaml question {qid}: " + "; ".join(
             f"{k} {prev.get(k)!r} -> {item.get(k)!r}" for k in sorted(moved)))
     return changes, problems
+
+
+def _fact_gone(project: Project, question: dict) -> bool:
+    """Is the fact a golden question checked really gone: its tool removed, or nothing found for its arguments?"""
+    from groundtruth import server
+    facts.store(project).refresh(force=True)
+    tool = question.get("must_call_tool")
+    if tool not in facts.store(project).tools:
+        return True
+    try:
+        result = server.call_tool(project, str(tool), dict(question.get("tool_args") or {}), log=False)
+    except Exception:  # noqa: BLE001
+        return True
+    return isinstance(result, dict) and not result.get("count")
 
 
 # ===================================================================== one source
@@ -271,8 +301,15 @@ def reconcile_source(project: Project, cfg: rewrite.Config, state: dict, src: st
         for note in rewrite.revert_others(cfg.cwd, keep):
             log(f"  {src}: {note}")
         problems, changes, touched, total = [], [], 0, 0
+        for f in files:  # a file the writer emptied is one whose last fact went away: remove it
+            path = project.root / f
+            data = _yaml(path.read_text(encoding="utf-8")) if path.exists() else None
+            if path.exists() and (not path.read_text(encoding="utf-8").strip()
+                                  or (isinstance(data, dict) and not data.get("rows"))):
+                path.unlink()
         for f in files:
-            d = diff_facts(project, f, originals[f], (project.root / f).read_text(encoding="utf-8"), src)
+            path = project.root / f
+            d = diff_facts(project, f, originals[f], path.read_text(encoding="utf-8") if path.exists() else "", src)
             problems += d.problems
             changes += d.changed
             touched, total = touched + d.touched, total + d.rows_before
@@ -285,9 +322,11 @@ def reconcile_source(project: Project, cfg: rewrite.Config, state: dict, src: st
         # writer left alone is just as wrong if the source no longer says it.
         problems += [p for p in grounding.problems(project) if p.startswith(tuple(f"{f}:" for f in files))
                      and p not in problems]
-        if touched > 3 and touched > max_change_share() * max(total, 1):
-            problems.append(f"{touched} of {total} rows changed at once (limit {max_change_share():.0%}): that looks "
-                            f"like a redesigned or broken source, not an update")
+        big = touched > 3 and touched > max_change_share() * max(total, 1)
+        if big and not (cfg.check_model and cfg.escalation):
+            problems.append(f"{touched} of {total} rows changed at once (over {max_change_share():.0%}), and a change "
+                            f"that large needs two checking models (GT_REWRITE_CHECK_MODEL and "
+                            f"GT_REWRITE_ESCALATION_MODEL)")
         if not problems:
             problems = rewrite.gate_problems(project, base)
             rewrite.revert_others(cfg.cwd, keep)
@@ -303,6 +342,18 @@ def reconcile_source(project: Project, cfg: rewrite.Config, state: dict, src: st
             verdict, found = rewrite.parse_verdict(check.text) if not check.is_error else (None, [])
             problems = found if verdict else [f"the fact check gave no clear verdict: {check.text.strip()[:200]}"]
             checked_by = check.model_id or cfg.check_model
+            if not problems and big:  # a redesigned source, or a broken one: a second, stronger reader decides
+                second = rewrite.run_claude(cfg, cfg.escalation, build_check_prompt(project, src, files, changes),
+                                            cfg.logs / f"{stamp}-facts-{slug}-check2.jsonl",
+                                            allowed=rewrite.CHECK_TOOLS, denied=rewrite.CHECK_DENIED)
+                if second.limited or second.auth_error:
+                    rewrite.restore(cfg.cwd)
+                    return Result(rewrite.Outcome("limited" if second.limited else "auth", problems=[second.text],
+                                                  pause_until=second.pause_until, pause_reason=second.pause_reason))
+                verdict, found = rewrite.parse_verdict(second.text) if not second.is_error else (None, [])
+                problems = found if verdict else [f"the second fact check gave no clear verdict: {second.text[:200]}"]
+                checked_by = f"{checked_by} and {second.model_id or cfg.escalation} (a large change: {touched} of " \
+                             f"{total} rows)"
         if not problems:
             summary = next((line.strip() for line in res.text.splitlines() if line.strip()), "")
             return Result(rewrite.Outcome("ok", model_id=model_id, summary=summary[:200], checked_by=checked_by,
@@ -331,7 +382,9 @@ def commit(project: Project, cfg: rewrite.Config, src: str, files: list[str], re
         body.append(f"Rows checked by: {o.checked_by}; each one is supported by the source")
     if settled:
         body.append(f"Recorded as reviewed: {', '.join(settled)} (everything citing it has been checked)")
-    host.git(cfg.cwd, "add", "-A", "--", *[p for p in paths if (cfg.cwd / p).exists() or p.endswith(".history")])
+    tracked = host.git(cfg.cwd, "ls-files", "--", *paths).stdout.split()
+    host.git(cfg.cwd, "add", "-A", "--", *[p for p in paths if (cfg.cwd / p).exists() or p in tracked
+                                           or p.endswith(".history")])
     if host.git(cfg.cwd, "diff", "--cached", "--quiet", check=False).returncode == 0:
         return  # nothing to commit: the facts already matched and no review was recorded
     names = ", ".join(Path(f).name for f in files)
@@ -345,16 +398,16 @@ def run(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], 
     failed = state.setdefault("facts_failed", {})
     now = dt.datetime.now().timestamp()
     hashes = review.current(project)
-    for src in [s for s, info in failed.items() if info.get("until", 0) <= now or info.get("hash") != hashes.get(s)]:
-        failed.pop(src)
+    escalate = rewrite.sort_failed(failed, now, lambda s, info: info.get("hash") == hashes.get(s))
     handled = 0
     for src, files in queue.items():
         if handled >= budget:
             break
-        if src in failed:
+        if src in failed and src not in escalate:
             continue
         handled += 1
-        result = reconcile_source(project, cfg, state, src, files, aliases, stamp, base)
+        result = reconcile_source(project, cfg, state, src, files,
+                                  rewrite.aliases_for(cfg, state, src, escalate, aliases), stamp, base)
         o = result.outcome
         if o.status == "ok":
             if dry_run:
@@ -362,22 +415,26 @@ def run(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], 
                                                                                     result.changes) or "no change"))
                 rewrite.restore(cfg.cwd)
             else:
-                ok = state.setdefault("facts_verified", {})
-                for f in files:
-                    ok.setdefault(f, {})[src] = review.current(project).get(src)
+                if o.checked_by:  # without the second model's check, nothing here counts as a review
+                    for f in files:
+                        rewrite.remember(project, state, "facts_verified", f, {src: review.current(project).get(src)})
                 settled = rewrite.settle_sources(project, state, [src])
                 commit(project, cfg, src, files, result, settled)
                 base = rewrite.baseline(project)
                 log(f"  {src}: facts updated on {o.model_id} ({len(result.changes)} change(s))"
                     + (f"; recorded {', '.join(settled)} as reviewed" if settled else ""))
+                failed.pop(src, None)
+                alerts.resolve(project, f"facts would not update — {', '.join(files)}")
         elif o.status == "failed" and not dry_run:
-            failed[src] = {"until": int(now + rewrite.FAILED_PAGE_RETRY_DAYS * 86400), "hash": hashes.get(src),
-                           "reason": (o.problems or ["unknown"])[0][:500]}
-            log(f"  {src}: facts gave up for {rewrite.FAILED_PAGE_RETRY_DAYS} days: {failed[src]['reason'][:200]}")
-            alerts.notify(project, "facts would not update",
-                          f"{', '.join(files)} couldn't be updated from {src} on any model ({failed[src]['reason'][:200]}). "
-                          f"Until they are, ./gt check stays red and the server keeps the last version that passed. "
-                          f"It retries in {rewrite.FAILED_PAGE_RETRY_DAYS} days or when the source changes again.")
+            reason = (o.problems or ["unknown"])[0][:500]
+            if rewrite.record_failure(cfg, failed, src, {"hash": hashes.get(src), "reason": reason}, src in escalate):
+                log(f"  {src}: facts gave up for {rewrite.FAILED_PAGE_RETRY_DAYS} days: {reason[:200]}")
+                alerts.notify(project, "facts would not update",
+                              f"{', '.join(files)} couldn't be updated from {src} on any model ({reason[:200]}). "
+                              f"Until they are, ./gt check stays red and the server keeps the last version that "
+                              f"passed. {rewrite.RETRY_NOTE}")
+            else:
+                log(f"  {src}: facts failed; {cfg.escalation} gets one more try in a few hours: {reason[:200]}")
         elif o.status == "failed":
             log(f"  {src}: facts failed on every model (dry run): {(o.problems or ['unknown'])[0][:200]}")
         if o.status in {"limited", "auth"} or o.pause_until:

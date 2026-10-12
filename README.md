@@ -272,6 +272,7 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt refresh [--write --open-pr]` | The weekly agent |
 | `./gt rewrite [--list] [--page P] [--dry-run]` | Update changed facts, cover new sources, rewrite stale pages, all with headless Claude Code and checked |
 | `./gt host autopilot\|install\|check` | The refresh host: GitHub Actions (`autopilot.yml`) or a machine (cron) |
+| `./gt repair` | Fix what the latest live eval got wrong, checked and re-asked live |
 | `./gt alerts` | What the unattended jobs need a person for (`ALERTS.md`) |
 | `./gt bundle` | Package data for live updates |
 | `./gt status` | What's done, what's left, and the next command |

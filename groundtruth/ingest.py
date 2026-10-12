@@ -308,8 +308,9 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
         root = "{0.scheme}://{0.netloc}".format(urlparse(start))
         listed = sitemap_urls(fetcher, root + "/sitemap.xml", max_pages)
         prefix = urlparse(start).path.rstrip("/")
-        if prefix:
-            listed = [u for u in listed if urlparse(u).path.startswith(prefix)]
+        if prefix:  # /docs, not /docs-old
+            listed = [u for u in listed if urlparse(u).path.rstrip("/") == prefix
+                      or urlparse(u).path.startswith(prefix + "/")]
         queue = deque(listed or [start])
         crawl = not listed
     seen: set[str] = set()
@@ -499,9 +500,7 @@ def _portable(project: Project, target: str) -> str:
     if target.startswith(("http://", "https://")):
         return target
     path = Path(target).expanduser()
-    if path.is_absolute():
-        return str(path)
-    path = (Path.cwd() / path).resolve()
+    path = path.resolve() if path.is_absolute() else (Path.cwd() / path).resolve()  # never a home directory
     try:
         import os
         return os.path.relpath(path, project.root)

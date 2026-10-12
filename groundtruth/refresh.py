@@ -20,7 +20,8 @@ Why it's safe to leave on a schedule:
   * A quiet run is free: no source changes means no commits, no PR, no API spend.
   * Gates first. If a check or eval fails, it stops and says why; nothing ships.
   * A source outage can't wipe your evidence: a refresh that would flag a large
-    share of your sources as removed upstream stops instead.
+    share of your sources as removed upstream stops instead (on the refresh host,
+    until the same ones are gone three refreshes in a row: then it's real).
   * Claude is optional. With ANTHROPIC_API_KEY the branch mode drafts and refreshes
     wiki pages; without one it writes build/compile-packet.md into the PR.
 """
@@ -69,6 +70,33 @@ def _outage(project: Project, result: ingest.IngestResult) -> str | None:
         return (f"{gone} of {live + gone} sources look removed upstream at once, which looks like an outage. "
                 f"Nothing was committed; check the site, then run ./gt ingest by hand if they really are gone")
     return None
+
+
+OUTAGE_NIGHTS = 3
+
+
+def _outage_persists(project: Project, result: ingest.IngestResult, push: bool) -> bool:
+    """On the refresh host: the same sources gone for OUTAGE_NIGHTS full refreshes in a row isn't an
+    outage, it's a removal. Accept it then, and ./gt rewrite updates whatever cited them."""
+    if not push:
+        return False
+    import hashlib
+    import json
+    path = alerts.state_dir(project) / "outage.json"
+    key = hashlib.sha256("\n".join(sorted(result.removed)).encode()).hexdigest()[:16]
+    try:
+        seen = json.loads(path.read_text())
+    except (OSError, ValueError):
+        seen = {}
+    nights = seen.get("nights", 0) + 1 if seen.get("key") == key else 1
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"key": key, "nights": nights}))
+    if nights >= OUTAGE_NIGHTS:
+        path.unlink()
+        print(f"  · the same {len(result.removed)} sources have been gone {nights} refreshes in a row: "
+              f"accepting it as a real removal")
+        return True
+    return False
 
 
 def run(project: Project, *, write: bool = False, open_pr: bool = False, live: bool = False,
@@ -128,7 +156,7 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
             for s in result.skipped[:10]:
                 print(f"    ! skipped {s}")
             outage = _outage(project, result)
-            if outage and write:
+            if outage and write and not _outage_persists(project, result, push):
                 return fail(outage)
             lines.append(f"- Sources: {result.summary()}")
             stamp = f"{today} {dt.datetime.now():%H:%M}" if quick else today
@@ -203,6 +231,10 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
 
         # 5. publish
         if push:
+            alerts.resolve(project, "the refresh failed")
+            alerts.resolve(project, "the refresh crashed")
+            if not [ch for ch in pending if ch.facts]:
+                alerts.resolve(project, "facts cite sources that changed")
             made = _git(project, "log", f"{start}..HEAD", "--oneline", check=False) if start else ""
             if made:
                 print("done: committed; the refresh host pushes it")
