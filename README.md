@@ -233,14 +233,17 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 - **Or nobody in the loop at all.** With `host: github-actions`, a scheduled
   workflow keeps everything current by itself, with no machine to run. It
   re-captures sources nightly, and the ones your facts cite every two hours.
-  Headless Claude Code (Haiku writes, Sonnet checks) then:
-  - updates the facts a changed source affects,
-  - writes pages for new sources,
-  - rewrites stale pages.
+  Headless Claude Code (Haiku writes, Sonnet checks, Opus takes what they
+  can't) then:
+  - updates, adds, or retires the facts a changed source affects,
+  - writes pages for new sources and retires pages whose sources are gone,
+  - rewrites stale pages,
+  - fixes what the nightly live eval gets wrong (`./gt repair`).
 
   A change ships only when every value in it appears in its source, the gates
-  pass, and the second model agrees. Anything it can't handle becomes a line in
-  `ALERTS.md`, and the daily watchdog fails until it's fixed. See
+  pass, the second model agrees, and the assistant answers the golden questions
+  on the production model no worse than before. Anything it can't handle becomes
+  a line in `ALERTS.md`, and the daily watchdog fails until it's fixed. See
   [docs/operations.md](docs/operations.md#the-refresh-host-nobody-in-the-loop).
 - **A chat page, no client to set up**: with `GT_CHAT=1` and an Anthropic key on
   the server, `/chat` is a web chatbot for your users. It uses the same tools and

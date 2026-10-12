@@ -97,9 +97,11 @@ person merges the pull request.
 A refresh host (`./gt host`: GitHub Actions, or one machine) runs the same loop
 with nobody merging. It ingests nightly, and every two hours for the sources
 facts cite. `./gt rewrite` then does steps 3 and 5 itself, with headless Claude
-Code, in three passes:
+Code:
 
-- facts whose source changed are updated;
+- pages whose sources are all gone are retired (no model involved);
+- facts whose source changed are updated, or retired with it;
+- new exact values in a source only pages cite become fact rows;
 - sources nothing covers get a page;
 - stale pages are rewritten.
 
@@ -107,7 +109,13 @@ Every pass is confined to the files it may touch, and it ships only when:
 
 - every exact value appears in the cited source (`grounding.py`);
 - the gates find nothing new;
-- a second model with read-only tools agrees.
+- a second model with read-only tools agrees;
+- the golden questions it touches, asked of the production model, don't get
+  worse than what's live, and any question it added passes.
+
+What the live eval still gets wrong goes to `./gt repair` (`repair.py`), which
+may change only synonyms, the prompt, pages, and aliases, and ships under the
+same checks.
 
 Those checks are the review: once everything citing a source has passed them,
 the source is recorded as reviewed (`facts_updates: human` keeps changed facts

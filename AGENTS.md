@@ -113,8 +113,9 @@ Done looks like this, and `./gt status` checks what it can:
   within minutes, with no deploy;
 - GitHub Actions is the refresh host (`host: github-actions`, `autopilot.yml`):
   it re-captures sources nightly (the ones facts cite, every two hours by day),
-  updates changed facts, writes pages for new sources, rewrites stale pages, runs
-  the live eval, and pushes main, all checked before anything ships;
+  updates, adds, and retires facts, writes pages for new sources, rewrites stale
+  pages, runs the live eval (holding back anything that answers worse, and
+  repairing what's wrong), and pushes main, all checked before anything ships;
 - a daily watchdog fails, and GitHub emails the repo's owner, when any of that
   breaks or `ALERTS.md` lists something.
 
