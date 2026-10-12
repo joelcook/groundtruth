@@ -52,13 +52,16 @@ TIME_WORDS = {"am", "pm", "a", "p", "daily", "weekdays", "weekday", "weekends", 
 
 
 def _about_hours(text: str, m: re.Match) -> bool:
-    """Is this "9-5" a span of hours? Only when the same sentence says so just before it, or "daily" etc. after."""
+    """Is this "9-5" a span of hours? Only when the same sentence says so just before it ("open", "Mon-Fri"),
+    or "weekdays" etc. after. Not "daily" alone: "take 1-3 daily" is a dose."""
     before = re.split(r"[.;:!?\n]", text[max(0, m.start() - 40):m.start()])[-1]
     after = re.split(r"[.;:!?\n]", text[m.end():m.end() + 20])[0]
     word = re.match(r"\s*([a-z]+)", after, re.I)
     if word and word.group(1).lower() not in TIME_WORDS:
         return False  # "1-3 books", "9-5 items": a quantity, whatever came before it
-    return bool(CLOCK_CONTEXT.search(before) or re.search(r"\b(?:daily|weekdays?|weekends?|every day)\b", after, re.I))
+    return bool(CLOCK_CONTEXT.search(before) or re.search(r"\b(?:weekdays?|weekends?|every day)\b", after, re.I))
+
+
 TIME_12 = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 URL = re.compile(r"https?://[^\s)>\]\"']+", re.I)

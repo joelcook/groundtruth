@@ -77,8 +77,9 @@ FETCH_FAILURES_TO_ALERT = 3
 
 
 def _track_fetch_failures(project: Project, result: ingest.IngestResult) -> None:
-    """A source the assistant relies on that keeps failing to download (403, 429, timeouts) goes stale
-    silently. Count consecutive failures per cited source, and alert at FETCH_FAILURES_TO_ALERT."""
+    """A source the assistant relies on that keeps failing to download (403, 429, timeouts, now blocked by
+    robots.txt or redirected off the site) goes stale silently. Count consecutive failures per cited source,
+    and alert at FETCH_FAILURES_TO_ALERT, and again every so many after, while it's still failing."""
     import json
     from groundtruth import review
     path = alerts.state_dir(project) / "fetch-failures.json"
@@ -94,7 +95,7 @@ def _track_fetch_failures(project: Project, result: ingest.IngestResult) -> None
     failed = {}
     for skip in result.skipped:
         url, _, why = skip.partition(" (")
-        if ingest._clean_url(url) in cited and "robots.txt" not in why and "off the site" not in why:
+        if ingest._clean_url(url) in cited:
             failed[cited[ingest._clean_url(url)]] = why.rstrip(")")
     ok = set(result.new) | set(result.updated) | set(result.unchanged)
     for src in list(counts):
@@ -103,7 +104,7 @@ def _track_fetch_failures(project: Project, result: ingest.IngestResult) -> None
             alerts.resolve(project, f"a source hasn't been fetched in {FETCH_FAILURES_TO_ALERT} refreshes — {src}")
     for src, why in failed.items():
         counts[src] = counts.get(src, 0) + 1
-        if counts[src] == FETCH_FAILURES_TO_ALERT:
+        if counts[src] >= FETCH_FAILURES_TO_ALERT and counts[src] % FETCH_FAILURES_TO_ALERT == 0:
             alerts.notify(project, f"a source hasn't been fetched in {FETCH_FAILURES_TO_ALERT} refreshes",
                           f"{src} ({why}). The facts and pages that cite it are as of its last good capture.")
     path.parent.mkdir(parents=True, exist_ok=True)

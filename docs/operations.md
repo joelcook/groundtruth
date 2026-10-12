@@ -277,8 +277,9 @@ Slack webhook) or `GT_ALERT_EMAIL`.
   nothing new and `./gt eval` passes, and a push that replays onto a moved main
   re-runs them. A failed refresh leaves main alone and raises an alert.
 - **An outage isn't a deletion.** A refresh that would mark more than a fifth of
-  your sources as removed upstream stops instead; a fact update that would change
-  more than 30% of the rows stops too.
+  your sources as removed upstream stops instead (until the same sources stay gone
+  for three refreshes); a fact update that changes more than 30% of the rows in
+  the files it touches ships only if the escalation model checks it too and agrees.
 - **One writer at a time.** One host is named; on a machine, a lock keeps the
   refresh, rewrites, and alerts apart, and in Actions a concurrency group does.
 - **No credentials within the model's reach.** The rewriting model can read the

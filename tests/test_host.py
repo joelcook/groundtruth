@@ -387,6 +387,32 @@ class RefreshTests(unittest.TestCase):
         doc.unlink()
         self.assertEqual(ingest.recapture(p, [rel]).removed, [rel])
 
+    def test_a_cited_page_that_now_redirects_keeps_its_capture(self):
+        from types import SimpleNamespace
+        p, tmp = copy_project()
+        self.addCleanup(tmp.cleanup)
+        result = ingest.IngestResult()
+        ingest.write_page(p, "pricing", "Pricing", "Premium costs $4.99 a month. " * 5,
+                          {"source_url": "https://example.org/pricing"}, result)
+        rel = result.new[0]
+        body = "<html><body><h1>Plans</h1><p>" + "Premium costs $6.99 a month. " * 5 + "</p></body></html>"
+
+        class Moved:
+            def __init__(self, delay=0.0):
+                pass
+
+            def allowed(self, url):
+                return True
+
+            def get(self, url):
+                return SimpleNamespace(status_code=200, headers={"content-type": "text/html"},
+                                       url="https://example.org/plans", text=body)
+        with mock.patch.object(ingest, "Fetcher", Moved):
+            got = ingest.recapture(p, [rel])
+        self.assertEqual(got.updated, [rel])  # the capture the facts cite changed: they get reconciled
+        self.assertIn("6.99", (p.root / rel).read_text())
+        self.assertEqual(ingest.page_meta(p.root / rel)["redirected_to"], "https://example.org/plans")
+
     def test_an_outage_isnt_mistaken_for_removals(self):
         p, tmp = copy_project()
         self.addCleanup(tmp.cleanup)

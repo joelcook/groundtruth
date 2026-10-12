@@ -254,7 +254,8 @@ def _clean_url(url: str) -> str:
     return parsed._replace(path=parsed.path or "/").geturl()
 
 
-def sitemap_urls(fetcher: Fetcher, url: str, limit: int, _depth: int = 0) -> list[str]:
+def sitemap_urls(fetcher: Fetcher, url: str, limit: int | None = None, _depth: int = 0) -> list[str]:
+    """Every page a sitemap (or a sitemap index, three levels deep) lists; ``limit`` stops early."""
     try:
         r = fetcher.get(url)
     except Exception:  # noqa: BLE001
@@ -276,8 +277,8 @@ def sitemap_urls(fetcher: Fetcher, url: str, limit: int, _depth: int = 0) -> lis
     if root.tag.endswith("sitemapindex") and _depth < 3:
         out: list[str] = []
         for child in locs:
-            out += sitemap_urls(fetcher, child, limit - len(out), _depth + 1)
-            if len(out) >= limit:
+            out += sitemap_urls(fetcher, child, None if limit is None else limit - len(out), _depth + 1)
+            if limit is not None and len(out) >= limit:
                 break
         return out[:limit]
     del ns
@@ -296,12 +297,12 @@ def _links(html: str, base: str) -> list[str]:
     return out
 
 
-SITEMAP_SCAN = 20_000  # read the whole sitemap; max_pages limits what's fetched, not what's seen
 
 
 def _prioritize(project: Project, urls: list[str]) -> list[str]:
     """Pages never captured first (so new ones are found however big the site is), then the rest in an
-    order that rotates daily (so max_pages still gets round every page in time)."""
+    order that rotates daily (so max_pages still gets round every page in time). The whole sitemap is
+    read: max_pages limits what's fetched, not what's seen."""
     known = {_clean_url(str(m["source_url"])) for _, m in _existing_pages(project) if m.get("source_url")}
     today = dt.date.today().isoformat()
     return sorted(dict.fromkeys(urls), key=lambda u: (_clean_url(u) in known,
@@ -314,11 +315,11 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
     start = _clean_url(start)
     host = urlparse(start).netloc
     if start.endswith((".xml", ".xml.gz")):
-        queue = deque(_prioritize(project, sitemap_urls(fetcher, start, SITEMAP_SCAN)))
+        queue = deque(_prioritize(project, sitemap_urls(fetcher, start)))
         crawl = False
     else:
         root = "{0.scheme}://{0.netloc}".format(urlparse(start))
-        listed = sitemap_urls(fetcher, root + "/sitemap.xml", SITEMAP_SCAN)
+        listed = sitemap_urls(fetcher, root + "/sitemap.xml")
         prefix = urlparse(start).path.rstrip("/")
         if prefix:  # /docs, not /docs-old
             listed = [u for u in listed if urlparse(u).path.rstrip("/") == prefix
@@ -361,7 +362,7 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
         if len(body) < 80:
             result.skipped.append(f"{url} (almost no text)")
         else:
-            write_page(project, slug_for(final), title, body, {"source_url": final}, result, dry_run)
+            write_page(project, slug_for(final), title, body, _origin(project, url, final), result, dry_run)
         if crawl:
             for link in _links(r.text, final):
                 if link not in seen and urlparse(link).netloc == host:
@@ -473,8 +474,18 @@ def recapture(project: Project, rels: list[str], *, dry_run: bool = False, delay
             if len(body) < 80:
                 result.skipped.append(f"{url} (almost no text)")
             else:
-                write_page(project, slug_for(final), title, body, {"source_url": final}, result, dry_run)
+                write_page(project, slug_for(final), title, body, _origin(project, str(url), final), result,
+                           dry_run)
     return result
+
+
+def _origin(project: Project, url: str, final: str) -> dict:
+    """Where a fetched page is recorded as coming from. A page already captured that now redirects
+    (/pricing -> /plans) stays that capture, with the new content: so what cites it sees the change,
+    instead of keeping the old price under the old address forever."""
+    if final != _clean_url(url) and capture_for(project, _clean_url(url)) is not None:
+        return {"source_url": _clean_url(url), "redirected_to": final}
+    return {"source_url": final}
 
 
 # ===================================================================== entry point

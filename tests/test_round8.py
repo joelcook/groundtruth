@@ -327,6 +327,14 @@ class TestRoundThree(unittest.TestCase):
         idx = grounding.SourceIndex.of("Borrow from 1-3 books at a time.")
         self.assertFalse(idx.has("time", (13, 0)))
         self.assertTrue(idx.has("number", grounding._num("3")))
+        self.assertFalse(grounding.SourceIndex.of("Take option 1-3 daily.").has("time", (13, 0)))  # a dose
+        self.assertTrue(grounding.SourceIndex.of("Staffed 9-5 weekdays.").has("time", (17, 0)))
+
+    def test_two_sources_are_two_alerts(self):
+        from groundtruth import alerts
+        one = alerts.normalize("a source failed — sources/pages/branch-1.md (HTTP 403)")
+        self.assertNotEqual(one, alerts.normalize("a source failed — sources/pages/branch-2.md (HTTP 403)"))
+        self.assertEqual(one, alerts.normalize("a source failed — sources/pages/branch-1.md (HTTP 429)"))
 
 
 class TestRoundThreeHost(unittest.TestCase):
@@ -351,6 +359,10 @@ class TestRoundThreeHost(unittest.TestCase):
         for _ in range(refresh.FETCH_FAILURES_TO_ALERT):
             refresh._track_fetch_failures(self.p, failing)
         self.assertIn("contact-us.md", alerts.log_path(self.p).read_text())
+        blocked = ingest.IngestResult(skipped=[f"{url} (robots.txt)"])  # blocked now: just as stale
+        for _ in range(2 * refresh.FETCH_FAILURES_TO_ALERT):
+            refresh._track_fetch_failures(self.p, blocked)
+        self.assertEqual(alerts.log_path(self.p).read_text().count("contact-us.md"), 3)  # and it keeps saying so
         refresh._track_fetch_failures(self.p, ingest.IngestResult(unchanged=["sources/pages/contact-us.md"]))
         self.assertTrue(any("contact-us.md" in r for r in alerts.resolved(self.p)))
 

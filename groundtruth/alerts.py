@@ -68,10 +68,15 @@ def notify(project: Project, title: str, body: str) -> None:
 
 
 def normalize(message: str) -> str:
-    """An alert's identity: its text with hashes and numbers blanked out."""
-    text = re.sub(r"\b[0-9a-f]{7,40}\b", "<sha>", message.strip())
-    text = re.sub(r"\d+", "#", text)
-    return re.sub(r"\s+", " ", text).lower()
+    """An alert's identity: its text with hashes and numbers blanked out, except in the file or URL it's
+    about (branch-1.md and branch-2.md are two alerts, not one whose number changed)."""
+    words = []
+    for word in message.split():
+        if "/" in word or re.search(r"\.(?:md|ya?ml|json|html?)\b", word):
+            words.append(word)
+        else:
+            words.append(re.sub(r"\d+", "#", re.sub(r"\b[0-9a-f]{7,40}\b", "<sha>", word)))
+    return " ".join(words).lower()
 
 
 def parse_log(text: str) -> list[tuple[str, str]]:

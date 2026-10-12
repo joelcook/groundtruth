@@ -72,8 +72,9 @@ client does. The judge runs the same way.
 A live answer also fails if it states an exact value (a price, date, time,
 duration, percentage, limit, phone number, or email) that no tool returned: that
 value came from memory. Values are matched by kind against the rows and pages the
-tools returned, not the query they echo: a `window_days: 30` doesn't back up
-"$30". Only a `contradiction` question may repeat a value from the question (to
+tools returned, not the query they echo, unit and all: a `window_days: 30`
+backs up "30 days", not "$30", "30 weeks", or "up to 30 books" (a row's `unit`
+or `currency` field counts, and "seven days" is 7). Only a `contradiction` question may repeat a value from the question (to
 correct the rumor it asks about). The `/chat` page runs the same check on every
 answer before a visitor sees it.
 
