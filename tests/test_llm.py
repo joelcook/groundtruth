@@ -44,7 +44,9 @@ class TestAgentLoop(unittest.TestCase):
             out = llm.agent("color printing cost?", "sys", server.tool_specs(self.p),
                             lambda n, a: server.call_tool(self.p, n, a, log=False))
         self.assertEqual(out["response"], "It's $0.50 a page.")
-        self.assertEqual(out["tool_calls"], [{"name": "get_fee", "input": {"fee_type": "color printing"}}])
+        self.assertEqual([{k: c[k] for k in ("name", "input")} for c in out["tool_calls"]],
+                         [{"name": "get_fee", "input": {"fee_type": "color printing"}}])
+        self.assertEqual(out["tool_calls"][0]["result"]["count"], 1)  # graders check what came back
         first, second = msgs.calls
         self.assertEqual(first["model"], llm.model())
         self.assertEqual(first["fallbacks"], "default")

@@ -13,7 +13,7 @@ from unittest import mock
 
 from helpers import LIBRARY, write
 
-from groundtruth import alerts, host, project, review, rewrite
+from groundtruth import alerts, cover, host, project, reconcile, review, rewrite
 
 NOW = 1_800_000_000.0
 
@@ -109,7 +109,16 @@ class SmallPartsTests(unittest.TestCase):
         self.assertNotIn("Edit", rewrite.CHECK_TOOLS)
         self.assertIn("Edit", rewrite.CHECK_DENIED)
         self.assertIn("Bash", rewrite.DENIED_TOOLS)
-        self.assertNotIn("Bash", rewrite.ALLOWED_TOOLS)
+        self.assertIn("Read(./.env)", rewrite.DENIED_TOOLS)
+        self.assertEqual(rewrite.writer_tools(["wiki/a.md"]), "Read Glob Grep Edit(wiki/a.md) Write(wiki/a.md)")
+
+    def test_claude_gets_only_what_it_needs_from_the_environment(self):
+        with mock.patch.dict(os.environ, {"GT_MCP_API_KEY": "s3cret", "GITHUB_TOKEN": "t", "HOME": "/h",
+                                          "CLAUDE_CODE_OAUTH_TOKEN": "c", "ANTHROPIC_API_KEY": "a"}):
+            env = rewrite.claude_env()
+        self.assertNotIn("GT_MCP_API_KEY", env)
+        self.assertNotIn("GITHUB_TOKEN", env)
+        self.assertEqual((env["HOME"], env["CLAUDE_CODE_OAUTH_TOKEN"], env["ANTHROPIC_API_KEY"]), ("/h", "c", "a"))
 
     def test_commits_skip_the_watchers_rescrape(self):
         self.assertTrue(f"{rewrite.COMMIT_PREFIX} wiki/x.md".startswith(host.BOT_PREFIXES))
@@ -128,8 +137,33 @@ with open(os.environ["FAKE_LOG"], "a") as fh:
 print(json.dumps({"type": "system", "subtype": "init", "model": model}))
 if prompt.startswith("Reply with just OK"):
     text = "OK"
-elif prompt.startswith("Check a rewritten"):
+elif prompt.startswith("Check"):
     text = os.environ.get("FAKE_VERDICT", '{"verdict": "pass", "unsupported": []}')
+elif prompt.startswith("You maintain this repo's knowledge base"):
+    src = re.search(r"captured: `([^`]+)`", prompt).group(1)
+    page = re.search(r"at exactly `([^`]+)`", prompt).group(1)
+    mode = os.environ.get("FAKE_COVER", "")
+    if mode == "skip":
+        text = "SKIP: it's a navigation page"
+    else:
+        rel_src = src.split("/", 1)[1]
+        open(page, "w").write(
+            "---\ntitle: Gift cards\npage_type: entity\nlast_compiled: 2026-10-12\ncompiled_by: m\n"
+            f"sources:\n  - {rel_src}\nstatus: published\ntags: [gift, card]\n---\n\n# Gift cards\n\n"
+            "The library sells gift cards at the circulation desk.\n\n## Sources & Lineage\n\n"
+            f"| Source | Captured | URL |\n|---|---|---|\n| [[{rel_src}]] | 2026-10-12 | https://example.org/gift |\n")
+        if mode != "noq":
+            golden = "assistant/evals/golden.yaml"
+            stem = page.rsplit("/", 1)[1][:-3]
+            body = open(golden).read()
+            open(golden, "w").write(body + f"\n- id: gift-cards\n  question: \"Does the library sell gift cards?\"\n"
+                                    f"  category: narrative\n  must_cite_page: {stem}\n")
+        text = "Added a page about gift cards."
+elif prompt.startswith("You maintain this repo's facts"):
+    for path, old, new in json.loads(os.environ.get("FAKE_EDITS", "[]")):  # [file, from, to]
+        text = open(path).read()
+        open(path, "w").write(text.replace(old, new))
+    text = "Updated the changed values."
 else:
     page = re.search(r"Rewrite one page: `([^`]+)`", prompt).group(1)
     body = open(page).read()
@@ -177,11 +211,15 @@ class RewriteLoopTests(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"GT_CLAUDE": str(fake), "FAKE_LOG": str(self.calls),
                                                 "GT_HOST_STATE": str(Path(self.tmp.name) / "state")})
         self.env.start()
+        # the fake claude reads its script from FAKE_* variables; real runs pass only what claude needs
+        self.prefixes = mock.patch.object(rewrite, "CLAUDE_ENV_PREFIXES", rewrite.CLAUDE_ENV_PREFIXES + ("FAKE_",))
+        self.prefixes.start()
         for key in ("GT_REWRITE_MODEL", "GT_REWRITE_CHECK_MODEL", "GT_HOST_JOB", "FAKE_VERDICT", "FAKE_FACT",
-                    "FAKE_STRAY", "CLAUDE_CODE_OAUTH_TOKEN"):
+                    "FAKE_STRAY", "FAKE_EDITS", "FAKE_COVER", "CLAUDE_CODE_OAUTH_TOKEN"):
             os.environ.pop(key, None)
 
     def tearDown(self):
+        self.prefixes.stop()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -212,12 +250,89 @@ class RewriteLoopTests(unittest.TestCase):
         self.assertEqual(sh(self.root, "status", "--porcelain"), "")
         calls = self.calls_made()
         writer = next(c for c in calls if c["first"].startswith("You maintain"))
-        self.assertEqual((writer["alias"], writer["tools"]), ("haiku", rewrite.ALLOWED_TOOLS))
+        self.assertEqual(writer["alias"], "haiku")
+        self.assertEqual(writer["tools"], f"Read Glob Grep Edit(assistant/{self.page}) Write(assistant/{self.page})")
         checker = next(c for c in calls if c["first"].startswith("Check"))
         self.assertEqual((checker["alias"], checker["tools"]), ("sonnet", rewrite.CHECK_TOOLS))
         self.assertEqual(rewrite.todo(self.p, rewrite.load_state(rewrite.state_path(self.p))), {})
 
-    def test_a_source_facts_cite_still_waits_for_a_person(self):
+    def fees_change(self, edits):
+        policy = self.p.root / "sources/pages/borrowing-policy.md"
+        policy.write_text(policy.read_text().replace("$2.00 per card", "$3.00 per card"))
+        sh(self.root, "commit", "-qam", "refresh: card fee went up")
+        os.environ["FAKE_EDITS"] = json.dumps(edits)
+
+    def test_a_changed_fact_is_updated_checked_and_reviewed(self):
+        self.fees_change([["assistant/facts/fees.yaml", "amount_usd: 2.00", "amount_usd: 3.00"],
+                          ["assistant/evals/golden.yaml", 'must_contain: ["2"]', 'must_contain: ["3"]']])
+        self.assertIn("sources/pages/borrowing-policy.md", reconcile.todo(self.p, {}))
+        self.assertEqual(rewrite.run(self.p), 0)
+        subjects = self.subjects()
+        self.assertIn("facts: update fees.yaml from sources/pages/borrowing-policy.md", subjects)
+        body = sh(self.root, "log", "--format=%b", "-1", "--grep=^facts: update")
+        self.assertIn("amount_usd: 3.0", body)
+        self.assertIn("Rows checked by: claude-sonnet-5-5", body)
+        self.assertEqual(review.changes(self.p), [])  # facts and all four pages checked: reviewed
+        self.assertIn("amount_usd: 3.00", (self.p.root / "facts/fees.yaml").read_text())
+        self.assertEqual(sh(self.root, "status", "--porcelain"), "")
+
+    def test_a_value_the_source_doesnt_state_never_ships(self):
+        self.fees_change([["assistant/facts/fees.yaml", "amount_usd: 2.00", "amount_usd: 4.00"]])
+        rewrite.run(self.p)
+        self.assertNotIn("facts: update", " ".join(self.subjects()))
+        self.assertIn("amount_usd: 2.00", (self.p.root / "facts/fees.yaml").read_text())
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertIn("'4.0'", state["facts_failed"]["sources/pages/borrowing-policy.md"]["reason"])
+        self.assertIn("facts would not update", alerts.log_path(self.p).read_text())
+
+    def test_leaving_a_stale_fact_alone_isnt_an_update(self):
+        self.fees_change([])  # the writer changes nothing, though the source now says $3.00
+        rewrite.run(self.p)
+        self.assertIn("sources/pages/borrowing-policy.md", [c.source for c in review.changes(self.p)])
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertIn("2.0", state["facts_failed"]["sources/pages/borrowing-policy.md"]["reason"])
+
+    def new_source(self):
+        write(self.p.root / "sources/pages/gift-cards.md",
+              "---\nsource_url: https://example.org/gift\ncaptured: 2026-10-12\n---\n\n# Gift cards\n\n"
+              "Gift cards are sold at the circulation desk at Central.\n")
+        sh(self.root, "add", "-A")
+        sh(self.root, "commit", "-qm", "refresh: a new page appeared")
+
+    def test_a_new_source_gets_a_page_a_question_and_a_review(self):
+        self.new_source()
+        self.assertIn("sources/pages/gift-cards.md", cover.todo(self.p, {}))
+        self.assertEqual(rewrite.run(self.p), 0)
+        self.assertIn("wiki: cover sources/pages/gift-cards.md", self.subjects())
+        self.assertTrue((self.p.root / "wiki/gift-cards.md").exists())
+        self.assertIn("gift-cards", self.p.golden_path.read_text())
+        self.assertIn("sources/pages/gift-cards.md", review.load_lock(self.p))  # its review is recorded
+        self.assertEqual(cover.todo(self.p, rewrite.load_state(rewrite.state_path(self.p))), [])
+        self.assertEqual(sh(self.root, "status", "--porcelain"), "")
+
+    def test_a_source_with_nothing_to_say_is_skipped_until_it_changes(self):
+        os.environ["FAKE_COVER"] = "skip"
+        self.new_source()
+        head = sh(self.root, "rev-parse", "HEAD")
+        rewrite.run(self.p)
+        self.assertEqual(sh(self.root, "rev-parse", "HEAD"), head)
+        state = rewrite.load_state(rewrite.state_path(self.p))
+        self.assertIn("navigation", state["cover_skipped"]["sources/pages/gift-cards.md"]["why"])
+        self.assertEqual(cover.todo(self.p, state), [])
+
+    def test_a_page_without_a_question_doesnt_ship(self):
+        os.environ["FAKE_COVER"] = "noq"
+        self.new_source()
+        rewrite.run(self.p)
+        self.assertNotIn("wiki: cover", " ".join(self.subjects()))
+        self.assertFalse((self.p.root / "wiki/gift-cards.md").exists())
+        self.assertIn("a new source would not get a page", alerts.log_path(self.p).read_text())
+
+    def test_a_person_can_keep_facts_for_themselves(self):
+        cfg = self.p.root / "groundtruth.yaml"
+        cfg.write_text(cfg.read_text() + "\nfacts_updates: human\n")
+        sh(self.root, "commit", "-qam", "facts stay with a person")
+        self.p = project.load(self.p.root)
         self.change("sources/pages/programs.md", "Story time moved to the east room.")
         self.assertEqual(rewrite.run(self.p), 0)
         rewritten = [s for s in self.subjects() if s.startswith("wiki: rewrite assistant/")]

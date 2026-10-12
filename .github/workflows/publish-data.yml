@@ -1,30 +1,50 @@
-# Ship data without redeploying: after the gates pass on main, build a bundle and
-# attach it to a `data-latest` release. Servers started with
+# Ship data without redeploying. After `ci` passes on main, build a bundle from that exact
+# commit and attach it to the `data-latest` release. Servers started with
 #   GT_DATA_URL=https://github.com/<you>/<repo>/releases/download/data-latest/groundtruth-data.tar.gz
-# pick it up within GT_DATA_POLL_SECONDS. Opt in with the repo variable GT_PUBLISH_DATA=true.
+# install it within GT_DATA_POLL_SECONDS. Opt in with the repo variable GT_PUBLISH_DATA=true.
 name: publish-data
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:  # one publish at a time; a newer commit's run waits instead of racing
+  group: publish-data
+  cancel-in-progress: false
 jobs:
   publish:
-    if: ${{ vars.GT_PUBLISH_DATA == 'true' }}
+    if: >-
+      vars.GT_PUBLISH_DATA == 'true' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event)))
     runs-on: ubuntu-latest
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: skip if main has moved on (its own run will publish)
+        id: head
+        run: |
+          latest="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$latest" != "$SHA" ]; then echo "main is at $latest; skipping $SHA"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-python@v5
+        if: steps.head.outputs.skip != 'true'
         with:
           python-version: "3.12"
-      - run: pip install -e .
-      - run: python -m groundtruth check --production && python -m groundtruth eval
-      - run: python -m groundtruth bundle
+      - if: steps.head.outputs.skip != 'true'
+        run: pip install -e .
+      - if: steps.head.outputs.skip != 'true'
+        run: python -m groundtruth check --production && python -m groundtruth eval && python -m groundtruth bundle
       - name: upload to the data-latest release
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.head.outputs.skip != 'true'
         run: |
           DIR=$(python -c "from groundtruth.project import resolve; print(resolve().build_dir)")
-          gh release view data-latest >/dev/null 2>&1 || gh release create data-latest --title "Latest data" --notes "Rebuilt on every push to main."
+          gh release view data-latest >/dev/null 2>&1 || gh release create data-latest --prerelease \
+            --title "Latest data" --notes "Rebuilt after each green ci run on main."
           gh release upload data-latest "$DIR/groundtruth-data.tar.gz" "$DIR/groundtruth-data.sha256" --clobber

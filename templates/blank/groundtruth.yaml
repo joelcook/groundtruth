@@ -11,10 +11,18 @@ search:
   synonyms:
     contact: [reach, call, email, phone]
 
-# The one machine that refreshes, rewrites stale pages, and pushes main on its own
-# (./gt host install): its short hostname, from `hostname -s`. Every other machine
-# stands down, so only one ever pushes. See docs/operations.md.
-# host: my-server
+# Who keeps main current on their own (docs/operations.md). `github-actions` runs
+# .github/workflows/autopilot.yml, no machine needed; or a machine's short hostname
+# (`hostname -s`) after ./gt host install there. Exactly one pushes; the rest stand down.
+# host: github-actions
+
+# Where the deployed server answers. The watchdog, ./gt status, and ./gt connect use it.
+# url: https://mcp.example.org/mcp
+
+# When a source behind your facts changes: `llm` (default) lets ./gt rewrite update the
+# facts, shipping a change only if every new value appears in the source, the gates pass,
+# and a second model agrees. `human` makes changed facts wait for ./gt review --done.
+# facts_updates: llm
 
 ingest:
   # URLs, sitemap.xml links, or folders. `./gt ingest` and the weekly refresh pull these.

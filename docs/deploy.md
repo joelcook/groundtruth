@@ -4,12 +4,13 @@ The server is one small container. Anything that runs a container can host it.
 
 ## Before you deploy
 
-1. **Point the image at your project.** In `Dockerfile`, change
-   `ARG PROJECT=examples/library` to your folder (e.g. `ARG PROJECT=my-assistant`),
-   or pass `--build-arg PROJECT=my-assistant`. The build runs
-   `./gt check --production`, so a project with broken facts, or leftover
-   template examples, never becomes an image. (`./gt serve` refuses the same
-   things; `--force` overrides for local testing.)
+1. **It builds your project.** `docker build .` uses the project `./gt` points
+   at (`groundtruth.project`, set by `./gt init` and `./gt use`); pass
+   `--build-arg PROJECT=folder` for another. It refuses to build the library demo
+   unless you pass `--build-arg ALLOW_DEMO=1`. The build runs
+   `./gt check --production`, so a project with broken or ungrounded facts, or
+   leftover template examples, never becomes an image. (`./gt serve` refuses the
+   same things; `--force` overrides for local testing.)
 2. **Make a key** and keep it out of git:
    ```bash
    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -19,12 +20,20 @@ The server is one small container. Anything that runs a container can host it.
    for load balancers. It shows counts, a data version, one page title (the
    watchdog searches for it), and the check status; nothing that isn't already
    public knowledge in your assistant.
-3. **Stamp the build.** Pass `--build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)`.
+3. **Stamp the build.** Pass `--build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)`,
+   or set `GT_BUILD_COMMIT` in the server's environment (the recipes below do).
    `/healthz` then reports which commit the code came from, so the watchdog and
    the refresh host can tell you when the running code falls behind main.
 4. **Serving without a key?** (Needed for ChatGPT and claude.ai connectors, which
    use OAuth or no auth.) Set `GT_ALLOWED_HOSTS=your.host`; otherwise the MCP SDK
    rejects requests for your domain with a 421 to prevent DNS rebinding.
+
+Once it's deployed, record where in your project's `groundtruth.yaml`, so the
+watchdog, `./gt status`, and `./gt connect` know:
+
+```yaml
+url: https://your.host/mcp
+```
 
 Test locally first:
 
@@ -39,7 +48,7 @@ docker run --rm -p 8765:8765 -e GT_MCP_API_KEY=test-key my-assistant
 ```bash
 fly launch --no-deploy                  # detects the Dockerfile; keep internal_port = 8765
 fly secrets set GT_MCP_API_KEY=<key>
-fly deploy
+fly deploy --build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)
 ```
 
 Your endpoint: `https://<app>.fly.dev/mcp`.
@@ -48,13 +57,14 @@ Your endpoint: `https://<app>.fly.dev/mcp`.
 
 New > Web Service > your repo > runtime **Docker**. Add the environment variable
 `GT_MCP_API_KEY`, set the port to `8765`, and use `/healthz` as the health check
-path. Endpoint: `https://<service>.onrender.com/mcp`.
+path. Endpoint: `https://<service>.onrender.com/mcp`. Render tells the server
+which commit it built (`RENDER_GIT_COMMIT`), so there's nothing to stamp.
 
 ## Google Cloud Run
 
 ```bash
 gcloud run deploy my-assistant --source . --port 8765 \
-  --allow-unauthenticated --set-env-vars GT_MCP_API_KEY=<key>
+  --allow-unauthenticated --set-env-vars GT_MCP_API_KEY=<key>,GT_BUILD_COMMIT=$(git rev-parse HEAD)
 ```
 
 `--allow-unauthenticated` turns off Google's IAM check; your API key does the
@@ -66,7 +76,7 @@ protecting. For production, store the key in Secret Manager
 ```bash
 az containerapp up --name my-assistant --resource-group my-rg --location eastus \
   --source . --ingress external --target-port 8765 \
-  --env-vars GT_MCP_API_KEY=<key>
+  --env-vars GT_MCP_API_KEY=<key> GT_BUILD_COMMIT=$(git rev-parse HEAD)
 ```
 
 Move the key into a Container Apps secret once it works. Endpoint:
@@ -94,6 +104,12 @@ behind the same proxy.
 
 ## What `/healthz` means
 
+Without the key, `/healthz` shows only what a load balancer needs: `ok`, the
+project's name, the groundtruth version, the build `commit`, and the
+`data_version` and when it was built. With the key (`Authorization: Bearer ...`,
+as `./gt watchdog` sends it), it adds the check details, row counts, a page title
+the watchdog searches for, and the data updater's last result.
+
 - **200, `"ok": true`**: the server is serving a version that passed the checks.
 - **`"checks": {"update_rejected": true, "first": "..."}`**: someone changed the
   files on the server and that change fails `./gt check`. It was not applied;
@@ -101,6 +117,10 @@ behind the same proxy.
   hear about it.
 - **503, `"ok": false`**: the server was started with `--force` on content that
   fails the checks. Load balancers will treat it as down, on purpose.
+- **`"data_update": {"last_error": "..."}`**: the server couldn't install the
+  latest data bundle (bad download, checksum, a bundle older than the one it has,
+  or one that would cut a collection in half). It keeps the data it has, and the
+  watchdog fails.
 
 ## Update data without redeploying
 

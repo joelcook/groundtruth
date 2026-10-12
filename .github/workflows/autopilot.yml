@@ -1,0 +1,73 @@
+# The refresh host, with no machine: GitHub Actions keeps main current by itself.
+#
+#   nightly            refresh every source, cover new ones, update changed facts, rewrite stale
+#                      pages, run the live eval; push what passes; problems go to ALERTS.md
+#   every 2h by day    re-capture just the sources your facts cite, then the same rewrites
+#
+# Turn it on (docs/operations.md):
+#   1. `host: github-actions` in your project's groundtruth.yaml (so it's the only pusher)
+#   2. repo variable GT_AUTOPILOT=true
+#   3. a Claude credential as a repo secret: ANTHROPIC_API_KEY (also runs the live eval), or
+#      CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token` (your Claude plan)
+#   4. Settings > Actions > General > Workflow permissions: "Read and write permissions"
+# Times are UTC.
+name: autopilot
+on:
+  schedule:
+    - cron: "0 7 * * *"
+    - cron: "30 13-23/2 * * *"
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: "Quick refresh only (the sources facts cite)"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: autopilot
+  cancel-in-progress: false
+jobs:
+  autopilot:
+    if: vars.GT_AUTOPILOT == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e . && npm install -g @anthropic-ai/claude-code
+      - id: state
+        run: echo "dir=$(python -c 'from groundtruth.project import resolve; print(resolve().logs_dir / "host")')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4  # rewrite state (pauses, failed pages, what's been checked) between runs
+        with:
+          path: ${{ steps.state.outputs.dir }}
+          key: autopilot-state-${{ github.run_id }}
+          restore-keys: autopilot-state-
+      - run: |
+          git config user.name "groundtruth-autopilot"
+          git config user.email "groundtruth-autopilot@users.noreply.github.com"
+      - name: autopilot
+        run: python -m groundtruth host autopilot ${{ (github.event.schedule == '30 13-23/2 * * *' || inputs.quick) && '--quick' || '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GT_WATCHDOG_URL: ${{ vars.GT_WATCHDOG_URL }}
+      - name: run ci and publish data for what was pushed
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Pushes made with GITHUB_TOKEN don't trigger workflows, so start them here.
+          if [ "$(git rev-parse HEAD)" != "${{ github.sha }}" ]; then
+            gh workflow run ci.yml --ref main
+            gh workflow run publish-data.yml --ref main
+          fi

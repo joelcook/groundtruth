@@ -132,6 +132,24 @@ A file with no `tools:` gets one lookup tool named `get_<file name>`.
 - A `source_path` points at a file that exists. (A typo'd path fails, with the
   closest real file suggested.)
 
+**Grounding.** Every exact value in a row (a number, money, a date, a time, a
+phone number, an email, a URL) must appear in the captured source the row cites:
+its own `source` / `source_path`, else the file's. `./gt check` warns about any
+that don't; `./gt check --production` (what the server, Docker, and data bundles
+use) fails on them, and so does every unattended fact update. It compares by
+meaning, not spelling: `39` matches "$39" and "USD 39.00", `1200` matches
+"1,200", `0.1` matches "$0.10" and "10 cents", `2026-09-01` matches
+"September 1, 2026", `"13:00"` matches "1 p.m.", and phone numbers compare by
+their digits. Words (a weekday, a branch name) aren't checked here; a model
+checks those when the refresh host updates facts. Your `key`, `aliases`, `tags`,
+and `notes` are yours, not the source's, so they're skipped. A row whose only
+source is a URL (nothing captured) fails too: there's nothing to check it
+against, so `./gt ingest` the page first.
+
+A value you derive (a monthly price from an annual one) isn't in any source and
+fails, on purpose. Store what the source says, and let the assistant do the
+arithmetic out loud, or cite a source that states the derived value.
+
 Warning (doesn't fail the check): a `ref` value that isn't a key in the
 referenced file.
 

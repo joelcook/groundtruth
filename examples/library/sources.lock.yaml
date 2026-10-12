@@ -1,8 +1,8 @@
 # The version of each source your facts and wiki were last reviewed against.
 # Written by `./gt review --done`. Don't edit by hand.
-sources/pages/borrowing-policy.md: b2b44ebc62327390
-sources/pages/contact-us.md: d38fb77d0fb042f1
-sources/pages/events-calendar.md: 76862d3c27c664f2
-sources/pages/locations-and-hours.md: 540c7c16d605e78b
+sources/pages/borrowing-policy.md: e60797aa180447b0
+sources/pages/contact-us.md: b10d395c9fcf9b77
+sources/pages/events-calendar.md: d40ed55eb10efb0a
+sources/pages/locations-and-hours.md: e818c574c1372cee
 sources/pages/old-fees-flyer.md: 2b6c6430e43e52e6
-sources/pages/programs.md: d741ebbedac4e444
+sources/pages/programs.md: 6db807b7733a89a3

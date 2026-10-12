@@ -42,7 +42,11 @@ class TestServer(unittest.TestCase):
             client = TestClient(server.http_app(self.p))
             health = client.get("/healthz")
             self.assertEqual(health.status_code, 200)
-            self.assertEqual(health.json()["facts"]["hours"], 21)
+            self.assertEqual(set(health.json()), set(server.PUBLIC_HEALTH) | {"checks"})  # no detail without the key
+            self.assertNotIn("probe", health.json())
+            full = client.get("/healthz", headers={"Authorization": "Bearer secret-key"}).json()
+            self.assertEqual(full["facts"]["hours"], 21)
+            self.assertTrue(full["probe"])
             self.assertEqual(client.post("/mcp", json={}).status_code, 401)
             self.assertEqual(client.post("/mcp", json={}, headers={"Authorization": "Bearer nope"}).status_code, 401)
         finally:

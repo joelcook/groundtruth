@@ -44,7 +44,9 @@ class AlertsTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GT_HOST_STATE": str(Path(tmp.name) / "state")}):
             log = alerts.log_path(p)
             write(log, f"{PAGE_X[0]} {PAGE_X[1]}\n")
-            self.assertEqual(alerts.pending(p)[0], [])  # the first run only records where the log ends
+            self.assertEqual(alerts.pending(p)[0], [PAGE_X])  # nothing logged is ever dropped silently
+            alerts.start_publishing(p)  # what ./gt host install does: only what comes next is news
+            self.assertEqual(alerts.pending(p)[0], [])
             alerts.notify(p, "the refresh failed", "./gt check fails")
             with open(log, "a") as fh:
                 fh.write("2026-10-12T19:00:00-04:00 half a li")
@@ -108,7 +110,7 @@ class HostTests(RemoteRepo):
     def test_push_replays_onto_a_moved_main(self):
         wd = host.workdir(self.p, "rewrite")
         self.assertTrue(host.prepare(self.p, wd))
-        write(wd / "assistant" / "wiki" / "new-note.md", "x")
+        write(wd / "assistant" / "notes.txt", "x")
         sh(wd, "add", "-A")
         sh(wd, "commit", "-qm", "wiki: rewrite a page")
         write(self.checkout / "README.md", "someone else\n")  # main moves meanwhile
@@ -118,6 +120,19 @@ class HostTests(RemoteRepo):
         self.assertEqual(host.push(self.p, wd), "pushed")
         self.assertEqual(sh(self.origin, "log", "-2", "--format=%s", "main").splitlines(),
                          ["wiki: rewrite a page", "a person's commit"])
+
+    def test_a_replay_that_breaks_the_gates_isnt_pushed(self):
+        wd = host.workdir(self.p, "rewrite")
+        host.prepare(self.p, wd)
+        write(wd / "assistant" / "wiki" / "broken.md", "no frontmatter")  # fails ./gt check
+        sh(wd, "add", "-A")
+        sh(wd, "commit", "-qm", "wiki: rewrite broken")
+        write(self.checkout / "README.md", "main moves\n")
+        sh(self.checkout, "add", "-A")
+        sh(self.checkout, "commit", "-qm", "a person's commit")
+        sh(self.checkout, "push", "-q", "origin", "HEAD:main")
+        self.assertEqual(host.push(self.p, wd), "conflict")
+        self.assertEqual(self.origin_subject(), "a person's commit")
 
     def test_a_held_lock_makes_pushes_wait(self):
         wd = host.workdir(self.p, "rewrite")
@@ -147,8 +162,23 @@ class HostTests(RemoteRepo):
             self.assertEqual(refresh.run(self.p, push=True, quick=True), 0)
         self.assertEqual(sh(self.checkout, "rev-parse", "HEAD"), head)
 
+    def test_autopilot_is_the_one_pusher_in_ci(self):
+        self.assertEqual(host.autopilot(self.p), 0)  # main names this machine, not github-actions
+        self.assertEqual(self.origin_subject(), "start")
+        cfg = self.p.root / "groundtruth.yaml"
+        cfg.write_text(cfg.read_text().replace(f"host: {host.this_host()}", "host: github-actions"))
+        sh(self.checkout, "commit", "-qam", "the autopilot is the host")
+        sh(self.checkout, "push", "-q", "origin", "HEAD:main")
+        self.assertIn("github-actions", host.stand_down(self.p))  # machines step aside
+        with mock.patch.object(host, "claude_ready", return_value="no Claude credential (test)"):
+            self.assertEqual(host.autopilot(self.p), 0)
+        log = sh(self.origin, "log", "-3", "--format=%s", "main").splitlines()
+        self.assertTrue(log[1].startswith("refresh: sources ("), log)
+        self.assertTrue(log[0].startswith("alerts: pages and facts wait for a rewrite"), log)  # no silent stall
+        self.assertEqual(sh(self.checkout, "status", "--porcelain"), "")
+
     def test_alerts_reach_alerts_md_on_main_once(self):
-        host.publish_alerts(self.p)  # first run: older alerts aren't news
+        alerts.start_publishing(self.p)
         alerts.notify(self.p, "the refresh failed", "./gt check fails after the refresh (facts: x)")
         host.publish_alerts(self.p)
         self.assertTrue(self.origin_subject().startswith("alerts: the refresh failed"))

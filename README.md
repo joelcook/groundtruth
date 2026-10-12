@@ -18,9 +18,12 @@ where it came from.
   page citing its sources. `./gt check` fails if a date, a time, a price, a
   limit, or a phone number sneaks into the prose, and the server only serves
   versions that pass.
+- **Every fact is grounded.** Each number, date, time, price, phone number,
+  email, and URL in your facts must appear in the captured source it cites. A
+  script checks every one, so a mistyped or invented value can't ship.
 - **Changed evidence can't hide.** Re-capture your sources and anything built on
-  a page that changed, or disappeared, gets flagged for review with a diff.
-  Green means reconciled, not just well-formed.
+  a page that changed, or disappeared, gets flagged with a diff until it's
+  reconciled: by a person, or by the refresh host's checked rewrites.
 - **Evals prove it.** Questions with known answers. The free tier checks your
   data and your search with no API key. The live tier asks Claude, with the real
   tools, and fails any answer that came from memory instead of a lookup.
@@ -68,10 +71,11 @@ and say what you want:
 > our policy folder, then take it to production and keep it current.
 
 [CLAUDE.md](CLAUDE.md) walks the agent through every step. It builds the
-facts, pages, and eval questions, then deploys, connects your users, and sets
-up the refresh host and the watchdog. It asks you for what only you can do:
-the hosting account, the secrets, and the machine. `./gt status` shows where
-you are at any point. By hand, it's these commands:
+facts, pages, and eval questions, deploys, and turns on the autopilot and the
+watchdog. From then on the assistant keeps itself current. The agent asks you
+only for credentials (a hosting login and a Claude key), all at once, and makes
+every other decision itself. `./gt status` shows where you are at any point. By
+hand, it's these commands:
 
 ```bash
 ./gt init my-assistant --template saas    # or: college, city, clinic, blank
@@ -225,14 +229,18 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 - **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
   rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
   and costs nothing.
-- **Or nobody merges anything: a refresh host.** `./gt host install` puts one
-  always-on machine in charge. It re-captures sources nightly, and the ones your
-  facts cite every two hours. Every half hour, headless Claude Code (Haiku, on
-  your Claude plan) rewrites the pages that went stale, and Sonnet checks every
-  claim against the sources before anything is kept. It pushes main whenever
-  the gates pass. Anything it can't handle, like a changed source behind your
-  facts, becomes a line in `ALERTS.md`, and the daily watchdog fails until a
-  person deals with it. See [docs/operations.md](docs/operations.md#the-refresh-host-nobody-has-to-merge-anything).
+- **Or nobody in the loop at all.** With `host: github-actions`, a scheduled
+  workflow keeps everything current by itself, with no machine to run. It
+  re-captures sources nightly, and the ones your facts cite every two hours.
+  Headless Claude Code (Haiku writes, Sonnet checks) then:
+  - updates the facts a changed source affects,
+  - writes pages for new sources,
+  - rewrites stale pages.
+
+  A change ships only when every value in it appears in its source, the gates
+  pass, and the second model agrees. Anything it can't handle becomes a line in
+  `ALERTS.md`, and the daily watchdog fails until it's fixed. See
+  [docs/operations.md](docs/operations.md#the-refresh-host-nobody-in-the-loop).
 - **Data without redeploys**: `./gt bundle` packages your facts and wiki;
   servers started with `GT_DATA_URL` verify and hot-swap new bundles.
 - **`./gt report`**: what people ask, error rates, latency, and the gaps:
@@ -258,8 +266,8 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt report` | Usage, errors, latency, and gaps from the tool-call log |
 | `./gt watchdog [--url URL] [--repo]` | Outside-in health check (`--repo`: open alerts, last refresh, CI, deployed code lag) |
 | `./gt refresh [--write --open-pr]` | The weekly agent |
-| `./gt rewrite [--list] [--page P] [--dry-run]` | Rewrite stale wiki pages with headless Claude Code; a second model checks every claim |
-| `./gt host check\|install\|run\|watch` | One machine refreshes, rewrites, and pushes main unattended |
+| `./gt rewrite [--list] [--page P] [--dry-run]` | Update changed facts, cover new sources, rewrite stale pages, all with headless Claude Code and checked |
+| `./gt host autopilot\|install\|check` | The refresh host: GitHub Actions (`autopilot.yml`) or a machine (cron) |
 | `./gt alerts` | What the unattended jobs need a person for (`ALERTS.md`) |
 | `./gt bundle` | Package data for live updates |
 | `./gt status` | What's done, what's left, and the next command |

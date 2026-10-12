@@ -117,6 +117,29 @@ def _origin(meta: dict) -> str | None:
     return str(value) if value else None
 
 
+def local_path(project: Project, value: str) -> Path:
+    """Where a capture's source_path points. New captures store it relative to the project, so a
+    commit never carries someone's home directory; older ones may be absolute."""
+    path = Path(value).expanduser()
+    return (path if path.is_absolute() else project.root / path).resolve()
+
+
+def portable_path(project: Project, path: Path) -> str:
+    """A local document's path as stored in its capture: relative to the project."""
+    import os
+    try:
+        return Path(os.path.relpath(path.resolve(), project.root.resolve())).as_posix()
+    except ValueError:  # another drive on Windows
+        return str(path.resolve())
+
+
+def _origin_key(project: Project, meta: dict) -> str | None:
+    """An origin comparable however it was stored (URL, or a relative or absolute path)."""
+    if meta.get("source_url"):
+        return str(meta["source_url"])
+    return str(local_path(project, str(meta["source_path"]))) if meta.get("source_path") else None
+
+
 def history_dir(project: Project) -> Path:
     return project.sources_dir / ".history"
 
@@ -134,9 +157,9 @@ def save_history(project: Project, path: Path) -> None:
 
 
 def capture_for(project: Project, origin: str) -> Path | None:
-    """The existing capture of this URL or file, whatever it's named."""
+    """The existing capture of this URL or file (an origin key), whatever it's named."""
     for path, meta in _existing_pages(project):
-        if _origin(meta) == origin:
+        if _origin_key(project, meta) == origin:
             return path
     return None
 
@@ -144,11 +167,11 @@ def capture_for(project: Project, origin: str) -> Path | None:
 def write_page(project: Project, slug: str, title: str, body: str, origin: dict, result: IngestResult,
                dry_run: bool = False) -> None:
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
-    me = _origin(origin)
+    me = _origin_key(project, origin)
     existing = capture_for(project, me) if me else None
     path = existing or project.pages_dir / f"{slug}.md"
     meta = page_meta(path)
-    if existing is None and path.exists() and _origin(meta) not in (None, me):
+    if existing is None and path.exists() and _origin_key(project, meta) not in (None, me):
         # Two different documents want the same name: keep both, deterministically.
         path = project.pages_dir / f"{slug}-{hashlib.sha1(str(me).encode()).hexdigest()[:6]}.md"
         meta = page_meta(path)
@@ -306,11 +329,21 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
         except Exception as exc:  # noqa: BLE001
             result.skipped.append(f"{url} ({type(exc).__name__})")
             continue
+        if r.status_code in (404, 410):
+            gone = capture_for(project, url)
+            if gone is not None:
+                mark_removed(project, gone, result, dry_run)
+            else:
+                result.skipped.append(f"{url} (HTTP {r.status_code})")
+            continue
         if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
             result.skipped.append(f"{url} (HTTP {r.status_code}, {r.headers.get('content-type', '?')})")
             continue
-        fetched += 1
         final = _clean_url(str(r.url))
+        if urlparse(final).netloc != host:  # never capture another site because a page redirected there
+            result.skipped.append(f"{url} (redirects off the site, to {urlparse(final).netloc})")
+            continue
+        fetched += 1
         title, body = html_to_markdown(r.text, final)
         if len(body) < 80:
             result.skipped.append(f"{url} (almost no text)")
@@ -355,7 +388,7 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
     for path in files:
         ext = path.suffix.lower()
         rel_name = path.relative_to(base).with_suffix("").as_posix()
-        origin = {"source_path": str(path.resolve())}
+        origin = {"source_path": portable_path(project, path)}
         if ext in {".md", ".markdown", ".txt"}:
             text = path.read_text(encoding="utf-8", errors="replace")
             m = FRONTMATTER_RE.match(text)
@@ -378,10 +411,10 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
         else:
             result.skipped.append(f"{path} (unsupported type {ext or 'none'})")
     if folder.is_dir():
-        root = str(folder.resolve())
+        root = folder.resolve()
         for page, meta in _existing_pages(project):
             src = meta.get("source_path")
-            if src and str(Path(src)).startswith(root) and not Path(src).exists():
+            if src and local_path(project, str(src)).is_relative_to(root) and not local_path(project, str(src)).exists():
                 mark_removed(project, page, result, dry_run)
 
 
@@ -401,8 +434,9 @@ def recapture(project: Project, rels: list[str], *, dry_run: bool = False, delay
             continue
         url, local = meta.get("source_url"), meta.get("source_path")
         if local:
-            if Path(str(local)).exists():
-                ingest_folder(project, Path(str(local)), result, dry_run)
+            target = local_path(project, str(local))
+            if target.exists():
+                ingest_folder(project, target, result, dry_run)
             else:
                 mark_removed(project, path, result, dry_run)
             continue
@@ -421,6 +455,8 @@ def recapture(project: Project, rels: list[str], *, dry_run: bool = False, delay
             mark_removed(project, path, result, dry_run)
         elif r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
             result.skipped.append(f"{url} (HTTP {r.status_code}, {r.headers.get('content-type', '?')})")
+        elif urlparse(_clean_url(str(r.url))).netloc != urlparse(str(url)).netloc:
+            result.skipped.append(f"{url} (redirects off the site, to {urlparse(str(r.url)).netloc})")
         else:
             final = _clean_url(str(r.url))
             title, body = html_to_markdown(r.text, final)

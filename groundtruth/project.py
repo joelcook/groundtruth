@@ -66,6 +66,8 @@ class Project:
 
     @property
     def prompt_path(self) -> Path:
+        if self.data_root is not None and (self.data_root / "prompts" / "system_prompt.md").exists():
+            return self.data_root / "prompts" / "system_prompt.md"  # a published bundle carries the prompt
         return self.root / "prompts" / "system_prompt.md"
 
     @property
@@ -123,6 +125,11 @@ class Project:
     @property
     def ingest_max_pages(self) -> int:
         return int((self.config.get("ingest") or {}).get("max_pages") or 200)
+
+    @property
+    def url(self) -> str | None:
+        """The deployed server's /mcp URL (``url:`` in groundtruth.yaml). Public, not a secret."""
+        return str(self.config.get("url") or "").strip() or None
 
     def rel(self, path: Path | str) -> str:
         """A path relative to the project, for friendly output."""

@@ -312,7 +312,6 @@ def build_server(project: Project, gate: Gate | None = None):
         log_level=os.environ.get("GT_LOG_LEVEL", "warning").upper(),
     )
     annotations = ToolAnnotations(**READ_ONLY)
-    store = facts.store(project)
     registered: dict[str, str] = {}  # fact tool name -> its spec, to spot changes
 
     def sync() -> None:
@@ -327,9 +326,10 @@ def build_server(project: Project, gate: Gate | None = None):
                 else:  # older mcp 1.x
                     server._tool_manager._tools.pop(name, None)
                 del registered[name]
+        current = facts.store(project)  # a data bundle swaps in a new store; never hold on to the old one
         for name, spec_out in specs.items():
             if name not in registered:
-                fn = _make_fact_tool(project, store.tools[name], gate)
+                fn = _make_fact_tool(project, current.tools[name], gate)
                 server.add_tool(fn, name=name, description=spec_out["description"], annotations=annotations)
                 registered[name] = json.dumps(spec_out, sort_keys=True, default=str)
 
@@ -383,8 +383,21 @@ def _transport_security():
                                      allowed_origins=origins)
 
 
-def health(project: Project, gate: Gate | None = None) -> dict[str, Any]:
-    """What /healthz returns. ``ok`` means: serving a version that passed ./gt check."""
+PUBLIC_HEALTH = ("ok", "name", "groundtruth", "commit", "data_version", "built_at")
+COMMIT_VARS = ("GT_BUILD_COMMIT", "RENDER_GIT_COMMIT", "RAILWAY_GIT_COMMIT_SHA")  # set at build, or by the platform
+
+
+def build_commit() -> str | None:
+    """The commit the running code came from, so the watchdog can tell when it falls behind main."""
+    return next((os.environ[v].strip() for v in COMMIT_VARS if os.environ.get(v, "").strip()), None)
+
+
+def health(project: Project, gate: Gate | None = None, *, full: bool = True) -> dict[str, Any]:
+    """What /healthz returns. ``ok`` means: serving a version that passed ./gt check.
+
+    Load balancers get the public part with no key. Error text, a page title, and the data
+    updater's state only go to callers with the key (./gt watchdog sends it).
+    """
     if gate is not None:
         status = gate.status()
         pages = gate.pages or []
@@ -398,11 +411,11 @@ def health(project: Project, gate: Gate | None = None) -> dict[str, Any]:
     store = facts.store(project)
     store.refresh()
     db = project.db_path
-    return {
+    body = {
         "ok": status["ok"],
         "name": project.name,
         "groundtruth": __version__,
-        "commit": os.environ.get("GT_BUILD_COMMIT", "").strip() or None,  # the code's commit, stamped at build
+        "commit": build_commit(),
         "data_version": store.meta.get("fingerprint"),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(db.stat().st_mtime)) if db.exists() else None,
         "facts": json.loads(store.meta.get("counts", "{}")),
@@ -411,6 +424,12 @@ def health(project: Project, gate: Gate | None = None) -> dict[str, Any]:
         "tools": len(store.tools) + 2,
         "checks": status,
     }
+    if os.environ.get("GT_DATA_URL", "").strip():
+        from groundtruth import bundle
+        body["data_update"] = bundle.status()
+    if not full:
+        return {k: body[k] for k in PUBLIC_HEALTH} | {"checks": {"ok": status["ok"]}}
+    return body
 
 
 class GatewayMiddleware:
@@ -421,6 +440,17 @@ class GatewayMiddleware:
         self.project = project
         self.api_key = api_key
         self.gate = gate
+
+    def _authorized(self, headers: dict) -> bool:
+        if not self.api_key:
+            return True
+        auth = headers.get(b"authorization", b"")
+        if auth.lower().startswith(b"bearer "):
+            presented = auth[7:].decode(errors="ignore").strip()
+        else:
+            presented = (headers.get(b"x-api-key") or headers.get(b"x-ms-apikey") or b"").decode(
+                errors="ignore").strip()
+        return bool(presented) and hmac.compare_digest(presented, self.api_key)
 
     async def _send_json(self, send, status: int, body: dict) -> None:
         data = json.dumps(body).encode()
@@ -433,24 +463,16 @@ class GatewayMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
         if path in ("/healthz", "/health"):
             try:
-                body = health(self.project, self.gate)
+                body = health(self.project, self.gate, full=self._authorized(headers))
                 return await self._send_json(send, 200 if body["ok"] else 503, body)
-            except Exception as exc:  # noqa: BLE001 - health must report, not crash
-                return await self._send_json(send, 503, {"ok": False, "error": str(exc)})
-        headers = {k.lower(): v for k, v in scope.get("headers", [])}
-        if self.api_key:
-            presented = ""
-            auth = headers.get(b"authorization", b"")
-            if auth.lower().startswith(b"bearer "):
-                presented = auth[7:].decode(errors="ignore").strip()
-            else:
-                presented = (headers.get(b"x-api-key") or headers.get(b"x-ms-apikey") or b"").decode(
-                    errors="ignore").strip()
-            if not presented or not hmac.compare_digest(presented, self.api_key):
-                return await self._send_json(send, 401, {"error": "unauthorized",
-                                                         "hint": "send Authorization: Bearer <GT_MCP_API_KEY>"})
+            except Exception:  # noqa: BLE001 - health must report, not crash (and not leak why)
+                return await self._send_json(send, 503, {"ok": False, "error": "health check failed"})
+        if not self._authorized(headers):
+            return await self._send_json(send, 401, {"error": "unauthorized",
+                                                     "hint": "send Authorization: Bearer <GT_MCP_API_KEY>"})
         if self.gate is not None:  # every request sees the latest checked version (initialize, tools/list...)
             import anyio
             await anyio.to_thread.run_sync(self.gate.refresh)

@@ -58,7 +58,7 @@ import yaml
 from groundtruth import alerts
 from groundtruth.project import Project
 
-BOT_PREFIXES = ("refresh:", "wiki: rewrite", "alerts:")  # commits the host makes; none needs a rescrape
+BOT_PREFIXES = ("refresh:", "wiki: rewrite", "wiki: cover", "facts: update", "alerts:")  # the host's own commits
 CODE_PATHS = ("groundtruth", "Dockerfile", "pyproject.toml")  # what a server image runs; data ships in bundles
 JOBS = ("refresh", "rewrite")
 JOB_ARGS = {"refresh": ["refresh", "--write", "--push"], "rewrite": ["rewrite"]}
@@ -185,7 +185,9 @@ def named_host(project: Project) -> str:
 
 
 def stand_down(project: Project) -> str | None:
-    """Why this machine must not run the jobs, or None when it may."""
+    """Why this machine must not run the jobs, or None when it may. Fetches first: a moved host
+    takes effect on the next run, not whenever someone pulls this checkout."""
+    git(git_root(project), "fetch", "origin", "--quiet", check=False)
     want, have = named_host(project), this_host()
     if want and want != have:
         return f"standing down: main names {want} as the refresh host, not {have}"
@@ -226,12 +228,14 @@ def refresh_lock(project: Project) -> Path:
 
 
 def workdir(project: Project, job: str) -> Path:
-    """One worktree per repo, project, and job, so two assistants in one repo never share one."""
+    """One worktree per checkout, project, and job: two assistants, or two repos with the same name,
+    never share one."""
     base = Path(os.environ.get("GT_HOST_WORKDIR") or Path.home() / ".cache" / "groundtruth")
     root = git_root(project)
     rel = project_path(project, root)
     slug = root.name if rel == "." else f"{root.name}-{re.sub(r'[^A-Za-z0-9]+', '-', rel).strip('-')}"
-    return base / f"{slug}-{job}"
+    ident = hashlib.sha256(str(root).encode()).hexdigest()[:8]
+    return base / f"{slug}-{ident}-{job}"
 
 
 def cron_marker(project: Project) -> str:
@@ -251,10 +255,16 @@ def push(project: Project, wd: Path, *, wait: float = 0.0, locked: bool = False)
         with lock(refresh_lock(project), wait) as got:
             return push(project, wd, locked=True) if got else "busy"
     for _ in range(PUSH_TRIES):
+        before = git(wd, "rev-parse", "HEAD~" + str(ahead(wd))).stdout.strip()
         git(wd, "fetch", "origin", "--quiet")
         if git(wd, "rebase", "origin/main", check=False).returncode != 0:
             git(wd, "rebase", "--abort", check=False)
             return "conflict"
+        if git(wd, "rev-parse", "origin/main").stdout.strip() != before:  # main moved: re-run the gates
+            why = still_green(project, wd)
+            if why:
+                log(why)
+                return "conflict"
         out = git(wd, "push", "origin", "HEAD:main", check=False)
         if out.returncode == 0:
             log(f"pushed {git(wd, 'rev-parse', '--short', 'HEAD').stdout.strip()} to main")
@@ -297,8 +307,26 @@ def prepare(project: Project, wd: Path, *, locked: bool = False) -> bool:
 # ===================================================================== jobs
 
 
-def _job_env(project: Project) -> dict[str, str]:
-    return {**os.environ, "GT_HOST_STATE": str(alerts.state_dir(project)), "GT_HOST_JOB": "1", "GT_LOG": "0"}
+def _job_env(project: Project, wd: Path | None = None) -> dict[str, str]:
+    env = {**os.environ, "GT_HOST_STATE": str(alerts.state_dir(project)), "GT_HOST_JOB": "1", "GT_LOG": "0"}
+    if wd is not None:  # main's code from the worktree, never the checkout's install
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(wd), os.environ.get("PYTHONPATH", "")]))
+    return env
+
+
+def still_green(project: Project, wd: Path) -> str | None:
+    """After replaying onto a moved main: why the combination fails the gates (None if it passes).
+
+    Changed sources waiting for review don't count; they're expected between a refresh and a rewrite.
+    """
+    target = str(wd / project_path(project))
+    for args in (["check", "--ignore-review"], ["eval"]):
+        out = subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, *args], cwd=wd,
+                             env=_job_env(project, wd), text=True, capture_output=True, check=False)
+        if out.returncode != 0:
+            lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip().startswith(("✗", "facts", "wiki"))]
+            return f"./gt {args[0]} fails after replaying onto main: {(lines or [out.stdout.strip()[-200:]])[0]}"
+    return None
 
 
 def run(project: Project, job: str, extra: list[str] | None = None) -> int:
@@ -338,7 +366,7 @@ def _run(project: Project, job: str, extra: list[str], *, locked: bool) -> int:
     cmd = [sys.executable, "-m", "groundtruth", "-p", str(target), *JOB_ARGS[job], *extra]
     at = git(wd, "rev-parse", "--short", "HEAD").stdout.strip()
     log(f"{job}: {' '.join(JOB_ARGS[job] + extra)} at origin/main {at}")
-    rc = subprocess.run(cmd, cwd=wd, env=_job_env(project), check=False).returncode
+    rc = subprocess.run(cmd, cwd=wd, env=_job_env(project, wd), check=False).returncode
     if job == "refresh" and rc != 0:
         if rc != 1:  # 1 means the refresh already explained itself in an alert
             alerts.notify(project, "the refresh crashed", f"./gt refresh exited {rc} on {this_host()}. "
@@ -424,7 +452,7 @@ def _stale_alert(project: Project, head: str) -> None:
     wd = workdir(project, "watch")
     prepare(project, wd)
     out = subprocess.run([sys.executable, "-m", "groundtruth", "-p", str(wd / project_path(project)),
-                          "rewrite", "--list"], cwd=wd, env=_job_env(project), text=True,
+                          "rewrite", "--list"], cwd=wd, env=_job_env(project, wd), text=True,
                          capture_output=True, check=False).stdout
     pages = [line for line in out.splitlines() if line.strip() and not line[0].isspace()
              and not line.startswith("nothing")]
@@ -448,7 +476,7 @@ def code_commits_since(root: Path, deployed: str, head: str) -> int | None:
 
 def _deploy_alert(project: Project, head: str) -> None:
     """When GT_WATCHDOG_URL is set: alert if the deployed server runs code older than main's."""
-    url = os.environ.get("GT_WATCHDOG_URL", "").strip()
+    url = os.environ.get("GT_WATCHDOG_URL", "").strip() or project.url
     if not url:
         return
     from groundtruth import watchdog
@@ -490,6 +518,87 @@ def publish_alerts(project: Project) -> None:
                 log(f"published {len(added)} alert(s) to {alerts.ALERTS_FILE}")
                 alerts.mark_published(project, offset)
                 return
+
+
+# ===================================================================== GitHub Actions as the host
+
+
+ACTIONS_HOST = "github-actions"
+
+
+def claude_ready() -> str | None:
+    """Why ./gt rewrite can't run here (None when it can): the claude CLI and a credential."""
+    if not (os.environ.get("GT_CLAUDE") or shutil.which("claude")):
+        return "the claude CLI isn't installed"
+    if not (os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+            or (Path.home() / ".claude").exists()):
+        return "no Claude credential: set the CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY secret"
+    return None
+
+
+def publish_alerts_here(project: Project) -> None:
+    """Merge new alerts into ALERTS.md in this checkout and push (the autopilot's version of the watcher's)."""
+    new, offset = alerts.pending(project)
+    if not new:
+        return
+    root = git_root(project)
+    path = project.root / alerts.ALERTS_FILE
+    merged, added = alerts.merge(path.read_text(encoding="utf-8") if path.exists() else "", new)
+    if added:
+        path.write_text(merged, encoding="utf-8")
+        more = f" (+{len(added) - 1} more)" if len(added) > 1 else ""
+        git(root, "add", "--", str(path))
+        git(root, "commit", "--quiet", "-m", f"alerts: {added[0][:60].rstrip()}{more}")
+        if push(project, root, locked=True) != "pushed":
+            return  # the next run publishes them
+    alerts.mark_published(project, offset)
+
+
+def autopilot(project: Project, *, quick: bool = False) -> int:
+    """One unattended pass in this checkout, for a CI runner that is the refresh host.
+
+    refresh (and push), then ./gt rewrite (and push), then, nightly, the live eval; problems
+    go to ALERTS.md. .github/workflows/autopilot.yml runs it; ``host: github-actions`` in
+    groundtruth.yaml makes it the one pusher, so any machine with ./gt host installed stands down.
+    """
+    want = named_host(project)
+    if want != ACTIONS_HOST:
+        log(f"standing down: main names {want or 'no'} refresh host; set `host: {ACTIONS_HOST}` to use this")
+        return 0
+    root = git_root(project)
+    env = _job_env(project, root)
+    env.pop("GT_HOST_STATE", None)  # the runner's state lives in the project's logs/, which the workflow caches
+    target = str(project.root)
+
+    def step(*args: str) -> int:
+        log("+ ./gt " + " ".join(args))
+        return subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, *args], cwd=root, env=env,
+                              check=False).returncode
+
+    rc = step("refresh", "--write", "--push", *(["--quick"] if quick else []))
+    if rc not in (0, 1):
+        alerts.notify(project, "the refresh crashed", f"./gt refresh exited {rc} in GitHub Actions; see the run log.")
+    if push(project, root, locked=True) in ("conflict", "rejected"):
+        reset(root)
+    why = claude_ready()
+    if why is None:
+        if step("rewrite") not in (0, 1):
+            alerts.notify(project, "the wiki rewrite job crashed", "./gt rewrite crashed in GitHub Actions; see the run log.")
+        if push(project, root, locked=True) in ("conflict", "rejected"):
+            reset(root)
+    else:
+        listing = subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, "rewrite", "--list"], cwd=root,
+                                 env=env, text=True, capture_output=True, check=False).stdout
+        if listing.strip() and not listing.startswith("nothing"):
+            alerts.notify(project, "pages and facts wait for a rewrite that can't run",
+                          f"{why}. Until then, changed sources stay unreviewed and ./gt check stays red.")
+    if not quick and os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("GT_LIVE_EVAL", "1") != "0" \
+            and step("eval", "--tier", "live") != 0:
+        alerts.notify(project, "the live eval failed",
+                      "the assistant answered at least one golden question wrong on the production model. "
+                      "Run ./gt eval --tier live to see which, then fix the fact, page, or prompt.")
+    publish_alerts_here(project)
+    return 0
 
 
 # ===================================================================== scheduling
@@ -559,6 +668,7 @@ def install(project: Project, *, at: str = "03:00", rewrite: bool = True) -> str
     head = git(root, "rev-parse", "origin/main", check=False).stdout.strip()
     if head:  # the watcher's first run shouldn't treat all of history as news
         (alerts.state_dir(project) / "last-seen-main").write_text(head + "\n")
+    alerts.start_publishing(project)
     current = strip_block(_crontab(), cron_marker(project))
     _write_crontab(current + ("\n" if current else "") + cron_block(project, at=at, rewrite=rewrite))
     return f"installed the {CRON_TAG} schedule for {root} in this machine's crontab"

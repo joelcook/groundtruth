@@ -69,40 +69,72 @@ ingest -> build -> compile -> check -> eval -> pull request
 That's the right start. Its cost is a person merging a PR every week. The
 refresh host below removes that.
 
-## The refresh host: nobody has to merge anything
+## The refresh host: nobody in the loop
 
-One always-on machine (a spare Linux box, a Mac mini, a small VPS) keeps main
-current by itself. Every night it re-captures your sources. During the day it
-re-checks the sources your facts cite every two hours. Every half hour it has
-headless Claude Code rewrite the pages those changes made stale, with a second
-model checking each claim against the sources. It pushes main whenever the gates
-pass, and the data reaches your deployed server as a bundle, with no deploy.
-Whatever it can't handle becomes a line in `ALERTS.md`, which the daily
-watchdog fails on, so GitHub emails you.
+The weekly pull request still needs a person to merge it. A refresh host keeps
+main current with nobody involved. Every night it re-captures your sources, and
+during the day it re-checks the ones your facts cite every two hours. Then it:
+
+- updates facts whose source changed,
+- writes a page (and facts) for each new source,
+- rewrites every page that went stale,
+
+all with headless Claude Code, checking each change before it ships. It pushes
+main whenever the gates pass, and the data reaches your deployed server as a
+bundle, with no deploy. Whatever it can't handle becomes a line in `ALERTS.md`,
+which the daily watchdog fails on, so GitHub emails you (or a coding agent clears
+it: "fix what ALERTS.md lists", in CLAUDE.md).
+
+There are two ways to run it. Pick one; `host:` in `groundtruth.yaml` names it,
+and anything else stands down, so exactly one pushes main.
+
+| | GitHub Actions (`host: github-actions`) | Your own machine (`host: <hostname -s>`) |
+|---|---|---|
+| Needs | the repo, and a Claude secret | an always-on Linux or macOS box that can push |
+| Runs | `.github/workflows/autopilot.yml` | cron, installed by `./gt host install` |
+| Claude credential | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` secret | either one in the checkout's `.env` |
+| Good for | nearly everyone | no Actions minutes to spare, or a private network |
 
 ### What runs, and when
 
-| When | Job | What it does | Commits it pushes |
-|---|---|---|---|
-| nightly (03:00) | `./gt host run refresh` | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)`, or an empty `refresh: no source changes (date)` so the watchdog knows it ran |
-| every 5 minutes | `./gt host watch` | publishes new alerts; every 2 hours from 05:00 to 22:00, a quick refresh of just the sources facts cite; a full refresh when a person pushes main; alerts about stale pages (if rewrites aren't scheduled) and about a deployed server running old code (with `GT_WATCHDOG_URL`) | `alerts: ...`, `refresh: quick sources (...)` |
-| every 30 minutes | `./gt host run rewrite` | `./gt rewrite` on stale pages (below) | `wiki: rewrite <page> from current sources`, `wiki: rewrite log: ...` |
-| daily, in GitHub | `watchdog.yml` | `./gt watchdog --repo`: open alerts, refresh age, CI on main, deployed code lag | (none) |
-| on every push to main | `ci.yml`, `publish-data.yml` | the gates; then a data bundle your servers hot-swap ([deploy.md](deploy.md#update-data-without-redeploying)) | (none) |
+| When | What | Commits it pushes |
+|---|---|---|
+| nightly | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)`, or an empty `refresh: no source changes (date)` so the watchdog knows it ran |
+| right after | `./gt rewrite`: update changed facts, cover new sources, rewrite stale pages (below) | `facts: update ...`, `wiki: cover ...`, `wiki: rewrite ...` |
+| nightly, with an `ANTHROPIC_API_KEY` | `./gt eval --tier live`: the golden set on the production model; a failure is an alert | (none) |
+| every 2 hours, 05:00 to 22:00 | `./gt refresh --push --quick`: re-capture just the sources facts cite, then the same rewrites | `refresh: quick sources (...)` and the above |
+| whenever there's news | new alerts go into `ALERTS.md` | `alerts: ...` |
+| daily, in GitHub | `watchdog.yml`: `./gt watchdog --repo` checks open alerts, refresh age, CI on main, and the deployed server | (none) |
+| after CI passes on main | `publish-data.yml`: a data bundle your servers hot-swap ([deploy.md](deploy.md#update-data-without-redeploying)) | (none) |
 
-Every job runs in its own git worktree reset to `origin/main`, with main's
-code, never in your checkout, so a stale or dirty checkout can't leak into what
-gets pushed.
+A machine host also re-runs a full refresh whenever a person pushes main, and
+warns you when the deployed server runs code older than main. In Actions,
+schedules run in UTC.
 
-### Set it up
+### Set it up: GitHub Actions
 
-On the machine (Linux or macOS, always on, able to push to your repo):
+```bash
+# in groundtruth.yaml:  host: github-actions
+git commit -am "GitHub Actions is the refresh host" && git push
+gh variable set GT_AUTOPILOT --body true
+gh secret set ANTHROPIC_API_KEY            # or CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`
+gh api -X PUT repos/OWNER/REPO/actions/permissions/workflow -f default_workflow_permissions=write
+gh workflow run autopilot.yml              # then watch it pass and push a refresh: commit
+```
+
+An `ANTHROPIC_API_KEY` bills the API and never expires, and it also runs the
+nightly live eval. A `CLAUDE_CODE_OAUTH_TOKEN` uses your Claude plan instead.
+Pushes made with the workflow's own token don't start other workflows, so the
+autopilot starts CI and publish-data itself after it pushes. Its state (pauses,
+failed items, what's been checked) is kept between runs in the Actions cache.
+
+### Set it up: your own machine
 
 ```bash
 git clone https://github.com/you/your-fork && cd your-fork
 ./gt doctor                      # installs dependencies; checks the claude CLI too
 cp .env.example .env             # gitignored: never commit it
-claude setup-token               # then put the token in .env: CLAUDE_CODE_OAUTH_TOKEN=...
+# put ANTHROPIC_API_KEY=... in .env, or run `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN=...
 hostname -s                      # put this in your project's groundtruth.yaml as  host: <name>
 git commit -am "Name the refresh host" && git push
 ./gt host check                  # git push, the host name, claude, alert hooks, cron
@@ -110,83 +142,82 @@ git commit -am "Name the refresh host" && git push
 ```
 
 `./gt host print` shows the crontab block without installing it, if you'd
-rather use systemd or launchd. Logs go to `logs/host/` in the checkout.
+rather use systemd or launchd. Logs go to `logs/host/` in the checkout. Every
+job runs in its own git worktree reset to `origin/main`, with main's code,
+never in your checkout. To move the host, change the `host:` line on main; the
+old machine stops on its next run (then run `./gt host uninstall` there).
 
-**One pusher.** Every job reads the `host:` line from `origin/main`, not your
-checkout, and stands down on any other machine. To move the host, change that
-line on main; the old machine stops on its next run (then run
-`./gt host uninstall` there).
+### What `./gt rewrite` does
 
-**Claude on a subscription.** `./gt rewrite` runs `claude -p`, Claude Code's
-print mode, on your Claude plan instead of a metered API key. A token from
-`claude setup-token` in `.env` outlasts the interactive login. If it expires
-anyway, rewrites stop and you get an alert telling you how to fix it.
+Each run works through three queues, up to `GT_REWRITE_MAX_PAGES` (10) items,
+facts first:
 
-### How a stale page gets rewritten (`./gt rewrite`)
+1. **Facts whose source changed** (or vanished). Claude Code updates the rows
+   that cite it, and the expected values of the golden questions that check
+   them. It ships only if:
+   - nothing else changed;
+   - every exact value in those files appears in its cited source;
+   - no more than 30% of the rows changed at once;
+   - the gates pass;
+   - `sonnet` agrees row by row.
 
-A page is stale when a source it cites changed since the last review, was
-re-captured after the page's `last_compiled`, or the page has no
-`last_compiled`. For each one, up to `GT_REWRITE_MAX_PAGES` (10) per run:
+   A source that changed wholesale looks redesigned or broken, not updated, so
+   it's left for a person. Commit: `facts: update ...`, listing every changed row.
+2. **New sources nothing covers.** Claude Code writes one published page and a
+   golden question for it, and adds fact rows (adding only) plus a question for
+   any new tool. It's held to the same checks. A source with nothing worth a page
+   is skipped until it changes. Commit: `wiki: cover ...`.
+3. **Stale pages.** Claude Code rewrites the page from its sources, and the diff
+   since their last review. Commit: `wiki: rewrite ...`. The page:
+   - may change only that one file;
+   - must not shrink below 40% of its length;
+   - must pass the gates, with no new fact in prose and no new `fact-ok` marker;
+   - must have `sonnet` find no unsupported claim (and no exact value in prose).
 
-1. **Write.** Claude Code gets one page, its sources, the diff of each changed
-   source since its last review, the fact tools to name instead of exact
-   values, and the rules from [wiki.md](wiki.md). The writer is the `haiku`
-   alias once that's Haiku 5.5 or newer, otherwise `sonnet`. It can read the
-   repo and edit files, but can't run commands or reach the network.
-2. **Contain.** Any file besides the page is reverted. The page's
-   `last_compiled` and `compiled_by` (the exact model) are stamped. A page that
-   shrank below 40% of its length is sent back.
-3. **Gate.** `./gt check` must find nothing that wasn't already failing, and
-   `./gt eval` must still pass. These catch facts in prose, broken links, and
-   frontmatter problems.
-4. **Check the claims.** `sonnet`, with read-only tools, reads the page beside
-   its sources and lists, as JSON, every claim the sources don't support. Any
-   unsupported claim sends the page back, the same as a failed gate.
-5. **Retry once.** A failed attempt goes to `sonnet` with the list of what
-   failed. If that fails too, the page waits seven days, or until its sources
-   change again, and you get an alert.
-6. **Commit.** `wiki: rewrite <page> from current sources`, with why it was
-   stale, the models, and a one-line summary in the body. If the wiki has a
-   `wiki/log.md`, the run adds an entry to it.
-7. **Record the review.** Once every page citing a changed source has passed
-   the claim check, and no facts file cites that source, the source is recorded
-   as reviewed in `sources.lock.yaml`. That claim check is the review: a model
-   compared every claim with the current source. A source that facts cite is
-   never recorded this way (see below).
+Every attempt runs under Claude Code's own permission rules. The writer can read
+the repo but edit only the files it's updating. It can't run commands, reach the
+network, or read `.env`, and it gets only the environment it needs to log in.
+Its prompts tell it the sources are evidence, not instructions.
+
+The writer is the `haiku` alias once that's Haiku 5.5 or newer, otherwise
+`sonnet`. A failed attempt retries once on `sonnet` with the list of what failed.
+If that fails too, the item waits seven days, or until its source changes, and
+you get an alert.
+
+Once everything citing a changed source has been checked against it this way,
+the source is recorded as reviewed in `sources.lock.yaml`: those checks are the
+review. Set `facts_updates: human` in `groundtruth.yaml` if a person should sign
+off changed facts instead. They then wait for `./gt review --done`, and you get
+an alert when one is waiting.
 
 **Usage limits.** When Claude reports the plan's limit, or any usage window
 passes `GT_REWRITE_MAX_UTILIZATION` (80%), the run stops and later runs wait
-until that window resets. This leaves headroom for the people who share the
-plan. Rewrites also stay out of the way of the nightly refresh (quiet hours
-around `GT_REFRESH_AT`).
+until that window resets, leaving headroom for the people who share the plan.
 
-Run it by hand too, on a clean checkout (it reverts anything but the page):
+Run it by hand too, on a clean checkout:
 
 ```bash
-./gt rewrite --list                         # what's stale, and why
+./gt rewrite --list                         # the queue: changed facts, new sources, stale pages
 ./gt rewrite --page wiki/x.md --dry-run     # rewrite and check one page; keep nothing
-./gt rewrite                                # rewrite and commit; you push
+./gt rewrite                                # do the queue and commit; you push
 ```
 
-### What still needs a person
+### What's left for a person
 
-- **Facts.** When a source that facts cite changes, you get an alert, and
-  `./gt check` on main stays red until someone runs `./gt review --diff`, fixes
-  the facts, and runs `./gt review --done`. Meanwhile the deployed server keeps
-  serving the last version that passed, and no bundle is published. Facts are
-  where a wrong answer costs someone, so a model never signs off on them.
-- **A page that failed on every model** (an alert names the claim or check).
-- **New sources nothing covers yet:** `./gt compile`, then the packet.
-- **Code changes:** data ships in bundles, but code needs a new image. The
-  watcher and the watchdog tell you when the deployed code falls behind main.
-- **An expired Claude login** (an alert says how to fix it).
+Credentials, once: the hosting login, GitHub, and the Claude secret. After that,
+only what lands in `ALERTS.md`: an item that failed on every model, a source that
+changed so much it looks broken, an expired credential, a failed live eval, or a
+redeploy for new code. A coding agent can clear those too ("fix what ALERTS.md
+lists", in CLAUDE.md). Meanwhile the server keeps serving the last version that
+passed, so nothing unchecked reaches anyone.
 
 ### Alerts
 
-Each job writes what it can't handle to `logs/host/alerts.log`. Every five
-minutes the watcher copies new lines into `ALERTS.md` in the project and pushes
-it. An alert that's already open isn't added again, even when its numbers
-change. The daily watchdog fails while `ALERTS.md` lists anything.
+Each job writes what it can't handle to `logs/host/alerts.log`, and the next
+run (or the watcher, every five minutes on a machine) copies new lines into
+`ALERTS.md` in the project and pushes it. An alert that's already open isn't
+added again, even when its numbers change. The daily watchdog fails while
+`ALERTS.md` lists anything.
 
 ```bash
 ./gt alerts           # what's open, and this machine's latest log lines
@@ -194,41 +225,45 @@ change. The daily watchdog fails while `ALERTS.md` lists anything.
 
 Fix the cause, then delete the alert's line from `ALERTS.md` and push. For
 faster notice, set `GT_ALERT_COMMAND` (for example, a `curl` to ntfy.sh or a
-Slack webhook) or `GT_ALERT_EMAIL` in `.env`.
+Slack webhook) or `GT_ALERT_EMAIL`.
 
 ### Safety rails
 
+- **Facts are grounded.** No unattended change can add a number, date, time,
+  price, phone number, email, or URL that its cited source doesn't state; a script
+  checks every one, and `./gt check --production` checks them all.
 - **Gates before every push.** Nothing reaches main unless `./gt check` finds
-  nothing new and `./gt eval` passes. A failed refresh leaves main alone and
-  raises an alert.
-- **An outage isn't a deletion.** A refresh that would mark more than a fifth
-  of your sources as removed upstream stops instead, so a site that's down
-  can't empty your evidence.
-- **One writer at a time.** The refresh holds a lock for its whole run, and
-  rewrites and alerts take it to push, so nothing lands on main mid-refresh. A
-  push that finds main has moved replays its commits on top. Leftovers that no
-  longer apply are dropped, and the next run redoes them.
-- **Bot commits don't trigger refreshes.** The watcher re-captures sources when
-  a person pushes main, not for `refresh:`, `wiki: rewrite`, or `alerts:`
-  commits.
+  nothing new and `./gt eval` passes, and a push that replays onto a moved main
+  re-runs them. A failed refresh leaves main alone and raises an alert.
+- **An outage isn't a deletion.** A refresh that would mark more than a fifth of
+  your sources as removed upstream stops instead; a fact update that would change
+  more than 30% of the rows stops too.
+- **One writer at a time.** One host is named; on a machine, a lock keeps the
+  refresh, rewrites, and alerts apart, and in Actions a concurrency group does.
+- **Bot commits don't trigger refreshes.** The watcher re-captures sources when a
+  person pushes main, not for its own commits.
 
 ### Settings
 
-Put these in the host's `.env`:
+Put these in the host's `.env`, or as repo variables and secrets for Actions:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | (none) | From `claude setup-token`; keeps rewrites working past the interactive login |
+| `ANTHROPIC_API_KEY` | (none) | Claude for `./gt rewrite` (API billing, no expiry) and the nightly live eval |
+| `GT_LIVE_EVAL` | 1 | 0 skips the autopilot's nightly live eval (it runs the whole golden set on `GT_MODEL`) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | (none) | Claude for `./gt rewrite` on your plan, from `claude setup-token` |
+| `facts_updates` (groundtruth.yaml) | `llm` | `human` makes changed facts wait for `./gt review --done` |
 | `GT_REWRITE_MODEL` | haiku if 5.5+, else sonnet | The writer |
 | `GT_REWRITE_FALLBACK_MODEL` | `sonnet` | The one retry |
-| `GT_REWRITE_CHECK_MODEL` | `sonnet` | The claim checker; `off` skips it (then no source is ever recorded as reviewed) |
-| `GT_REWRITE_MAX_PAGES` | 10 | Pages per run |
+| `GT_REWRITE_CHECK_MODEL` | `sonnet` | The checker; `off` skips it (then nothing is ever recorded as reviewed) |
+| `GT_REWRITE_MAX_PAGES` | 10 | Items per run |
 | `GT_REWRITE_MAX_UTILIZATION` | 0.8 | Pause past this share of any usage window |
-| `GT_REWRITE_QUIET_HOURS` | around `GT_REFRESH_AT` | When rewrites don't run or push |
-| `GT_QUICK_REFRESH_SECONDS` | 7200 | How often the quick refresh runs by day; 0 turns it off |
-| `GT_WATCHDOG_URL` | (none) | Your `/mcp` URL: alert when the deployed code is behind main |
+| `GT_FACTS_MAX_CHANGE_SHARE` | 0.3 | A fact update that changes more of the rows than this stops |
+| `GT_REWRITE_QUIET_HOURS` | around `GT_REFRESH_AT` | When a machine's rewrites don't run or push |
+| `GT_QUICK_REFRESH_SECONDS` | 7200 | How often a machine's quick refresh runs by day; 0 turns it off |
+| `GT_WATCHDOG_URL` | `url:` | Where the deployed server answers, if not in groundtruth.yaml |
 | `GT_ALERT_COMMAND`, `GT_ALERT_EMAIL` | (none) | Extra alert delivery |
-| `GT_HOST_WORKDIR` | `~/.cache/groundtruth` | Where the jobs' worktrees live |
+| `GT_HOST_WORKDIR` | `~/.cache/groundtruth` | Where a machine's worktrees live |
 
 ## `./gt bundle`: data without redeploys
 

@@ -181,8 +181,10 @@ def cmd_check(args) -> int:
     from groundtruth import checks
     project = _p(args)
     report = checks.run(project, production=args.production)
+    if args.ignore_review:  # the refresh host's gate: changed sources wait for ./gt rewrite, not a failure
+        report.errors["sources"] = [e for e in report.errors.get("sources", []) if "since the last review" not in e]
     print(f"check{' --production' if args.production else ''}: {project.name} ({_where(project)})")
-    for section in ("facts", "sources", "wiki", "prose", "evals", "prompt", "examples"):
+    for section in ("facts", "grounding", "sources", "wiki", "prose", "evals", "prompt", "examples"):
         errs = report.errors.get(section, [])
         warns = report.warnings.get(section, [])
         note = report.notes.get(section, "")
@@ -385,7 +387,7 @@ def cmd_connect(args) -> int:
         return 0
     for c in clients:
         try:
-            text = connect.snippet(c, project, url=args.url)
+            text = connect.snippet(c, project, url=args.url or project.url)
         except ValueError as exc:
             _bad(str(exc))
             return 2
@@ -410,7 +412,8 @@ def cmd_report(args) -> int:
 def cmd_watchdog(args) -> int:
     from groundtruth import watchdog
     project = None if args.url and not args.repo else _p(args)  # a remote check needs nothing local
-    return watchdog.run(project, url=args.url, api_key=args.api_key, max_age_hours=args.max_age_hours,
+    url = args.url or (project.url if project is not None and args.repo else None)  # --repo checks the deployed one
+    return watchdog.run(project, url=url, api_key=args.api_key, max_age_hours=args.max_age_hours,
                         repo=args.repo, refresh_max_hours=args.refresh_max_hours,
                         code_max_lag_hours=args.code_max_lag_hours)
 
@@ -469,6 +472,8 @@ def cmd_host(args) -> int:
             return 0
         if args.action == "watch":
             return host.watch(project)
+        if args.action == "autopilot":
+            return host.autopilot(project, quick=args.quick)
         if not args.job:
             _bad("say which job: ./gt host run refresh  (or rewrite)")
             return 2
@@ -729,6 +734,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--index", action="store_true", help="also build the semantic search index")
     sp = add("check", cmd_check, "facts, wiki, no-facts-in-prose, eval wiring")
     sp.add_argument("--production", action="store_true", help="also fail on template examples (what serve and Docker use)")
+    sp.add_argument("--ignore-review", action="store_true",
+                    help="don't fail on sources waiting for review (the refresh host's gate between jobs)")
     sp = add("examples", cmd_examples, "list (or --remove) the template's fictional example content")
     sp.add_argument("--remove", action="store_true")
     sp = add("review", cmd_review, "what changed in your sources since facts and wiki were last reviewed")
@@ -780,7 +787,7 @@ def parser() -> argparse.ArgumentParser:
     sp = add("alerts", cmd_alerts, "open alerts from the refresh host")
     sp.add_argument("--last", type=int, default=10, help="lines of this machine's alert log to show")
     sp = add("host", cmd_host, "run the unattended refresh host on this machine")
-    sp.add_argument("action", choices=["check", "install", "uninstall", "print", "run", "watch"])
+    sp.add_argument("action", choices=["check", "install", "uninstall", "print", "run", "watch", "autopilot"])
     sp.add_argument("job", nargs="?", choices=["refresh", "rewrite"])
     sp.add_argument("--quick", action="store_true", help="run refresh: re-capture only the sources facts cite")
     sp.add_argument("--at", default="03:00", help="install: when the nightly refresh runs (default 03:00)")

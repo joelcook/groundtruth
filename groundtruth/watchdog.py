@@ -123,14 +123,13 @@ async def _http(url: str, api_key: str | None, checks: Checks, probe: str | None
             await _exercise(session, checks, probe)
 
 
-def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
+def _health(url: str, max_age_hours: float | None, checks: Checks, api_key: str | None = None) -> dict:
     import httpx
 
-    base = url.rstrip("/")
-    if base.endswith("/mcp"):
-        base = base[: -len("/mcp")]
+    base = url.rstrip("/").removesuffix("/mcp")
     try:
-        r = httpx.get(base + "/healthz", timeout=15)
+        r = httpx.get(base + "/healthz", timeout=15,
+                      headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
         body = r.json()
     except Exception as exc:  # noqa: BLE001
         checks.fail(f"healthz unreachable: {exc}")
@@ -146,6 +145,9 @@ def _health(url: str, max_age_hours: float | None, checks: Checks) -> dict:
                     f"{status.get('first')}")
     elif status.get("update_rejected"):
         checks.fail(f"an update was rejected (still serving the last good version): {status.get('first')}")
+    update = body.get("data_update") or {}
+    if update.get("last_error"):
+        checks.fail(f"the server can't install data bundles, so it's serving old data: {update['last_error']}")
     if max_age_hours and body.get("built_at"):
         built = dt.datetime.strptime(body["built_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
         age = (dt.datetime.now(dt.timezone.utc) - built).total_seconds() / 3600
@@ -294,7 +296,8 @@ def run(project: Project | None, url: str | None = None, api_key: str | None = N
     try:
         if url:
             print(f"watchdog: {url}")
-            body = _health(url, max_age_hours, checks)
+            key = api_key or os.environ.get("GT_MCP_API_KEY") or None
+            body = _health(url, max_age_hours, checks, key)
             if repo and project is not None:
                 repo_checks(project, checks, deployed=body.get("commit"), url=url,
                             refresh_max_hours=refresh_max_hours, code_max_lag_hours=code_max_lag_hours)

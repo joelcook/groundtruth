@@ -274,7 +274,10 @@ def _proposal_path(project: Project, src: SourceInfo) -> Path:
             continue
         if not target.exists() or f"from {src.rel}" in target.read_text(encoding="utf-8").split("\n", 1)[0]:
             return target
-    return project.facts_dir / f"{PROPOSAL_PREFIX}{_slug(src.path.stem)}.yaml"
+    # Both names belong to other sources (long names can share a 60-character slug): never overwrite theirs.
+    import hashlib
+    tag = hashlib.sha1(src.rel.encode()).hexdigest()[:6]
+    return project.facts_dir / f"{PROPOSAL_PREFIX}{_slug(src.path.stem)[:50]}-{tag}.yaml"
 
 
 def proposals(project: Project) -> list[Path]:
@@ -361,10 +364,11 @@ def write_fact_proposals(project: Project) -> list[Path]:
             for t in (yaml.safe_load(body) or {}).get("tools") or []:
                 taken.discard(t.get("name"))
         base = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
-        tool = f"get_{base}_fact"[:64] if base and base[0].isalpha() else f"get_fact_{base}"[:64]
+        base = base[:40]  # room for "get_" + "_fact_NN" inside the 64-character limit, so the loop ends
+        tool = f"get_{base}_fact" if base and base[0].isalpha() else f"get_fact_{base}"
         n = 2
         while tool in taken:
-            tool, n = f"get_{base}_fact_{n}"[:64], n + 1
+            tool, n = f"get_{base}_fact_{n}" if base and base[0].isalpha() else f"get_fact_{base}_{n}", n + 1
         taken.add(tool)
         rows, ids = [], set()
         for line, kind, text in found:

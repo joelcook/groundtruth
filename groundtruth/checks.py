@@ -51,12 +51,19 @@ DURATION_RE = re.compile(
 TIME_RE = re.compile(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:1[0-2]|0?[1-9])\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z])", re.I)
 PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s?%")
 SIZE_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:[KMGT]i?B|bytes|megabytes|gigabytes)\b", re.I)
+PERCENT_WORDS_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:percent|per cent|pct)\b", re.I)
+CLOCK_WORDS_RE = re.compile(r"\b(?:at|by|until|till|from|before|after)\s+(?:noon|midnight)\b", re.I)
+ORDINAL_DATE_RE = re.compile(rf"\b\d{{1,2}}(?:st|nd|rd|th)\s+(?:of\s+)?(?:{MONTHS})\b", re.I)
+RATE_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s+(?:per|a|an|each)\s+(?:month|year|hour|day|week|page|person|seat|"
+                     r"user|credit|session|visit|item|copy)\b", re.I)
 PHONE_RE = re.compile(r"(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b|\b\d{3}-\d{4}\b")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
 FACT_OK_RE = re.compile(r"<!--\s*fact-ok:")
 PATTERNS = (("date", DATE_RE), ("date", ISO_DATE_RE), ("date", SLASH_DATE_RE), ("date", MONTH_DAY_RE),
             ("money", MONEY_RE), ("limit", LIMIT_RE),
-            ("time", TIME_RE), ("duration", DURATION_RE), ("percentage", PERCENT_RE), ("size limit", SIZE_RE),
+            ("time", TIME_RE), ("time", CLOCK_WORDS_RE), ("date", ORDINAL_DATE_RE), ("amount", RATE_RE),
+            ("duration", DURATION_RE), ("percentage", PERCENT_RE), ("percentage", PERCENT_WORDS_RE),
+            ("size limit", SIZE_RE),
             ("phone number", PHONE_RE), ("email", EMAIL_RE))
 GOLDEN_CATEGORIES = {"hard_fact", "narrative", "out_of_scope", "contradiction"}
 
@@ -141,6 +148,8 @@ def check_wiki(project: Project, report: Report) -> None:
             fail(f"page_type {ptype!r} must be one of {sorted(VALID_PAGE_TYPES)}")
         if not LINEAGE_RE.search(text):
             fail("add a '## Sources & Lineage' section at the bottom (the audit trail)")
+        if not meta.get("sources") and "sources" in meta and not draft and "internal" not in path.parts:
+            fail("lists no sources. Every published page cites the evidence it was written from")
         for src in meta.get("sources") or []:
             if isinstance(src, str) and src.startswith("sources/") and not (project.root / src).exists():
                 fail(f"cites {src}, which doesn't exist. Restore it, re-ingest, or fix the path")
@@ -258,9 +267,11 @@ def load_golden(project: Project, strict: bool = False) -> list[dict]:
     return data
 
 
-def check_golden(project: Project, report: Report, collections: list[facts.Collection]) -> None:
+def check_golden(project: Project, report: Report, collections: list[facts.Collection],
+                 production: bool = False) -> None:
     if not project.golden_path.exists():
-        report.warn("evals", f"no {project.rel(project.golden_path)}. Add ~10 questions you know the answers to")
+        (report.error if production else report.warn)(
+            "evals", f"no {project.rel(project.golden_path)}. Add ~10 questions you know the answers to")
         return
     try:
         items = load_golden(project, strict=True)
@@ -314,8 +325,9 @@ def check_golden(project: Project, report: Report, collections: list[facts.Colle
                 report.error("evals", f"{iid}: must_cite_page {page!r} is not a wiki page")
     covered = {i.get("must_call_tool") for i in items if isinstance(i, dict)}
     untested = [t.name for c in collections for t in c.tools if t.name not in covered]
-    if untested and items:
-        report.warn("evals", f"no golden question exercises {', '.join(untested)}. Add a hard_fact question for each")
+    if untested and items:  # an untested tool can go wrong unattended without anything noticing
+        (report.error if production else report.warn)(
+            "evals", f"no golden question exercises {', '.join(untested)}. Add a hard_fact question for each")
     if not items:
         report.error("evals", "golden.yaml has no questions. Add ~10 you know the answers to (see docs/evals.md)")
     report.notes["evals"] = f"{len(items)} golden question(s)"
@@ -365,8 +377,9 @@ def run(project: Project, production: bool = False) -> Report:
     check_sources(project, report)
     check_wiki(project, report)
     check_prose(project, report)
-    check_golden(project, report, collections)
+    check_golden(project, report, collections, production)
     check_prompt(project, report, collections)
+    check_grounding(project, report, production)
     from groundtruth import examples
     found = examples.find(project)
     if found.total:
@@ -390,6 +403,17 @@ def run(project: Project, production: bool = False) -> Report:
                             f"status: published ({', '.join(project.rel(p) for p in drafts[:3])}"
                             f"{'...' if len(drafts) > 3 else ''})")
     return report
+
+
+def check_grounding(project: Project, report: Report, production: bool) -> None:
+    """Every exact value in facts/ appears in its cited source (groundtruth/grounding.py)."""
+    from groundtruth import grounding
+    found = grounding.problems(project)
+    for msg in found:
+        (report.error if production else report.warn)(
+            "grounding", f"{msg}. Fix the value, or cite the source that states it")
+    if not found:
+        report.notes["grounding"] = "every exact value in facts/ appears in its cited source"
 
 
 TOOLISH_RE = re.compile(r"`((?:get|list|find|lookup|search|read)_[a-z0-9_]+)`")

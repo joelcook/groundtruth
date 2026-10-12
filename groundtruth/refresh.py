@@ -186,7 +186,8 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
             for ch in pending:
                 lines.append(f"  - `{ch.source}` ({ch.reason}): " + ", ".join(f"`{x}`" for x in ch.facts + ch.wiki))
             cited = [ch for ch in pending if ch.facts]
-            if push and cited:
+            from groundtruth import reconcile
+            if push and cited and not reconcile.enabled(project):  # otherwise ./gt rewrite updates them
                 alerts.notify(project, "facts cite sources that changed",
                               f"{len(cited)} source(s) your facts cite changed: "
                               + "; ".join(f"{ch.source} ({', '.join(ch.facts)})" for ch in cited[:5])

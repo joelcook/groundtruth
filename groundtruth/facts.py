@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import keyword
 import os
 import re
 import sqlite3
@@ -133,7 +134,7 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
     if not isinstance(data, dict):
         problems.append(f"{where}: must be a YAML mapping with `rows:` and `tools:`")
         return None
-    name = str(data.get("name") or path.stem)
+    name = str(data.get("name") or re.sub(r"[^A-Za-z0-9_]", "_", path.stem))  # self-pay-prices.yaml works
     if not FIELD_RE.match(name):
         problems.append(f"{where}: collection name {name!r} must be letters, numbers, underscores")
         return None
@@ -220,8 +221,15 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
                 wildcards=[str(w).lower() for w in _as_list(f.get("wildcards"))],
             ))
         arg = str(t.get("arg") or "query")
-        for pname in [arg] if kind == "lookup" else [f.param for f in filters]:
-            if pname in RESERVED_PARAMS:
+        params = [arg] if kind == "lookup" else [f.param for f in filters]
+        for dup in sorted({x for x in params if params.count(x) > 1}):
+            problems.append(f"{where}: tool {tname} has two parameters named {dup!r}; give one a different "
+                            f"`param:`")
+        for pname in params:
+            if keyword.iskeyword(pname):
+                problems.append(f"{where}: tool {tname} parameter {pname!r} is a reserved word in the server's "
+                                f"language. Rename it with `param:`, e.g. `param: {pname}_name`")
+            elif pname in RESERVED_PARAMS:
                 problems.append(f"{where}: tool {tname} can't use {pname!r} as a parameter name "
                                 f"(reserved). Rename it, e.g. `arg: name`")
             elif not FIELD_RE.match(pname):
@@ -612,6 +620,7 @@ class FactStore:
         else:
             results = list(all_rows)
             applied: dict[str, str] = {}
+            payload_ambiguous: dict[str, list[str]] = {}
             for f in spec["filters"]:
                 wanted = args.get(f["param"])
                 if wanted in (None, ""):
@@ -621,16 +630,30 @@ class FactStore:
                 target = wanted
                 if f.get("ref"):
                     target = self._resolve_ref(f["ref"], wanted) or wanted
-                results = [r for r in results if value_matches(target, r.get(f["field"]), f.get("wildcards") or [])]
+                matched = [r for r in results if value_matches(target, r.get(f["field"]), f.get("wildcards") or [])]
+                exact = [r for r in matched if norm(r.get(f["field"])) == norm(target)
+                         or norm(r.get(f["field"])) in (f.get("wildcards") or [])]
+                if exact:  # "central" means central, not also "centerville"
+                    matched = exact
+                else:
+                    values = sorted({str(r.get(f["field"])) for r in matched})
+                    if len(values) > 1:
+                        payload_ambiguous[f["param"]] = values
+                results = matched
             date_field = coll.get("date_field")
             if spec.get("upcoming") and date_field:
                 if args.get("upcoming_only", True) not in (False, "false", "False", 0):
                     today = dt.date.today().isoformat()
                     results = [r for r in results if not r.get(date_field) or str(r[date_field]) >= today]
-                results.sort(key=lambda r: (bool(r.get(date_field)), str(r.get(date_field) or "")))
+                # soonest dated rows first; undated (recurring) rows after, so they can't crowd them out
+                results.sort(key=lambda r: (not r.get(date_field), str(r.get(date_field) or "")))
             if not results and applied:
                 hint = f"No {coll_name} rows matched {applied}."
             payload = {"collection": coll_name, "filters": applied or None}
+            if payload_ambiguous:
+                payload["ambiguous"] = payload_ambiguous
+                hint = ("Several values matched: " + "; ".join(f"{k} could be {', '.join(v)}"
+                        for k, v in payload_ambiguous.items()) + ". Ask which one, or pass the exact value.")
 
         payload["count"] = len(results)
         payload["results"] = [self._public(r) for r in results[:limit]]

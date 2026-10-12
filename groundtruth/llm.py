@@ -104,11 +104,11 @@ def agent(question: str, system: str, tools: list[dict], dispatch: Callable[[str
         results = []
         for block in used:
             args = dict(block.input or {})
-            calls.append({"name": block.name, "input": args})
             try:
                 out, is_error = dispatch(block.name, args), False
             except Exception as exc:  # noqa: BLE001 - the model should see tool errors
                 out, is_error = {"error": f"{type(exc).__name__}: {exc}"}, True
+            calls.append({"name": block.name, "input": args, "result": out})  # graders check what came back
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": json.dumps(out, default=str), "is_error": is_error})
         messages.append({"role": "user", "content": results})
@@ -116,19 +116,25 @@ def agent(question: str, system: str, tools: list[dict], dispatch: Callable[[str
 
 
 JUDGE_SYSTEM = """You grade one answer from a grounded assistant against a rubric.
-Pass it if it answers the question, covers the rubric's substantive points (wording
-may differ), and doesn't invent or contradict facts. The assistant read official
-sources you can't see, so don't fail plausible operational details unless they
-contradict the rubric.
+Pass it only if it answers the question, covers the rubric's substantive points
+(wording may differ), and every specific claim in it (names, steps, requirements,
+numbers, contacts) is supported by the rubric or by the tool results the assistant
+got, which are included. Fail an answer that adds a specific detail neither one
+supports, even a plausible one: unsupported detail is how a grounded assistant
+starts making things up.
 Reply with only JSON: {"pass": true|false, "reason": "<one sentence>"}"""
 
 
-def judge(question: str, rubric: str, answer: str, *, model_name: str | None = None) -> tuple[bool, str]:
+def judge(question: str, rubric: str, answer: str, *, evidence: str = "",
+          model_name: str | None = None) -> tuple[bool, str]:
     client = _client()
+    content = f"## Question\n{question}\n\n## Rubric\n{rubric}\n\n## Answer\n{answer}"
+    if evidence:
+        content += f"\n\n## Tool results the assistant got\n{evidence}"
     resp = _create(
         client, model=model_name or judge_model(), max_tokens=16000,
         system=[{"type": "text", "text": JUDGE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": f"## Question\n{question}\n\n## Rubric\n{rubric}\n\n## Answer\n{answer}"}],
+        messages=[{"role": "user", "content": content}],
         output_config={"effort": "low"},
     )
     if resp.stop_reason == "refusal":

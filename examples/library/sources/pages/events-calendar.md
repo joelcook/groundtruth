@@ -3,15 +3,22 @@ source_url: https://example.org/events
 scraped_at: 2026-06-10
 ---
 
-# Events Calendar (Source Snapshot)
+# Events Calendar
 
-The structured event rows projected into the database live in
-`facts/events.yaml`. This page is the human-readable evidence a
-scraper captured from the public events calendar.
+## Every week
 
-Recurring: Toddler Story Time runs weekly at Central. Teen Game Night runs at
-Eastside. One-off events this season include the Summer Reading Kickoff, a
-Resume & Job Search Workshop (registration required), the Friends of the Library
-book sale, and an all-branch closure for Independence Day.
+- **Toddler Story Time**: every Wednesday at 10:30 a.m., Central. Ages 1–3 with
+  a caregiver. Songs, rhymes, and picture books. No registration needed.
 
-Exact dates and times are maintained as structured facts, not in this prose.
+## This season
+
+- **Summer Reading Kickoff**: Saturday, June 19, 2027, 11:00 a.m., Central. Sign
+  up for Summer Reading, meet the staff, free snacks.
+- **Teen Game Night**: Friday, June 25, 2027, 6:00 p.m., Eastside. Grades 6–12.
+  Board games and console tournaments.
+- **Resume & Job Search Workshop**: Saturday, June 26, 2027, 2:00 p.m., Central.
+  Bring a laptop or use ours. Seats are limited; registration required.
+- **Independence Day Closure**: all branches are closed Monday, July 5, 2027
+  (observed).
+- **Friends of the Library Book Sale**: Saturday, July 10, 2027, 9:00 a.m.,
+  Central. Gently used books, most under a dollar. Proceeds fund programs.

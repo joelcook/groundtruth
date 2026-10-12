@@ -7,3 +7,4 @@
 **/evals/runs/*-tools.json
 **/evals/runs/*-replay.json
 .env
+.env.*

@@ -53,23 +53,55 @@ def launch_steps(project: Project, gt: str = "./gt") -> list[Step]:
     machine), so ``done`` is None where these files can't tell. CLAUDE.md's "Take it
     to production" job walks a coding agent through each one.
     """
-    from groundtruth import host
+    from groundtruth import facts, host
     named = host.configured_name(project.config)
-    url = "https://YOUR-HOST/mcp"
+    url = project.url
+    body = probe(url) if url else None
+    if url is None:
+        online = Step("Put it online", None, "deploy it (docs/deploy.md), then record `url:` in groundtruth.yaml",
+                      "docs/deploy.md; then add url: https://YOUR-HOST/mcp to groundtruth.yaml")
+    elif body is None:
+        online = Step("Put it online", False, f"{url} doesn't answer /healthz", "docs/deploy.md")
+    else:
+        same = body.get("name") == project.name
+        online = Step("Put it online", bool(body.get("ok")) and same,
+                      f"{url} serves {body.get('name')!r}" + ("" if same else f", not {project.name!r}")
+                      + (f", code {str(body['commit'])[:7]}" if body.get("commit") else ""),
+                      f"{gt} watchdog --repo")
+    try:
+        local = facts.fingerprint(project)
+    except Exception:  # noqa: BLE001
+        local = None
+    data = (Step("Ship data without deploys", None, "GT_PUBLISH_DATA on GitHub, GT_DATA_URL on the server",
+                 "docs/deploy.md#update-data-without-redeploying") if body is None else
+            Step("Ship data without deploys", body.get("data_version") == local,
+                 "the server has this checkout's data" if body.get("data_version") == local else
+                 f"the server has data {body.get('data_version')}, this checkout {local}",
+                 "gh variable set GT_PUBLISH_DATA --body true, and GT_DATA_URL on the server (docs/deploy.md)"))
     return [
-        Step("Put it online", None, "a container with GT_MCP_API_KEY and GT_BUILD_COMMIT (docs/deploy.md)",
-             f"{gt} watchdog --url {url}"),
+        online,
         Step("Connect your users", None, "Copilot Studio, Claude, ChatGPT, or your app (docs/connect.md)",
-             f"{gt} connect CLIENT --url {url}"),
-        Step("Ship data without deploys", None, "GT_PUBLISH_DATA on GitHub, GT_DATA_URL on the server",
-             "docs/deploy.md#update-data-without-redeploying"),
+             f"{gt} connect CLIENT"),
+        data,
         Step("Keep it current", bool(named),
-             f"refresh host: {named} (./gt host check there)" if named else
+             ("GitHub Actions is the refresh host (autopilot.yml)" if named == host.ACTIONS_HOST else
+              f"refresh host: {named} (./gt host check there)") if named else
              "no refresh host named in groundtruth.yaml (docs/operations.md)",
-             f"{gt} host install on an always-on machine, after naming it as host: in groundtruth.yaml"),
-        Step("Watch it", None, "GT_WATCHDOG_URL variable and GT_MCP_API_KEY secret on GitHub",
+             f"host: github-actions in groundtruth.yaml, then gh variable set GT_AUTOPILOT --body true "
+             f"(docs/operations.md)"),
+        Step("Watch it", None, "the daily watchdog (watchdog.yml) checks alerts, refreshes, CI, and the server",
              "gh workflow run watchdog.yml, then check it passes"),
     ]
+
+
+def probe(url: str) -> dict | None:
+    """The deployed server's public /healthz, or None if it doesn't answer."""
+    import httpx
+    try:
+        r = httpx.get(url.rstrip("/").removesuffix("/mcp") + "/healthz", timeout=8)
+        return r.json() if r.status_code in (200, 503) else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def steps(project: Project, gt: str = "./gt", where: str = "") -> list[Step]:

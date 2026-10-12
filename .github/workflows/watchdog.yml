@@ -2,9 +2,10 @@
 #   - ALERTS.md lists an open alert from the refresh host (./gt host),
 #   - no `refresh:` commit landed in 30 hours (only when groundtruth.yaml names a host),
 #   - CI failed on main's head commit,
-#   - and, with the repo variable GT_WATCHDOG_URL set to your /mcp URL (plus the secret
-#     GT_MCP_API_KEY if the server uses one): the server is down, its data is over
-#     8 days old, or its code is more than 72 hours behind main.
+#   - and, once `url:` in groundtruth.yaml (or the repo variable GT_WATCHDOG_URL) names your
+#     /mcp URL, plus the secret GT_MCP_API_KEY if the server uses one: the server is down,
+#     can't install data bundles, has data older than GT_MAX_DATA_AGE_HOURS (default 192),
+#     or runs code more than 72 hours behind main.
 name: watchdog
 on:
   schedule:
@@ -24,13 +25,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
-      - run: |
-          if [ -n "$GT_WATCHDOG_URL" ]; then
-            python -m groundtruth watchdog --repo --url "$GT_WATCHDOG_URL" --max-age-hours 192
-          else
-            python -m groundtruth watchdog --repo
-          fi
+      - run: python -m groundtruth watchdog --repo --max-age-hours "${GT_MAX_DATA_AGE_HOURS:-192}" ${GT_WATCHDOG_URL:+--url "$GT_WATCHDOG_URL"}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GT_WATCHDOG_URL: ${{ vars.GT_WATCHDOG_URL }}
+          GT_MAX_DATA_AGE_HOURS: ${{ vars.GT_MAX_DATA_AGE_HOURS }}
           GT_MCP_API_KEY: ${{ secrets.GT_MCP_API_KEY }}

@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:  # the autopilot dispatches it: pushes made with GITHUB_TOKEN don't trigger workflows
 jobs:
   test:
     runs-on: ubuntu-latest

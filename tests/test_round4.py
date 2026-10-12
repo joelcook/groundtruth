@@ -62,7 +62,8 @@ class TestCompile(unittest.TestCase):
             draft = comp.write_drafts(p)[0]
             meta, _ = checks.split_frontmatter(draft.read_text())
             self.assertEqual(meta["title"], "Acme Forms: pricing and limits")
-            self.assertIn(str((docs / "plans.md").resolve()), draft.read_text())  # local origin in lineage
+            self.assertIn("../docs/plans.md", draft.read_text())  # local origin in lineage, relative
+            self.assertNotIn(str(Path(d).resolve()), draft.read_text())  # never someone's home directory
             self.assertTrue(checks.run(p).ok)
             packet = comp.packet(p).read_text()
             self.assertIn("(70 line(s);", packet)

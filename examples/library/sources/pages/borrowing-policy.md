@@ -24,8 +24,11 @@ distributed before 2024.
 
 Printing and photocopying are charged per page. Meeting rooms may be reserved for
 a fee, except for nonprofit community groups, which use them free of charge.
-Current amounts are maintained in the fee schedule.
 
-> Source snapshot — this file is what a scraper captured from the official
-> policy page. The running system never reads prices from this prose; it reads
-> them from the database built out of the structured fee schedule.
+| Charge | Amount |
+|---|---|
+| Black-and-white printing and copies | $0.10 per page |
+| Color printing and copies | $0.50 per page |
+| Replacement library card (your first card is free) | $2.00 per card |
+| Meeting or study room (free for nonprofit community groups) | $25.00 per hour |
+| Overdue fines | $0.00 per day: Maplewood is fine-free |

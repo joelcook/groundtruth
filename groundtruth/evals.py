@@ -144,7 +144,7 @@ def run_tools_tier(project: Project, items: list[dict]) -> list[dict]:
                         got = [{k: r.get(k) for k in expected} for r in (payload.get("results") or [])[:3]]
                         reasons.append(f"{tool}({args}) has no row with {expected} (got {got})")
                 for needle in item.get("must_not_contain", []) or []:
-                    if str(needle).lower() in payload_text.lower():
+                    if contains(payload_text, str(needle)):
                         reasons.append(f"{tool}({args}) result contains the stale value {needle!r}")
         data_ok = not reasons if tool else None
         retrieval = _retrieval_check(project, item)
@@ -186,8 +186,13 @@ def _grade_text(item: dict, text: str) -> list[str]:
         if not contains(text, str(needle)):
             reasons.append(f"answer is missing {needle!r}")
     for needle in item.get("must_not_contain", []) or []:
-        if str(needle).lower() in text.lower():
+        if contains(text, str(needle)):  # by value for numbers: "9" doesn't hit "49"
             reasons.append(f"answer contains {needle!r}")
+    expected = item.get("must_match")
+    if isinstance(expected, dict):  # the answer has to state the exact values, not just call the tool
+        for field, value in expected.items():
+            if _as_number(str(value)) is not None and not contains(text, str(value)):
+                reasons.append(f"answer doesn't state {field} {value!r}")
     return reasons
 
 
@@ -197,6 +202,14 @@ def _grade_calls(item: dict, calls: list[dict]) -> list[str]:
     want = item.get("must_call_tool")
     if want and want not in called:
         reasons.append(f"didn't call {want} (called: {called or 'nothing'})")
+    results = [c["result"] for c in calls if c["name"] == want and isinstance(c.get("result"), dict)]
+    if want in called and results:  # recorded runs from before results were kept skip this
+        if not any(r.get("count") for r in results):
+            reasons.append(f"{want} found nothing for the arguments the model used "
+                           f"({[c['input'] for c in calls if c['name'] == want]})")
+        expected = item.get("must_match")
+        if isinstance(expected, dict) and not any(match_rows(r.get("results") or [], expected) for r in results):
+            reasons.append(f"no {want} call returned a row with {expected}")
     forbidden = item.get("must_not_call_tool")
     if forbidden in ("any", "*") and called:
         reasons.append(f"should not call any tool, but called {called}")
@@ -217,7 +230,9 @@ def grade(item: dict, response: str, calls: list[dict], *, use_judge: bool) -> t
     reasons = _grade_calls(item, calls) + _grade_text(item, response)
     if item.get("category") == "narrative" and use_judge and not reasons and item.get("expected_summary"):
         from groundtruth import llm
-        ok, why = llm.judge(item["question"], item["expected_summary"], response)
+        evidence = "\n\n".join(f"{c['name']}({json.dumps(c.get('input'), default=str)}):\n"
+                               f"{json.dumps(c['result'], default=str)[:6000]}" for c in calls if "result" in c)
+        ok, why = llm.judge(item["question"], item["expected_summary"], response, evidence=evidence[:30000])
         if not ok:
             reasons.append(f"judge: {why}")
     return (not reasons, reasons)

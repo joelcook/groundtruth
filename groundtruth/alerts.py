@@ -110,10 +110,18 @@ def merge(current: str, new: list[tuple[str, str]]) -> tuple[str, list[str]]:
     return text + "\n".join(lines) + "\n", added
 
 
+def start_publishing(project: Project) -> None:
+    """Publish only what's logged from now on (./gt host install calls this; older lines aren't news)."""
+    log = log_path(project)
+    offset_file = state_dir(project) / "alerts-published-bytes"
+    offset_file.parent.mkdir(parents=True, exist_ok=True)
+    offset_file.write_text(f"{log.stat().st_size if log.exists() else 0}\n")
+
+
 def pending(project: Project) -> tuple[list[tuple[str, str]], int]:
     """Alerts logged since the last publish, and the log offset to record once they're published.
 
-    The first call only records where the log ends: older alerts predate publishing and aren't news.
+    Without a recorded offset, everything in the log is new: nothing is dropped silently.
     """
     log = log_path(project)
     offset_file = state_dir(project) / "alerts-published-bytes"
@@ -121,9 +129,7 @@ def pending(project: Project) -> tuple[list[tuple[str, str]], int]:
     try:
         offset = int(offset_file.read_text().strip())
     except (OSError, ValueError):
-        offset_file.parent.mkdir(parents=True, exist_ok=True)
-        offset_file.write_text(f"{size}\n")
-        return [], size
+        offset = 0
     if size < offset:  # the log was truncated or replaced
         offset = 0
     if size == offset:

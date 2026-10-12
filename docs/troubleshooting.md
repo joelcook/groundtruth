@@ -112,10 +112,33 @@ broken link. `logs/host/rewrite/` on the host has each attempt. Fix the page by
 hand (or the source upstream), or wait: it retries in seven days, or sooner if
 its sources change.
 
-**"facts cite sources that changed"**: a source behind your facts was
-re-captured with new content. The host never reviews facts on its own, so
-`./gt check` stays red on main until you do: `./gt review --diff`, fix the
-facts, `./gt review --done`. Then delete the alert's line from `ALERTS.md`.
+**"facts would not update"**: a source behind your facts changed, and no model
+produced an update that held up. The alert names why: a value the source doesn't
+state, too many rows changing at once (a redesigned or broken source), a failed
+eval, or the second model disagreeing. `./gt review --diff` shows the change; fix
+the rows so every value appears in the source, then `./gt review --done`. Until
+then `./gt check` stays red on main and the server keeps serving the last version
+that passed.
+
+**"facts cite sources that changed"**: you set `facts_updates: human`, so changed
+facts wait for a person: `./gt review --diff`, fix the facts, `./gt review --done`.
+Then delete the alert's line from `ALERTS.md`.
+
+**"a new source would not get a page"**: write the page yourself from the
+source (docs/wiki.md), with a narrative golden question for it.
+
+**"facts/x.yaml: row y: price has '39', which sources/pages/z.md doesn't say"**:
+grounding. Either the value is wrong, or it lives in another source: cite that
+one (`source: {path: ...}` on the row). A derived value (a monthly price from an
+annual one) fails on purpose; store what the source says.
+
+**"pages and facts wait for a rewrite that can't run"**: the autopilot has no
+Claude credential. Set the `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` repo
+secret.
+
+**The autopilot ran but pushed nothing**: check that the repo variable
+`GT_AUTOPILOT` is `true`, that `host: github-actions` is on main, and that
+workflows may write (Settings > Actions > General > Workflow permissions).
 
 **Rewrites have stopped, with no alert**: they may be waiting out a usage
 window. `logs/host/rewrite.log` says "paused until ..." when that's it. Lower

@@ -59,8 +59,11 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `observability.py`, `report.py` | Tool-call log and the dashboard |
 | `watchdog.py` | Outside-in health checks over real MCP |
 | `refresh.py` | The weekly agent (a PR), or the refresh host's nightly and quick refresh (a push) |
-| `rewrite.py` | Rewrites stale pages with headless Claude Code; gates, then a second model checks every claim |
-| `host.py` | The refresh host: one named pusher, worktrees at main, locks, the watcher, the schedule |
+| `rewrite.py` | `./gt rewrite`: headless Claude Code, confined to the files it updates; rewrites stale pages, then gates and a second model's claim check |
+| `reconcile.py` | Updates facts from a changed source; ships only grounded, gated, model-checked rows |
+| `cover.py` | Writes a page (and facts) for a source nothing covers yet, under the same checks |
+| `grounding.py` | Every exact value in `facts/` must appear in the source its row cites |
+| `host.py` | The refresh host: GitHub Actions (`autopilot`) or a machine (worktrees at main, locks, the watcher, cron); one named pusher |
 | `alerts.py` | What the unattended jobs can't handle, into `ALERTS.md` where the watchdog sees it |
 | `bundle.py` | Data bundles and hot-swap for deployed servers |
 | `progress.py` | `./gt status`: the road to production and the next step |
@@ -87,17 +90,25 @@ don't need for correctness you can't live without.
 `./gt refresh` runs it; `.github/workflows/refresh.yml` schedules it weekly, and a
 person merges the pull request.
 
-A refresh host (`./gt host`) runs the same loop with nobody merging. It ingests
-nightly, and every two hours for the sources facts cite. `./gt rewrite` does
-step 3 for pages: headless Claude Code rewrites each stale page, the gates run,
-and a second model with read-only tools checks every claim against the sources.
-That check is the review for a source only pages cite, so step 5 is recorded
-for it automatically. A source that facts cite is never reviewed by a model:
-it raises an alert and keeps `./gt check` red until a person runs
-`./gt review --done`. Every job runs in a worktree at `origin/main`, takes a
-lock to push, and stands down on any machine but the one `groundtruth.yaml`
-names. What it can't handle lands in `ALERTS.md`, and the daily watchdog fails
-on it.
+A refresh host (`./gt host`: GitHub Actions, or one machine) runs the same loop
+with nobody merging. It ingests nightly, and every two hours for the sources
+facts cite. `./gt rewrite` then does steps 3 and 5 itself, with headless Claude
+Code, in three passes:
+
+- facts whose source changed are updated;
+- sources nothing covers get a page;
+- stale pages are rewritten.
+
+Every pass is confined to the files it may touch, and it ships only when:
+
+- every exact value appears in the cited source (`grounding.py`);
+- the gates find nothing new;
+- a second model with read-only tools agrees.
+
+Those checks are the review: once everything citing a source has passed them,
+the source is recorded as reviewed (`facts_updates: human` keeps changed facts
+for a person instead). Exactly one host pushes, named in `groundtruth.yaml`.
+What it can't handle lands in `ALERTS.md`, and the daily watchdog fails on it.
 
 ## What "ready to ship" means
 
