@@ -296,22 +296,34 @@ def _links(html: str, base: str) -> list[str]:
     return out
 
 
+SITEMAP_SCAN = 20_000  # read the whole sitemap; max_pages limits what's fetched, not what's seen
+
+
+def _prioritize(project: Project, urls: list[str]) -> list[str]:
+    """Pages never captured first (so new ones are found however big the site is), then the rest in an
+    order that rotates daily (so max_pages still gets round every page in time)."""
+    known = {_clean_url(str(m["source_url"])) for _, m in _existing_pages(project) if m.get("source_url")}
+    today = dt.date.today().isoformat()
+    return sorted(dict.fromkeys(urls), key=lambda u: (_clean_url(u) in known,
+                                                      hashlib.sha1(f"{today}{u}".encode()).hexdigest()))
+
+
 def ingest_url(project: Project, start: str, max_pages: int, result: IngestResult, dry_run: bool = False,
                delay: float = 0.25) -> None:
     fetcher = Fetcher(delay=delay)
     start = _clean_url(start)
     host = urlparse(start).netloc
     if start.endswith((".xml", ".xml.gz")):
-        queue = deque(sitemap_urls(fetcher, start, max_pages))
+        queue = deque(_prioritize(project, sitemap_urls(fetcher, start, SITEMAP_SCAN)))
         crawl = False
     else:
         root = "{0.scheme}://{0.netloc}".format(urlparse(start))
-        listed = sitemap_urls(fetcher, root + "/sitemap.xml", max_pages)
+        listed = sitemap_urls(fetcher, root + "/sitemap.xml", SITEMAP_SCAN)
         prefix = urlparse(start).path.rstrip("/")
         if prefix:  # /docs, not /docs-old
             listed = [u for u in listed if urlparse(u).path.rstrip("/") == prefix
                       or urlparse(u).path.startswith(prefix + "/")]
-        queue = deque(listed or [start])
+        queue = deque(_prioritize(project, listed) or [start])
         crawl = not listed
     seen: set[str] = set()
     fetched = 0

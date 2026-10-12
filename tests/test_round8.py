@@ -301,3 +301,69 @@ class TestRoundTwo(unittest.TestCase):
                                               "result": {"count": 1, "results": [{"amount_usd": 0.5}]}}])
         item = {"category": "hard_fact", "must_call_tool": "get_fee", "must_match": {"amount_usd": 0.5}}
         self.assertTrue(evals.grade(item, out["response"], out["tool_calls"], use_judge=False)[0])
+
+
+class TestRoundThree(unittest.TestCase):
+    """Codex's round-four reproductions."""
+
+    def calls(self, result):
+        return [{"name": "get_fee", "input": {}, "result": result}]
+
+    def test_an_echoed_query_is_not_evidence(self):
+        empty = {"query": "$999", "count": 0, "results": [], "hint": "Nothing matched '$999'"}
+        self.assertEqual(evals.invented_values("", "The fee is $999.", self.calls(empty)), ["$999"])
+
+    def test_a_number_backs_only_its_own_kind(self):
+        window = {"count": 1, "results": [{"window_days": 30}]}
+        self.assertEqual(evals.invented_values("", "It costs $30.", self.calls(window)), ["$30"])
+        self.assertEqual(evals.invented_values("", "You have 30 days.", self.calls(window)), [])
+
+    def test_values_written_in_words_are_checked_too(self):
+        other = {"count": 1, "results": [{"x": 1}]}
+        self.assertEqual(evals.invented_values("", "Open until noon; returns take seven days.", self.calls(other)),
+                         ["until noon", "seven days"])
+
+    def test_a_quantity_range_is_not_hours(self):
+        idx = grounding.SourceIndex.of("Borrow from 1-3 books at a time.")
+        self.assertFalse(idx.has("time", (13, 0)))
+        self.assertTrue(idx.has("number", grounding._num("3")))
+
+
+class TestRoundThreeHost(unittest.TestCase):
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+        self.env = mock.patch.dict(os.environ, {"GT_HOST_STATE": str(Path(self.tmp.name) / "state")})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def test_new_pages_are_found_before_known_ones(self):
+        write(self.p.pages_dir / "known.md", "---\nsource_url: https://ex.org/a\n---\n\nx\n")
+        order = ingest._prioritize(self.p, ["https://ex.org/a", "https://ex.org/b", "https://ex.org/c"])
+        self.assertEqual(order[-1], "https://ex.org/a")
+
+    def test_a_source_that_keeps_failing_to_download_alerts(self):
+        from groundtruth import alerts, refresh
+        url = ingest.page_meta(self.p.root / "sources/pages/contact-us.md")["source_url"]
+        failing = ingest.IngestResult(skipped=[f"{url} (HTTP 403, text/html)"])
+        for _ in range(refresh.FETCH_FAILURES_TO_ALERT):
+            refresh._track_fetch_failures(self.p, failing)
+        self.assertIn("contact-us.md", alerts.log_path(self.p).read_text())
+        refresh._track_fetch_failures(self.p, ingest.IngestResult(unchanged=["sources/pages/contact-us.md"]))
+        self.assertTrue(any("contact-us.md" in r for r in alerts.resolved(self.p)))
+
+    def test_a_new_question_has_to_pass(self):
+        import json
+        from groundtruth import alerts, host
+        keep = alerts.state_dir(self.p) / "last-live.json"
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        keep.write_text(json.dumps({"results": [{"id": "old", "passed": True}]}))
+
+        def step(*args):
+            self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+            (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps({"regressions": [], "results": [
+                {"id": "old", "passed": True}, {"id": "brand-new", "passed": False}]}))
+            return 1
+        self.assertEqual(host.live_gate(self.p, step), "worse")  # no history to grandfather it

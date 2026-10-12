@@ -171,6 +171,8 @@ elif prompt.startswith("You maintain this repo's knowledge base"):
                                     f"  category: narrative\n  must_cite_page: {stem}\n")
         text = "Added a page about gift cards."
 elif prompt.startswith("You maintain this repo's facts"):
+    for path, content in json.loads(os.environ.get("FAKE_APPEND", "[]")):  # [file, text]: new files too
+        open(path, "a").write(content)
     for path, old, new in json.loads(os.environ.get("FAKE_EDITS", "[]")):  # [file, from, to]
         text = open(path).read()
         open(path, "w").write(text.replace(old, new))
@@ -226,7 +228,7 @@ class RewriteLoopTests(unittest.TestCase):
         self.prefixes = mock.patch.object(rewrite, "CLAUDE_ENV_PREFIXES", rewrite.CLAUDE_ENV_PREFIXES + ("FAKE_",))
         self.prefixes.start()
         for key in ("GT_REWRITE_MODEL", "GT_REWRITE_CHECK_MODEL", "GT_REWRITE_ESCALATION_MODEL", "GT_HOST_JOB", "FAKE_VERDICT", "FAKE_FACT",
-                    "FAKE_STRAY", "FAKE_EDITS", "FAKE_COVER", "FAKE_SKIP_VERDICT", "FAKE_REPAIR", "CLAUDE_CODE_OAUTH_TOKEN"):
+                    "FAKE_STRAY", "FAKE_EDITS", "FAKE_COVER", "FAKE_SKIP_VERDICT", "FAKE_REPAIR", "FAKE_APPEND", "CLAUDE_CODE_OAUTH_TOKEN"):
             os.environ.pop(key, None)
 
     def tearDown(self):
@@ -457,6 +459,48 @@ class RewriteLoopTests(unittest.TestCase):
         self.assertNotIn("winter-schedule", self.p.golden_path.read_text())
         self.assertIn("- The winter schedule", index.read_text())  # the link became plain text
         self.assertFalse([c for c in self.calls_made() if c["first"].startswith("You maintain")])  # no model
+
+    def test_new_values_in_a_page_only_source_become_facts(self):
+        from groundtruth import ingest
+        ingest.save_history(self.p, self.p.root / self.app)  # what ./gt ingest keeps for ./gt review --diff
+        self.change(self.app, "Premium access costs $4.99 a month.")
+        sh(self.root, "add", "-A")
+        sh(self.root, "commit", "-qm", "refresh: with history, as a refresh commits it")
+        self.assertIn(self.app, cover.extract_todo(self.p, {}))
+        os.environ["FAKE_APPEND"] = json.dumps([
+            ["assistant/facts/app-guide.yaml",
+             "description: The eLibrary app's prices.\nkey: id\nsource: {path: sources/pages/app-guide.md}\n"
+             "tools:\n  - name: get_app_price\n    kind: lookup\n    arg: plan\n    description: What the "
+             "eLibrary app costs.\nrows:\n  - {id: premium, price_usd: 4.99, period: month}\n"],
+            ["assistant/evals/golden.yaml", "\n- id: app-premium-price\n  question: \"How much is premium?\"\n"
+             "  category: hard_fact\n  must_call_tool: get_app_price\n  tool_args: {plan: premium}\n"
+             "  must_contain: [\"4.99\"]\n"]])
+        self.assertEqual(rewrite.run(self.p), 0)
+        self.assertIn(f"facts: add what {self.app} now states", self.subjects())
+        self.assertTrue((self.p.root / "facts/app-guide.yaml").exists())
+        self.assertNotIn(self.app, [c.source for c in review.changes(self.p)])  # facts and page both checked
+
+    def test_retiring_a_page_leaves_its_namesake_alone(self):
+        for folder in ("entities", "journeys"):
+            write(self.p.root / f"wiki/{folder}/twin.md",
+                  f"---\ntitle: Twin {folder}\npage_type: entity\nlast_compiled: 2026-01-02\ncompiled_by: me\n"
+                  f"sources:\n  - sources/pages/{folder}-twin.md\nstatus: published\ntags: [twin]\n---\n\n# Twin\n\n"
+                  f"Twin page.\n\n## Sources & Lineage\n\n| Source | Captured | URL |\n|---|---|---|\n"
+                  f"| [[sources/pages/{folder}-twin.md]] | 2026-01-01 | https://example.org/{folder} |\n")
+            write(self.p.root / f"sources/pages/{folder}-twin.md",
+                  f"---\nsource_url: https://example.org/{folder}\ncaptured: 2026-01-01\n---\n\nTwin page.\n")
+        index = self.p.wiki_dir / "index.md"
+        index.write_text(index.read_text() + "\n- [[entities/twin|E]] and [[journeys/twin|J]]\n")
+        review.mark_reviewed(self.p)
+        sh(self.root, "add", "-A")
+        sh(self.root, "commit", "-qm", "twins")
+        gone = self.p.root / "sources/pages/entities-twin.md"
+        gone.write_text(gone.read_text().replace("captured: 2026-01-01", "captured: 2026-01-01\nremoved_upstream: 2026-10-12"))
+        sh(self.root, "commit", "-qam", "refresh: one twin is gone")
+        rewrite.run(self.p)
+        self.assertFalse((self.p.root / "wiki/entities/twin.md").exists())
+        self.assertTrue((self.p.root / "wiki/journeys/twin.md").exists())
+        self.assertIn("E and [[journeys/twin|J]]", index.read_text())  # only the retired page's link went
 
     def test_a_person_can_keep_facts_for_themselves(self):
         cfg = self.p.root / "groundtruth.yaml"

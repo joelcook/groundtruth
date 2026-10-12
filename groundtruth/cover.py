@@ -140,21 +140,22 @@ def _golden_additions(before: str, after: str) -> tuple[list[dict], list[str]]:
     return [i for qid, i in news.items() if qid not in olds], problems
 
 
-def _validate(project: Project, src: str, page: str, originals: dict[str, str], golden_before: str,
+def _validate(project: Project, src: str, page: str | None, originals: dict[str, str], golden_before: str,
               new_facts: str) -> tuple[list[str], list[str], list[str]]:
-    """(problems, changes, facts files touched) for a coverage candidate."""
+    """(problems, changes, facts files touched) for a coverage candidate (``page`` None: facts only)."""
     problems, changes, touched = [], [], []
-    path = project.root / page
-    if not path.exists():
-        return [f"no page was written at {page}"], [], []
-    meta, _ = checks.split_frontmatter(path.read_text(encoding="utf-8"))
-    if not meta or src not in [str(s) for s in comp.page_sources(path)]:
-        problems.append(f"{page} must cite {src} in its sources")
-    if meta and str(meta.get("status", "")).lower() != "published":
-        problems.append(f"{page} must have status: published")
-    if path.read_text(encoding="utf-8").count("fact-ok"):
-        problems.append(f"{page} has a fact-ok marker; name the fact tool instead")
-    changes.append(f"new page {page}")
+    if page is not None:
+        path = project.root / page
+        if not path.exists():
+            return [f"no page was written at {page}"], [], []
+        meta, _ = checks.split_frontmatter(path.read_text(encoding="utf-8"))
+        if not meta or src not in [str(s) for s in comp.page_sources(path)]:
+            problems.append(f"{page} must cite {src} in its sources")
+        if meta and str(meta.get("status", "")).lower() != "published":
+            problems.append(f"{page} must have status: published")
+        if path.read_text(encoding="utf-8").count("fact-ok"):
+            problems.append(f"{page} has a fact-ok marker; name the fact tool instead")
+        changes.append(f"new page {page}")
     for rel, before in originals.items():
         after = (project.root / rel).read_text(encoding="utf-8")
         if after == before:
@@ -177,8 +178,11 @@ def _validate(project: Project, src: str, page: str, originals: dict[str, str], 
     added, golden_problems = _golden_additions(
         golden_before, project.golden_path.read_text(encoding="utf-8") if project.golden_path.exists() else "")
     problems += golden_problems
-    if not any(rewrite.evals.page_matches(str(q.get("must_cite_page") or ""), page) for q in added):
+    if page is not None and not any(rewrite.evals.page_matches(str(q.get("must_cite_page") or ""), page)
+                                    for q in added):
         problems.append(f"add a narrative question with must_cite_page: {Path(page).stem}")
+    if page is None and not touched:
+        problems.append("no fact rows were added; add them, or reply SKIP: with why they aren't facts")
     asked = {str(q.get("must_call_tool")) for q in added}
     problems += [f"add a hard_fact question that calls the new tool {name}" for name in new_tools if name not in asked]
     changes += [f"new question {q.get('id')}: {q.get('question')}" for q in added]
@@ -325,6 +329,182 @@ def run(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], 
                               f"{src} couldn't be covered on any model ({reason[:200]}). {rewrite.RETRY_NOTE}")
             else:
                 log(f"  {src}: not covered yet; {cfg.escalation} gets one more try in a few hours: {reason[:200]}")
+        if o.status in {"limited", "auth"} or o.pause_until:
+            return handled, o, base
+    return handled, None, base
+
+
+# ===================================================================== new values in a covered source
+
+
+def new_value_lines(project: Project, src: str) -> list[str]:
+    """Lines a changed source gained that state an exact value (a price, a date, a phone number...)."""
+    diff = review.diff(project, src) or ""
+    added = [line[1:].strip() for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    return [line for line in added if any(rx.search(line) for _, rx in checks.PATTERNS)]
+
+
+def extract_todo(project: Project, state: dict) -> dict[str, list[str]]:
+    """Changed sources only pages cite that now state exact values: the facts have nowhere else to go."""
+    hashes = review.current(project)
+    done = state.get("extracted") or {}
+    out = {}
+    for ch in review.changes(project):
+        if ch.reason == "changed" and not ch.facts and done.get(ch.source) != hashes.get(ch.source):
+            lines = new_value_lines(project, ch.source)
+            if lines:
+                out[ch.source] = lines
+    return out
+
+
+def extraction_pending(project: Project, state: dict, src: str) -> bool:
+    return src in extract_todo(project, state)
+
+
+def build_extract_prompt(project: Project, src: str, lines: list[str], errors: list[str]) -> str:
+    pre = rewrite._prefix(project)
+    tools = rewrite._tools(project)
+    parts = [
+        f"You maintain this repo's facts without a human in the loop. A source changed and now states exact values "
+        f"no facts file holds: `{pre}{src}`. The new lines:",
+        *[f"- {line[:300]}" for line in lines[:40]],
+        "",
+        "First read CLAUDE.md and docs/facts.md, then the source and the facts files under "
+        f"`{pre}facts/`. The pages citing this source can't state these values (no exact facts in prose), so",
+        "they must become fact rows, or the assistant can never answer them.",
+        "",
+        f"1. Add rows for them: to an existing facts file whose tool fits (add only; never change or remove",
+        f"   existing rows), or create `{pre}facts/{_slug(src)}.yaml` with a lookup tool and a sharp description",
+        "   (copy an existing file's shape). Every value must appear in the source; cite it (a row-level",
+        "   `source: {path: ...}` in an existing file, or the new file's `source:`).",
+        f"2. For a new tool, add a `hard_fact` question to `{pre}evals/golden.yaml` (add only) with",
+        "   must_call_tool, tool_args, and must_contain.",
+        "The existing fact tools:", *[f"- `{n}`: {d}" for n, d in tools],
+        rewrite.UNTRUSTED,
+        f"- If none of these values is something a person would ask the assistant for (a copyright year, a",
+        f"  version number), change nothing and reply `{SKIP_WORD} <why>`.",
+        "",
+        "Afterwards a script checks every value against the source, runs ./gt check and ./gt eval, and a second",
+        "model checks the new rows. When you finish, reply with one sentence saying what you added.",
+    ]
+    if errors:
+        parts += ["", "A previous attempt failed these checks. Fix them:", *[f"- {e}" for e in errors[:20]]]
+    return "\n".join(parts)
+
+
+def extract_source(project: Project, cfg: rewrite.Config, state: dict, src: str, lines: list[str],
+                   aliases: list[str], stamp: str, base: rewrite.Baseline) -> Result:
+    pre = rewrite._prefix(project)
+    new_facts = f"facts/{_slug(src)}.yaml"
+    fact_files = [project.rel(f) for f in rewrite.facts.fact_files(project)]
+    originals = {f: (project.root / f).read_text(encoding="utf-8") for f in fact_files}
+    golden_before = project.golden_path.read_text(encoding="utf-8") if project.golden_path.exists() else ""
+    writable = [pre + project.rel(project.golden_path), *(pre + f for f in fact_files)]
+    if not (project.root / new_facts).exists():
+        writable.append(pre + new_facts)
+    slug = src.replace("/", "_").removesuffix(".md")
+    errors: list[str] = []
+    last = Result(rewrite.Outcome("failed"))
+    for alias in aliases:
+        res = rewrite.run_claude(cfg, alias, build_extract_prompt(project, src, lines, errors),
+                                 cfg.logs / f"{stamp}-extract-{slug}-{alias}.jsonl",
+                                 allowed=rewrite.writer_tools(writable))
+        if res.limited or res.auth_error:
+            rewrite.restore(cfg.cwd)
+            return Result(rewrite.Outcome("limited" if res.limited else "auth", problems=[res.text],
+                                          pause_until=res.pause_until, pause_reason=res.pause_reason))
+        rewrite.revert_others(cfg.cwd, set(writable))
+        reply = res.text.strip()
+        if reply.startswith(SKIP_WORD) and not rewrite.changed_paths(cfg.cwd):
+            why = reply[len(SKIP_WORD):].strip()[:300]
+            verdict = confirm_skip(cfg, project, src, f"its new values aren't facts anyone would ask for: {why}",
+                                   cfg.logs / f"{stamp}-extract-{slug}-skip-check.jsonl")
+            if verdict.limited or verdict.auth_error:
+                return Result(rewrite.Outcome("limited" if verdict.limited else "auth", problems=[verdict.text],
+                                              pause_until=verdict.pause_until, pause_reason=verdict.pause_reason))
+            if verdict.text == "agree":
+                return Result(rewrite.Outcome("ok", model_id=res.model_id, checked_by=cfg.check_model or ""),
+                              skipped=why)
+            errors = [f"you skipped it ({why}), but a second reader disagreed: {verdict.text}"]
+            continue
+        problems, changes, touched = _validate(project, src, None, originals, golden_before, new_facts) \
+            if not res.is_error else ([f"the run ended with an error: {res.text[:300]}"], [], [])
+        if not problems:
+            problems = rewrite.gate_problems(project, base)
+            rewrite.revert_others(cfg.cwd, set(writable))
+        checked_by = ""
+        if not problems and cfg.check_model:
+            rows = [c for c in changes if " row " in c.split("\n")[0]]
+            check = rewrite.run_claude(cfg, cfg.check_model, reconcile.build_check_prompt(project, src, touched, rows),
+                                       cfg.logs / f"{stamp}-extract-{slug}-check.jsonl",
+                                       allowed=rewrite.CHECK_TOOLS, denied=rewrite.CHECK_DENIED)
+            if check.limited or check.auth_error:
+                rewrite.restore(cfg.cwd)
+                return Result(rewrite.Outcome("limited" if check.limited else "auth", problems=[check.text],
+                                              pause_until=check.pause_until, pause_reason=check.pause_reason))
+            verdict, found = rewrite.parse_verdict(check.text) if not check.is_error else (None, [])
+            problems = found if verdict else [f"the fact check gave no clear verdict: {check.text[:200]}"]
+            checked_by = check.model_id or cfg.check_model
+        if not problems:
+            summary = next((line.strip() for line in res.text.splitlines() if line.strip()), "")
+            return Result(rewrite.Outcome("ok", model_id=res.model_id or alias, summary=summary[:200],
+                                          checked_by=checked_by), "", touched, changes)
+        log(f"  {src}: {alias} extraction failed: {problems[0][:200]}")
+        rewrite.restore(cfg.cwd)
+        errors = problems
+        last = Result(rewrite.Outcome("failed", model_id=res.model_id, problems=problems))
+    return last
+
+
+def run_extract(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], stamp: str,
+                base: rewrite.Baseline, *, dry_run: bool, budget: int) -> tuple[int, rewrite.Outcome | None,
+                                                                              rewrite.Baseline]:
+    """Turn the new exact values in changed, page-only sources into fact rows (up to ``budget`` sources)."""
+    failed = state.setdefault("extract_failed", {})
+    hashes = review.current(project)
+    now = dt.datetime.now().timestamp()
+    escalate = rewrite.sort_failed(failed, now, lambda s, info: info.get("hash") == hashes.get(s))
+    handled = 0
+    for src, lines in extract_todo(project, state).items():
+        if handled >= budget:
+            break
+        if src in failed and src not in escalate:
+            continue
+        handled += 1
+        result = extract_source(project, cfg, state, src, lines,
+                                rewrite.aliases_for(cfg, state, src, escalate, aliases), stamp, base)
+        o = result.outcome
+        if o.status == "ok" and dry_run:
+            log(f"  {src}: facts extracted on {o.model_id} (dry run)")
+            rewrite.restore(cfg.cwd)
+        elif o.status == "ok":
+            failed.pop(src, None)
+            alerts.resolve(project, f"new facts in a source would not extract — {src}")
+            if o.checked_by:
+                state.setdefault("extracted", {})[src] = hashes.get(src)
+                for f in result.touched:
+                    rewrite.remember(project, state, "facts_verified", f, {src: hashes.get(src)})
+            if result.skipped:
+                log(f"  {src}: its new values aren't facts ({result.skipped[:150]})")
+            else:
+                pre = rewrite._prefix(project)
+                host.git(cfg.cwd, "add", "-A", "--", pre + project.rel(project.golden_path),
+                         *(pre + f for f in result.touched))
+                body = [f"{src} now states exact values no facts file held. Added:", "", *result.changes, "",
+                        "Every exact value appears in the source (checked by script).",
+                        f"Model: {o.model_id} (Claude Code, headless)"]
+                if o.checked_by:
+                    body.append(f"Rows checked by: {o.checked_by}")
+                host.git(cfg.cwd, "commit", "--quiet", "-m", f"facts: add what {src} now states",
+                         "-m", "\n".join(body))
+                base = rewrite.baseline(project)
+                log(f"  {src}: new facts in {', '.join(result.touched)}")
+        elif o.status == "failed" and not dry_run:
+            reason = (o.problems or ["unknown"])[0][:500]
+            if rewrite.record_failure(cfg, failed, src, {"hash": hashes.get(src), "reason": reason}, src in escalate):
+                alerts.notify(project, "new facts in a source would not extract",
+                              f"{src} now states exact values that couldn't become fact rows on any model ({reason[:200]}). "
+                              f"Until they do, it isn't recorded as reviewed. {rewrite.RETRY_NOTE}")
         if o.status in {"limited", "auth"} or o.pause_until:
             return handled, o, base
     return handled, None, base

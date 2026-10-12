@@ -230,6 +230,67 @@ EXACT_KINDS = {"money", "date", "time", "phone number", "email", "duration", "pe
                "amount"}
 
 
+# What each kind of claim has to match in the tool results: a dollar amount a money field, a duration a
+# duration field, a percentage a rate. So a returned `duration_days: 30` doesn't back up an invented "$30".
+MONEY_FIELD = re.compile(r"usd|eur|gbp|cad|aud|price|cost|fee|amount|charge|tuition|dollar|fine", re.I)
+DURATION_FIELD = re.compile(r"day|week|month|year|hour|minute|duration|window|period|length|term", re.I)
+PERCENT_FIELD = re.compile(r"pct|percent|rate|share", re.I)
+NOT_EVIDENCE = {"query", "filters", "hint", "error", "score", "backend", "count", "collection", "truncated",
+                "ambiguous"}  # echoes of the question, or bookkeeping: never proof of a fact
+
+
+def _leaves(obj, key: str = ""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if str(k) not in NOT_EVIDENCE:
+                yield from _leaves(v, str(k))
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _leaves(v, key)
+    elif obj is not None and not isinstance(obj, bool):
+        yield key, obj
+
+
+class Evidence:
+    """What the tools actually returned, typed: the values of the rows and pages, not the echo of the query."""
+
+    def __init__(self, results: list) -> None:
+        from groundtruth import grounding
+        leaves = [leaf for r in results for leaf in _leaves(r)]
+        self.text = "\n".join(str(v) for _, v in leaves)
+        self.index = grounding.SourceIndex.of(self.text)
+        self.money, self.durations, self.percents = set(), set(), set()
+        for key, value in leaves:
+            nums = [n for k, n, _ in grounding.exact_values(value) if k == "number"]
+            if isinstance(value, (int, float)):
+                if MONEY_FIELD.search(key):
+                    self.money.update(nums)
+                if DURATION_FIELD.search(key):
+                    self.durations.update(nums)
+                if PERCENT_FIELD.search(key):
+                    self.percents.update(nums)
+            else:  # prose and statements: the unit is written next to the number
+                text = str(value)
+                for rx, bucket in ((checks.MONEY_RE, self.money), (checks.DURATION_RE, self.durations),
+                                   (checks.PERCENT_RE, self.percents), (checks.PERCENT_WORDS_RE, self.percents)):
+                    for hit in rx.finditer(text):
+                        bucket.update(n for k, n, _ in grounding.exact_values(hit.group(0)) if k == "number")
+
+    def backs(self, kind: str, raw: str) -> bool:
+        from groundtruth import grounding
+        values = grounding.exact_values(raw)
+        nums = [n for k, n, _ in values if k == "number"]
+        if not values:  # "seven days", "at noon": compare the words themselves
+            return " ".join(raw.lower().split()) in " ".join(self.text.lower().split())
+        if kind == "money":
+            return all(n in self.money for n in nums)
+        if kind == "duration":
+            return all(n in self.durations for n in nums) if nums else self.backs("text", raw)
+        if kind == "percentage":
+            return all(n in self.percents for n in nums)
+        return all(self.index.has(k, n) for k, n, _ in values)
+
+
 def invented_values(question: str, response: str, calls: list[dict], *, question_counts: bool = False) -> list[str]:
     """Exact values in an answer that no tool returned: said from memory.
 
@@ -238,20 +299,18 @@ def invented_values(question: str, response: str, calls: list[dict], *, question
     Only for runs that recorded tool results (older recorded runs can't be judged this way).
     """
     if not any("result" in c for c in calls):
-        return [] if calls else [v for v in _exact_in(response) if not (question_counts and v in question)]
-    from groundtruth import grounding
-    evidence = (question if question_counts else "") + "\n" + "\n".join(
-        json.dumps(c.get("result"), default=str) for c in calls if "result" in c)
-    index = grounding.SourceIndex.of(evidence)
-    return [raw for raw in _exact_in(response)
-            if not all(index.has(k, n) for k, n, _ in grounding.exact_values(raw))]
+        return [] if calls else [v for _, v in _exact_in(response) if not (question_counts and v in question)]
+    evidence = Evidence([c.get("result") for c in calls if "result" in c])
+    return [raw for kind, raw in _exact_in(response)
+            if not evidence.backs(kind, raw) and not (question_counts and raw in question)]
 
 
-def _exact_in(text: str) -> list[str]:
-    found = []
+def _exact_in(text: str) -> list[tuple[str, str]]:
+    """(kind, as written) for every exact value in a piece of text."""
+    found: list[tuple[str, str]] = []
     for kind, rx in checks.PATTERNS:
         if kind in EXACT_KINDS:
-            found += [m.group(0) for m in rx.finditer(text) if m.group(0) not in found]
+            found += [(kind, m.group(0)) for m in rx.finditer(text) if m.group(0) not in [f for _, f in found]]
     return found
 
 

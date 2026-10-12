@@ -73,6 +73,41 @@ def _outage(project: Project, result: ingest.IngestResult) -> str | None:
 
 
 OUTAGE_NIGHTS = 3
+FETCH_FAILURES_TO_ALERT = 3
+
+
+def _track_fetch_failures(project: Project, result: ingest.IngestResult) -> None:
+    """A source the assistant relies on that keeps failing to download (403, 429, timeouts) goes stale
+    silently. Count consecutive failures per cited source, and alert at FETCH_FAILURES_TO_ALERT."""
+    import json
+    from groundtruth import review
+    path = alerts.state_dir(project) / "fetch-failures.json"
+    try:
+        counts = json.loads(path.read_text())
+    except (OSError, ValueError):
+        counts = {}
+    cited = {}
+    for src in review.dependents(project):
+        url = ingest.page_meta(project.root / src).get("source_url")
+        if url:
+            cited[ingest._clean_url(str(url))] = src
+    failed = {}
+    for skip in result.skipped:
+        url, _, why = skip.partition(" (")
+        if ingest._clean_url(url) in cited and "robots.txt" not in why and "off the site" not in why:
+            failed[cited[ingest._clean_url(url)]] = why.rstrip(")")
+    ok = set(result.new) | set(result.updated) | set(result.unchanged)
+    for src in list(counts):
+        if src in ok:
+            counts.pop(src)
+            alerts.resolve(project, f"a source hasn't been fetched in {FETCH_FAILURES_TO_ALERT} refreshes — {src}")
+    for src, why in failed.items():
+        counts[src] = counts.get(src, 0) + 1
+        if counts[src] == FETCH_FAILURES_TO_ALERT:
+            alerts.notify(project, f"a source hasn't been fetched in {FETCH_FAILURES_TO_ALERT} refreshes",
+                          f"{src} ({why}). The facts and pages that cite it are as of its last good capture.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(counts))
 
 
 def _outage_persists(project: Project, result: ingest.IngestResult, push: bool) -> bool:
@@ -158,6 +193,8 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
             outage = _outage(project, result)
             if outage and write and not _outage_persists(project, result, push):
                 return fail(outage)
+            if push:
+                _track_fetch_failures(project, result)
             fetched = len(result.new) + len(result.updated) + len(result.unchanged)
             unreachable = [s for s in result.skipped if "Error" in s or "Exception" in s or "HTTP 5" in s]
             if push and len(unreachable) >= 3 and len(unreachable) > fetched:  # most of the site didn't answer

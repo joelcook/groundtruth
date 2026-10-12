@@ -69,9 +69,13 @@ connected to your project's MCP server over stdio with the server's
 instructions and no other tools, so it reaches the facts exactly the way a
 client does. The judge runs the same way.
 
-A live answer also fails if it states a price, date, time, phone number, or
-email that no tool returned and the question didn't contain: that value came
-from memory.
+A live answer also fails if it states an exact value (a price, date, time,
+duration, percentage, limit, phone number, or email) that no tool returned: that
+value came from memory. Values are matched by kind against the rows and pages the
+tools returned, not the query they echo: a `window_days: 30` doesn't back up
+"$30". Only a `contradiction` question may repeat a value from the question (to
+correct the rumor it asks about). The `/chat` page runs the same check on every
+answer before a visitor sees it.
 
 Models: `GT_MODEL` (default `claude-opus-5-5`) and `GT_JUDGE_MODEL`. **Evaluate
 on the model you run in production**, or you're grading a different assistant

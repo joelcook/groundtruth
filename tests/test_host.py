@@ -220,6 +220,10 @@ class HostTests(RemoteRepo):
         touched = host.affected_questions(self.p, wd)
         self.assertIn("printing-bw-cost", touched)  # it calls get_fee
         self.assertNotIn("central-saturday-open", touched)
+        write(self.p.root / "wiki" / "entities" / "new-thing.md", "x")  # a new page can change any question's search
+        sh(wd, "add", "-A")
+        sh(wd, "commit", "-qm", "wiki: cover a new source")
+        self.assertIn("central-saturday-open", host.affected_questions(self.p, wd))
 
     def test_alerts_reach_alerts_md_on_main_once(self):
         alerts.start_publishing(self.p)

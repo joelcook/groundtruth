@@ -222,10 +222,12 @@ live eval got wrong. These steps are for a new X, or one it couldn't fix.)
 
 If the project names a `host:` in `groundtruth.yaml`, the refresh host commits
 to main on its own (docs/operations.md). Pull before you start. Its commits:
-`refresh: ...` (re-captured sources), `facts: update ...` (facts it updated from
-a changed source), `wiki: cover ...` (a page for a new source), `wiki: rewrite
-...` (a stale page rewritten), and `alerts: ...`. Each one passed the gates and
-a second model's check. Don't revert them; fix what's upstream instead.
+`refresh: ...` (re-captured sources), `facts: update ...` / `facts: add ...`
+(facts it updated or added from a changed source), `wiki: cover ...` (a page for
+a new source), `wiki: rewrite ...` (a stale page rewritten, or one retired
+because its sources are gone), `fix: ...` (`./gt repair` fixing a live-eval
+failure), and `alerts: ...`. Each one passed the gates and a second model's
+check. Don't revert them; fix what's upstream instead.
 
 `./gt rewrite` does by hand what the host does on a schedule: update facts,
 cover new sources, rewrite stale pages. It needs a clean checkout (it reverts

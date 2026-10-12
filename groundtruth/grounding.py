@@ -46,14 +46,18 @@ DAY_FIRST_DATE = re.compile(r"\b(\d{1,2})\s+" + MONTH_RE + r"\.?,?\s+(\d{4})", r
 SLASH_DATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b")
 TIME_24 = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:a\.?m\.?|p\.?m\.?))", re.I)
 HOUR_RANGE = re.compile(r"\b(1[0-2]|0?[1-9])\s*(?:-|–|—|to|until|till)\s*(1[0-2]|0?[1-9])\b(?!\s*(?:a\.?m|p\.?m))", re.I)
-CLOCK_CONTEXT = re.compile(r"\b(?:open|opens|opening|close|closes|closed|hours|from|daily|weekdays?|weekends?|"
+CLOCK_CONTEXT = re.compile(r"\b(?:open|opens|opening|close|closes|closed|hours|daily|weekdays?|weekends?|"
                            r"mon|tue|wed|thu|fri|sat|sun)[a-z]*\b", re.I)
+TIME_WORDS = {"am", "pm", "a", "p", "daily", "weekdays", "weekday", "weekends", "every", "on", "and", "or", "except"}
 
 
 def _about_hours(text: str, m: re.Match) -> bool:
     """Is this "9-5" a span of hours? Only when the same sentence says so just before it, or "daily" etc. after."""
     before = re.split(r"[.;:!?\n]", text[max(0, m.start() - 40):m.start()])[-1]
     after = re.split(r"[.;:!?\n]", text[m.end():m.end() + 20])[0]
+    word = re.match(r"\s*([a-z]+)", after, re.I)
+    if word and word.group(1).lower() not in TIME_WORDS:
+        return False  # "1-3 books", "9-5 items": a quantity, whatever came before it
     return bool(CLOCK_CONTEXT.search(before) or re.search(r"\b(?:daily|weekdays?|weekends?|every day)\b", after, re.I))
 TIME_12 = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")

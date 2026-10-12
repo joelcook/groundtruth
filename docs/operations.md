@@ -100,9 +100,9 @@ and anything else stands down, so exactly one pushes main.
 | When | What | Commits it pushes |
 |---|---|---|
 | nightly | `./gt refresh --write --push`: ingest every source, build, check, eval | `refresh: sources (date)`, or an empty `refresh: no source changes (date)` so the watchdog knows it ran |
-| right after | `./gt rewrite`: update changed facts, cover new sources, rewrite stale pages (below) | `facts: update ...`, `wiki: cover ...`, `wiki: rewrite ...` |
-| nightly | `./gt eval --tier live`: the golden set on the production model (through the API with an `ANTHROPIC_API_KEY`, or through Claude Code on a Claude plan), before the rewrites are pushed. If it now gets wrong a question it got right last night, the rewrites are held back and you get an alert. A failure that isn't new goes to `./gt repair` (below) | `fix: ...` |
-| every 2 hours, 05:00 to 22:00 | `./gt refresh --push --quick`: re-capture just the sources facts cite, then the same rewrites | `refresh: quick sources (...)` and the above |
+| right after | `./gt rewrite`: retire pages whose sources are gone, update changed facts, add new ones, cover new sources, rewrite stale pages (below) | `facts: update ...`, `facts: add ...`, `wiki: cover ...`, `wiki: rewrite ...` |
+| nightly | `./gt eval --tier live`: the golden set on the production model (through the API with an `ANTHROPIC_API_KEY`, or through Claude Code on a Claude plan), before the rewrites are pushed. If it now gets wrong a question it got right last night, `./gt repair` (below) gets one try; if it's still worse, the rewrites are held back and you get an alert. A question added tonight must pass. A failure that isn't new goes to `./gt repair` too | `fix: ...` |
+| every 2 hours, 05:00 to 22:00 | `./gt refresh --push --quick`: re-capture just the sources facts cite, then the same rewrites, live-graded on the questions whose facts or pages changed (all of them when a shared file such as the prompt changed) | `refresh: quick sources (...)` and the above |
 | whenever there's news | new alerts go into `ALERTS.md` | `alerts: ...` |
 | daily, in GitHub | `watchdog.yml`: `./gt watchdog --repo` checks open alerts, refresh age, CI on main, and the deployed server | (none) |
 | after CI passes on main | `publish-data.yml`: a data bundle your servers hot-swap ([deploy.md](deploy.md#update-data-without-redeploying)) | (none) |
@@ -152,8 +152,10 @@ old machine stops on its next run (then run `./gt host uninstall` there).
 
 ### What `./gt rewrite` does
 
-Each run works through three queues, up to `GT_REWRITE_MAX_PAGES` (10) items,
-facts first:
+Each run first retires any page whose sources are all gone upstream: the page,
+its golden questions, and the links to it go, with no model involved (commit:
+`wiki: rewrite <page>: retired`). Then it works through four queues, up to
+`GT_REWRITE_MAX_PAGES` (10) items, facts first:
 
 1. **Facts whose source changed** (or vanished). Claude Code updates the rows
    that cite it, and the expected values of the golden questions that check
@@ -167,11 +169,16 @@ facts first:
    A source that changed wholesale may be redesigned or broken, so a change to
    more than 30% of the rows needs `opus` to agree as well. Commit:
    `facts: update ...`, listing every changed row.
-2. **New sources nothing covers.** Claude Code writes one published page and a
+2. **New values in a source only pages cite.** A page can't state a price or a
+   date, so when such a source gains them, Claude Code adds fact rows (adding
+   only) or a new facts file with a tool and a golden question, under the same
+   checks. A second model must agree before it decides they aren't facts. Commit:
+   `facts: add what <source> now states`.
+3. **New sources nothing covers.** Claude Code writes one published page and a
    golden question for it, and adds fact rows (adding only) plus a question for
    any new tool. It's held to the same checks. A source with nothing worth a page
    is skipped until it changes. Commit: `wiki: cover ...`.
-3. **Stale pages.** Claude Code rewrites the page from its sources, and the diff
+4. **Stale pages.** Claude Code rewrites the page from its sources, and the diff
    since their last review. Commit: `wiki: rewrite ...`. The page:
    - may change only that one file;
    - must not shrink below 40% of its length;
@@ -225,15 +232,21 @@ Run it by hand too, on a clean checkout:
 Credentials, once: the hosting login, GitHub, and the Claude secret. After that,
 the system repairs what it can by itself:
 - an item that fails gets a stronger model;
-- a site that's down is retried on the next run;
+- a site that's down is retried on the next run (a source your content cites
+  that fails three refreshes in a row gets an alert, which clears once it
+  answers again);
+- a page the crawl stopped reaching is re-captured directly, a slice a night,
+  and a page that's new in the sitemap is captured even if nothing links to it;
 - an alert clears itself once the thing it was about works again;
 - new code redeploys itself (with `deploy.yml` on).
 
 `ALERTS.md` keeps only what none of that fixed: an item that failed even on
 `opus`, a live eval failure `./gt repair` couldn't fix, or an expired credential.
 (A source that looks removed is retried for three refreshes; if the same sources
-are still gone, the removal is accepted and the rewrites update what cited them.) A coding agent can clear those ("fix what ALERTS.md
-lists", in CLAUDE.md). Meanwhile the server keeps serving the last version that
+are still gone, the removal is accepted and the rewrites update what cited them:
+facts and questions that only it backed are retired, and a page with no sources
+left is removed.) A coding agent can clear those ("fix what ALERTS.md lists", in
+CLAUDE.md). Meanwhile the server keeps serving the last version that
 passed, so nothing unchecked reaches anyone.
 
 ### Alerts

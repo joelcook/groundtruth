@@ -686,13 +686,14 @@ def settle_sources(project: Project, state: dict, sources: list[str]) -> list[st
     updated it from that source and every value held up (reconcile.py). With
     ``facts_updates: human``, a source facts cite always waits for ./gt review --done.
     """
+    from groundtruth import cover
     hashes = review.current(project)
     deps = review.dependents(project)
     pending = {c.source for c in review.changes(project)}
     ready = []
     for src in dict.fromkeys(sources):
         digest, d = hashes.get(src), deps.get(src) or {}
-        if src in pending \
+        if src in pending and not cover.extraction_pending(project, state, src) \
                 and all(checked_against(project, state, "verified", w).get(src) == digest for w in d.get("wiki", [])) \
                 and all(checked_against(project, state, "facts_verified", f).get(src) == digest
                         for f in d.get("facts", [])):
@@ -757,8 +758,11 @@ def retire_page(project: Project, cfg: Config, rel: str, base: Baseline) -> list
     meta, _ = checks.split_frontmatter(page.read_text(encoding="utf-8"))
     title = str((meta or {}).get("title") or page.stem.replace("-", " "))
     slug = page.stem
+    where = page.relative_to(project.wiki_dir).with_suffix("").as_posix()  # e.g. entities/winter-schedule
+    unique = sum(1 for p in checks.wiki_pages(project) if p.stem == slug) == 1  # a bare name means this page
     page.unlink()
-    link = re.compile(r"\[\[(?:wiki/)?(?:[\w/-]*/)?" + re.escape(slug) + r"(?:\.md)?(?:\|([^\]]+))?\]\]")
+    names = [re.escape(where)] + ([re.escape(slug)] if unique else [])
+    link = re.compile(r"\[\[(?:wiki/)?(?:" + "|".join(names) + r")(?:\.md)?(?:\|([^\]]+))?\]\]")
     for other in project.wiki_dir.rglob("*.md"):  # index.md and log.md too: no link left pointing nowhere
         text = other.read_text(encoding="utf-8")
         unlinked = link.sub(lambda m: m.group(1) or title, text)
@@ -767,8 +771,10 @@ def retire_page(project: Project, cfg: Config, rel: str, base: Baseline) -> list
     if project.golden_path.exists():
         import yaml
         items = yaml.safe_load(project.golden_path.read_text(encoding="utf-8")) or []
-        kept = [i for i in items if not (isinstance(i, dict)
-                                         and evals.page_matches(str(i.get("must_cite_page") or ""), rel))]
+        def cites_it(cited: str) -> bool:
+            cited = cited.strip().lower().removeprefix("wiki/").removesuffix(".md")
+            return cited == where.lower() or (unique and cited == slug.lower())
+        kept = [i for i in items if not (isinstance(i, dict) and cites_it(str(i.get("must_cite_page") or "")))]
         if len(kept) != len(items):
             project.golden_path.write_text(yaml.safe_dump(kept, sort_keys=False, allow_unicode=True, width=10_000),
                                            encoding="utf-8")
@@ -849,6 +855,7 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
     stale = todo(project, state)
     facts_todo = {} if pages else reconcile.todo(project, state)
     new_sources = [] if pages else cover.todo(project, state)
+    new_values = {} if pages else cover.extract_todo(project, state)
     if listing:
         if not stale and not facts_todo and not new_sources:
             print("nothing to rewrite: every published page and facts file matches its sources")
@@ -858,6 +865,9 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
         for src in new_sources:
             print(src)
             print("  - new: nothing covers it yet")
+        for src, lines in new_values.items():
+            print(src)
+            print(f"  - now states {len(lines)} exact value(s) no facts file holds")
         for rel, reasons in sorted(stale.items()):
             print(rel)
             for reason in reasons:
@@ -898,7 +908,7 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
     else:
         retiring = set(retirable(project))
         queue = [r for r in sorted(stale) if (force or r not in failed or r in escalate) and r not in retiring]
-    if not queue and not facts_todo and not new_sources and not (not pages and retirable(project)):
+    if not queue and not facts_todo and not new_sources and not new_values and not (not pages and retirable(project)):
         save_state(path, state)
         log("nothing to rewrite")
         return 0
@@ -944,6 +954,11 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
     # review is only recorded once its facts and its pages have all been checked.
     handled, stop, base = reconcile.run(project, cfg, state, aliases, stamp, base, dry_run=dry_run,
                                         budget=cfg.max_pages)
+    if stop:
+        return finish(project, cfg, state, done, stop, dry_run)
+    extracted, stop, base = cover.run_extract(project, cfg, state, aliases, stamp, base, dry_run=dry_run,
+                                              budget=cfg.max_pages - handled)
+    handled += extracted
     if stop:
         return finish(project, cfg, state, done, stop, dry_run)
     covered, stop, base = cover.run(project, cfg, state, aliases, stamp, base, dry_run=dry_run,

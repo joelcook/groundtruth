@@ -141,8 +141,10 @@ meaning, not spelling: `39` matches "$39" and "USD 39.00", `1200` matches
 "1,200", `0.1` matches "$0.10" and "10 cents", `2026-09-01` matches
 "September 1, 2026", `"13:00"` matches "1 p.m.", and phone numbers compare by
 their digits. Words (a weekday, a branch name) aren't checked here; a model
-checks those when the refresh host updates facts. Your `key`, `aliases`, `tags`,
-and `notes` are yours, not the source's, so they're skipped. A row whose only
+checks those when the refresh host updates facts. Your `key`, `aliases`, and
+`tags` are yours, not the source's, so they're skipped; `notes` are checked,
+since the assistant reads them as part of the fact (and an alias the refresh host
+adds must be a word the source uses). A row whose only
 source is a URL (nothing captured) fails too: there's nothing to check it
 against, so `./gt ingest` the page first.
 

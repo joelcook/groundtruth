@@ -667,8 +667,13 @@ def affected_questions(project: Project, root: Path) -> list[str]:
     file's tools, or cite a changed page."""
     from groundtruth import checks, facts
     pre = "" if project_path(project, root) == "." else project_path(project, root) + "/"
-    changed = {c[len(pre):] for c in git(root, "diff", "--name-only", "origin/main..HEAD").stdout.split()
-               if c.startswith(pre)}
+    status = [line.split("\t") for line in git(root, "diff", "--name-status", "origin/main..HEAD").stdout.splitlines()]
+    changed = {s[-1][len(pre):] for s in status if s[-1].startswith(pre)}
+    shared = {"groundtruth.yaml", "prompts/system_prompt.md"}
+    if changed & shared or any(s[0][0] in "ADR" and (s[-1][len(pre):].startswith(("facts/", "wiki/")))
+                               for s in status if s[-1].startswith(pre)):
+        # a new or removed page or tool, a synonym, the prompt: any question's routing can change
+        return [str(i["id"]) for i in checks.load_golden(project) if isinstance(i, dict) and i.get("id")]
     try:
         tools = {t.name for c in facts.load(project) if project.rel(c.file) in changed for t in c.tools}
     except facts.FactsError:
@@ -693,6 +698,12 @@ def live_gate(project: Project, step, only: list[str] | None = None) -> str:
         return "failing"
     import json
     run = json.loads(latest.read_text())
+    if keep.exists():  # a question with no history has to pass: "not worse" can't grandfather it
+        known = {str(r.get("id")) for r in json.loads(keep.read_text()).get("results") or []}
+        new_failures = [str(r["id"]) for r in run.get("results") or []
+                        if not r.get("passed") and not r.get("skipped") and str(r.get("id")) not in known]
+        run["regressions"] = sorted(set(run.get("regressions") or []) | set(new_failures))
+        latest.write_text(json.dumps(run, indent=2, default=str))  # so ./gt repair sees them first
     keep.parent.mkdir(parents=True, exist_ok=True)
     if not run.get("regressions") and not only:
         shutil.copyfile(latest, keep)  # a held-back or partial run doesn't become the new baseline

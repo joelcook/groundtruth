@@ -180,9 +180,11 @@ Rebuilding the image works, but you don't have to:
    (add `GT_DATA_TOKEN` for a private repo).
 
 The server polls every `GT_DATA_POLL_SECONDS` (default 600), verifies every
-checksum, and refuses a bundle that would cut a collection or the wiki in half
-(set `GT_DATA_ALLOW_SHRINK=1` if that's intended). Then it switches over
-atomically. Code changes still need a deploy.
+checksum, and switches over atomically. A bundle that would cut a collection or
+the wiki in half is refused unless `./gt bundle` built it behind the gates
+(`./gt check --production` and `./gt eval` passed), which is how a fact retired on
+purpose gets through; `GT_DATA_ALLOW_SHRINK=1` accepts any. Code changes still
+need a deploy.
 
 ## Watch it
 
