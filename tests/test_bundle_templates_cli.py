@@ -42,6 +42,8 @@ class TestBundle(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 bundle.apply_bytes(self.p, data)
             self.assertIn("hours would drop", str(ctx.exception))
+            data = bundle.build(small, verified=True).read_bytes()  # the gates passed: a retirement on purpose
+            self.assertTrue(bundle.apply_bytes(self.p, data).startswith("applied"))
         finally:
             small_tmp.cleanup()
 

@@ -226,18 +226,22 @@ def _grade_calls(item: dict, calls: list[dict]) -> list[str]:
     return reasons
 
 
-EXACT_KINDS = {"money", "date", "time", "phone number", "email"}
+EXACT_KINDS = {"money", "date", "time", "phone number", "email", "duration", "percentage", "limit", "size limit",
+               "amount"}
 
 
-def invented_values(question: str, response: str, calls: list[dict]) -> list[str]:
-    """Exact values in an answer that no tool returned and the question didn't contain: said from memory.
+def invented_values(question: str, response: str, calls: list[dict], *, question_counts: bool = False) -> list[str]:
+    """Exact values in an answer that no tool returned: said from memory.
 
+    ``question_counts``: a value the question itself contains may be repeated (to correct a rumor, say). Off
+    for anything a visitor typed, so nobody can talk the assistant into confirming a number they made up.
     Only for runs that recorded tool results (older recorded runs can't be judged this way).
     """
     if not any("result" in c for c in calls):
-        return [] if calls else _exact_in(response)
+        return [] if calls else [v for v in _exact_in(response) if not (question_counts and v in question)]
     from groundtruth import grounding
-    evidence = question + "\n" + "\n".join(json.dumps(c.get("result"), default=str) for c in calls if "result" in c)
+    evidence = (question if question_counts else "") + "\n" + "\n".join(
+        json.dumps(c.get("result"), default=str) for c in calls if "result" in c)
     index = grounding.SourceIndex.of(evidence)
     return [raw for raw in _exact_in(response)
             if not all(index.has(k, n) for k, n, _ in grounding.exact_values(raw))]
@@ -254,7 +258,8 @@ def _exact_in(text: str) -> list[str]:
 def grade(item: dict, response: str, calls: list[dict], *, use_judge: bool) -> tuple[bool, list[str]]:
     reasons = _grade_calls(item, calls) + _grade_text(item, response)
     reasons += [f"answer states {v!r}, which no tool returned (from memory?)"
-                for v in invented_values(str(item.get("question") or ""), response, calls)]
+                for v in invented_values(str(item.get("question") or ""), response, calls,
+                                         question_counts=item.get("category") == "contradiction")]
     if item.get("category") == "narrative" and use_judge and not reasons and item.get("expected_summary"):
         from groundtruth import llm
         evidence = "\n\n".join(f"{c['name']}({json.dumps(c.get('input'), default=str)}):\n"
@@ -402,7 +407,8 @@ def run(project: Project, tier: str = "tools", *, only: str | None = None, judge
         if tier == "release":
             print("release runs the whole set; drop --only", file=sys.stderr)
             return 2
-        items = [i for i in items if i.get("id") == only]
+        wanted = {x.strip() for x in str(only).split(",") if x.strip()}  # one id, or several: a,b,c
+        items = [i for i in items if str(i.get("id")) in wanted]
         if not items:
             print(f"no question with id {only!r}", file=sys.stderr)
             return 2

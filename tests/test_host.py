@@ -208,6 +208,18 @@ class HostTests(RemoteRepo):
         self.assertEqual(host.live_gate(self.p, step(["card-fee"], 1)), "worse")
         self.assertEqual(json.loads((alerts.state_dir(self.p) / "last-live.json").read_text())["regressions"], [])
         self.assertEqual(host.live_gate(self.p, step([], 1)), "failing")  # wrong before too: not a regression
+        before = (alerts.state_dir(self.p) / "last-live.json").read_text()
+        host.live_gate(self.p, step([], 0), only=["q1"])
+        self.assertEqual((alerts.state_dir(self.p) / "last-live.json").read_text(), before)  # partial: not a baseline
+
+    def test_quick_runs_grade_only_what_their_changes_touch(self):
+        wd = host.git_root(self.p)
+        fees = self.p.root / "facts" / "fees.yaml"
+        fees.write_text(fees.read_text().replace("aliases: [room, study room]", "aliases: [room, study room, rooms]"))
+        sh(wd, "commit", "-qam", "facts: update fees.yaml")
+        touched = host.affected_questions(self.p, wd)
+        self.assertIn("printing-bw-cost", touched)  # it calls get_fee
+        self.assertNotIn("central-saturday-open", touched)
 
     def test_alerts_reach_alerts_md_on_main_once(self):
         alerts.start_publishing(self.p)

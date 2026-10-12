@@ -160,7 +160,7 @@ facts first:
    them. It ships only if:
    - nothing else changed;
    - every exact value in those files appears in its cited source;
-   - no more than 30% of the rows changed at once;
+   - if more than 30% of the rows changed, `opus` agrees too;
    - the gates pass;
    - `sonnet` agrees row by row.
 

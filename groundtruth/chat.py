@@ -5,7 +5,10 @@ that product. With ``GT_CHAT=1`` and an ``ANTHROPIC_API_KEY`` on the server,
 ``/chat`` is a small web chat instead, ready the moment it's deployed. Each
 question runs through Claude with exactly the tools MCP clients get and the same
 instructions (``./gt prompt``), so it answers the way your evals grade, and every
-answer lists the sources its tools returned.
+answer lists the sources its tools returned. An answer that states a price, a
+date, a phone number, or any other exact value its tools didn't return gets one
+retry; if it still can't back the value up, the visitor is told it couldn't be
+confirmed, never a guess.
 
 The page is public on purpose: it's for your users, and it never sees the MCP API
 key. So it limits each visitor (``GT_CHAT_PER_MINUTE``, default 6), the whole
@@ -96,10 +99,27 @@ def answer(project: Project, question: str, history: list[dict[str, str]], gate=
     from groundtruth import server
     turns = [{"role": h["role"], "content": str(h["content"])[:MAX_QUESTION]} for h in history[-MAX_HISTORY:]
              if isinstance(h, dict) and h.get("role") in ("user", "assistant") and h.get("content")]
-    out = llm.agent(question, server.instructions(project), server.tool_specs(project),
-                    lambda name, args: server.call_tool(project, name, args, gate=gate),
-                    history=turns, max_turns=8)
+    from groundtruth import evals
+
+    def ask(text: str) -> dict:
+        return llm.agent(text, server.instructions(project), server.tool_specs(project),
+                         lambda name, args: server.call_tool(project, name, args, gate=gate),
+                         history=turns, max_turns=8)
+
+    out = ask(question)
+    invented = evals.invented_values(question, out["response"], out["tool_calls"])
+    if invented:  # one more try, told exactly what it can't say
+        out = ask(f"{question}\n\n(Note to the assistant: your first answer stated {', '.join(invented)}, which "
+                  f"none of your tool results contain. Look it up with your tools, or say you can't confirm it.)")
+        if evals.invented_values(question, out["response"], out["tool_calls"]):
+            found = sources(project, out["tool_calls"])
+            return {"answer": UNSURE + (" These are the pages that should have it:" if found else ""),
+                    "sources": found, "abstained": True}
     return {"answer": out["response"], "sources": sources(project, out["tool_calls"])}
+
+
+UNSURE = ("I couldn't confirm the exact details from the current information, so I won't guess. "
+          "Please check with the office directly.")
 
 
 def handle(project: Project, body: bytes, visitor: str, gate=None) -> tuple[int, dict[str, Any]]:
@@ -109,6 +129,8 @@ def handle(project: Project, body: bytes, visitor: str, gate=None) -> tuple[int,
     try:
         data = json.loads(body or b"{}")
     except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("history") or [], list):
         return 400, {"error": "Send JSON: {\"question\": \"...\"}"}
     question = str(data.get("question") or "").strip()
     if not question:
@@ -165,7 +187,7 @@ function add(cls,text,sources){const d=document.createElement("div");d.className
  log.append(d);d.scrollIntoView({block:"end"});return d}
 f.addEventListener("submit",async e=>{e.preventDefault();const question=q.value.trim();if(!question)return;
  add("me",question);q.value="";go.disabled=true;const wait=add("bot","…");
- try{const r=await fetch("chat/ask",{method:"POST",headers:{"Content-Type":"application/json"},
+ try{const r=await fetch("/chat/ask",{method:"POST",headers:{"Content-Type":"application/json"},
    body:JSON.stringify({question,history})});const data=await r.json();wait.remove();
   if(!r.ok){add("bot",data.error||"Something went wrong.");return}
   add("bot",data.answer,data.sources);history.push({role:"user",content:question},{role:"assistant",content:data.answer});

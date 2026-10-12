@@ -354,21 +354,18 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
             for link in _links(r.text, final):
                 if link not in seen and urlparse(link).netloc == host:
                     queue.append(link)
-    # Pages captured before that this run didn't reach: are they gone (404/410), or just not visited?
-    checked = 0
-    for path, meta in _existing_pages(project):
-        url = meta.get("source_url")
-        if not url or urlparse(str(url)).netloc != host or _clean_url(str(url)) in seen or meta.get("removed_upstream"):
-            continue
-        if checked >= 50:
-            break
-        checked += 1
-        try:
-            status = fetcher.get(str(url)).status_code
-        except Exception:  # noqa: BLE001 - unreachable isn't proof of removal
-            continue
-        if status in (404, 410):
-            mark_removed(project, path, result, dry_run)
+    # Pages captured before that this run didn't reach (not in the sitemap any more, or past max_pages):
+    # re-capture them too, or a page that changed but fell out of the crawl would never update. A rotating
+    # daily slice keeps a big site's run bounded; every page comes round within a few days.
+    unreached = [(path, meta) for path, meta in _existing_pages(project)
+                 if meta.get("source_url") and urlparse(str(meta["source_url"])).netloc == host
+                 and _clean_url(str(meta["source_url"])) not in seen and not meta.get("removed_upstream")]
+    today = dt.date.today().isoformat()
+    unreached.sort(key=lambda pm: hashlib.sha1(f"{today}{pm[1]['source_url']}".encode()).hexdigest())
+    refreshed = recapture(project, [project.rel(path) for path, _ in unreached[:max(50, max_pages // 2)]],
+                          dry_run=dry_run, delay=delay)
+    for kind in ("new", "updated", "unchanged", "removed", "skipped"):
+        getattr(result, kind).extend(getattr(refreshed, kind))
 
 
 # ===================================================================== files

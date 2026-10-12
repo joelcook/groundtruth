@@ -46,6 +46,15 @@ DAY_FIRST_DATE = re.compile(r"\b(\d{1,2})\s+" + MONTH_RE + r"\.?,?\s+(\d{4})", r
 SLASH_DATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b")
 TIME_24 = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:a\.?m\.?|p\.?m\.?))", re.I)
 HOUR_RANGE = re.compile(r"\b(1[0-2]|0?[1-9])\s*(?:-|–|—|to|until|till)\s*(1[0-2]|0?[1-9])\b(?!\s*(?:a\.?m|p\.?m))", re.I)
+CLOCK_CONTEXT = re.compile(r"\b(?:open|opens|opening|close|closes|closed|hours|from|daily|weekdays?|weekends?|"
+                           r"mon|tue|wed|thu|fri|sat|sun)[a-z]*\b", re.I)
+
+
+def _about_hours(text: str, m: re.Match) -> bool:
+    """Is this "9-5" a span of hours? Only when the same sentence says so just before it, or "daily" etc. after."""
+    before = re.split(r"[.;:!?\n]", text[max(0, m.start() - 40):m.start()])[-1]
+    after = re.split(r"[.;:!?\n]", text[m.end():m.end() + 20])[0]
+    return bool(CLOCK_CONTEXT.search(before) or re.search(r"\b(?:daily|weekdays?|weekends?|every day)\b", after, re.I))
 TIME_12 = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 URL = re.compile(r"https?://[^\s)>\]\"']+", re.I)
@@ -95,8 +104,9 @@ class SourceIndex:
         for h, mi, half in TIME_12.findall(text):
             hour = int(h) % 12 + (12 if half.lower().startswith("p") else 0)
             idx.times.add((hour, int(mi or 0)))
-        for a, b_ in HOUR_RANGE.findall(text):  # "9-5", "10 to 6": opening hours written loosely
-            for h in (int(a), int(b_)):
+        clock_ranges = [m for m in HOUR_RANGE.finditer(text) if _about_hours(text, m)]
+        for m in clock_ranges:  # "Open Monday to Friday 9-5": opening hours written loosely
+            for h in (int(m.group(1)), int(m.group(2))):
                 idx.times.update({(h % 12, 0), (h % 12 + 12, 0)})
         if re.search(r"\bnoon\b", text, re.I):
             idx.times.add((12, 0))
@@ -109,6 +119,8 @@ class SourceIndex:
         # Numbers, once the dates, times, phone numbers, emails, and URLs are out of the way:
         # "8:00 p.m." doesn't state an 8, and a phone number doesn't state its area code.
         rest = text
+        for m in reversed(clock_ranges):  # a clock range states times, not numbers
+            rest = rest[:m.start()] + " " + rest[m.end():]
         for rx in (URL, EMAIL, ISO_DATE, NAMED_DATE, DAY_FIRST_DATE, SLASH_DATE, checks.PHONE_RE, TIME_12, TIME_24):
             rest = rx.sub(" ", rest)
         for hit in NUMBER.findall(rest):

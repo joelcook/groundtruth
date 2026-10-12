@@ -499,7 +499,11 @@ def cmd_bundle(args) -> int:
             for e in errs[:5]:
                 print(f"      {kind}: {e}")
         return 1
-    path = bundle.build(project)
+    from groundtruth import evals
+    if evals.run(project, "tools", quiet=True) != 0:
+        _bad("won't bundle a project that fails ./gt eval: run it to see why")
+        return 1
+    path = bundle.build(project, verified=True)
     _ok(f"{project.rel(path)} ({path.stat().st_size // 1024} KB)")
     return 0
 

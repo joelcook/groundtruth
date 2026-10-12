@@ -49,7 +49,9 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def build(project: Project) -> Path:
+def build(project: Project, *, verified: bool = False) -> Path:
+    """``verified``: ./gt check --production and ./gt eval passed on this content. Servers then accept a
+    collection that shrank (a fact retired on purpose), which they otherwise refuse as a likely broken build."""
     facts.build(project)
     try:
         search.build_search_index(project)
@@ -75,6 +77,7 @@ def build(project: Project) -> Path:
     store.refresh(force=True)
     manifest = {
         "format": FORMAT,
+        "verified": verified,
         "name": project.name,
         "data_version": store.meta.get("fingerprint"),
         "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
@@ -177,7 +180,7 @@ def apply_bytes(project: Project, data: bytes) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
         raise ValueError("facts.db row counts don't match the manifest")
     pages = sum(1 for n in files if n.startswith("wiki/"))
-    reason = _sane(actual, pages, project)
+    reason = None if manifest.get("verified") is True else _sane(actual, pages, project)
     if reason:
         shutil.rmtree(tmp, ignore_errors=True)
         raise ValueError(f"rejected: {reason} (set GT_DATA_ALLOW_SHRINK=1 if that's intended)")

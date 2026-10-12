@@ -50,9 +50,11 @@ hence the suffix):
 
 ```bash
 APP=my-assistant-$(python3 -c "import secrets; print(secrets.token_hex(3))")
+KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")   # never echo it; store it below too
 fly launch --name "$APP" --org personal --region iad --internal-port 8765 --no-deploy --yes
 fly secrets set --app "$APP" --stage GT_MCP_API_KEY="$KEY"
 fly deploy --app "$APP" --remote-only --build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)
+gh secret set GT_MCP_API_KEY --body "$KEY"     # so the watchdog can reach it
 git add fly.toml && git commit -m "Deploy to Fly.io" && git push
 ```
 
@@ -135,7 +137,9 @@ GT_CHAT=1
 ANTHROPIC_API_KEY=...        # the chat's model; GT_MODEL picks it (default claude-opus-5-5)
 ```
 
-Then `https://your.host/chat` (and `/`) is a small web chat. Each question runs
+Then `https://your.host/chat` (and `/`) is a small web chat. (This is the one
+piece that needs an API key: the refresh host, rewrites, and evals also run on
+a Claude plan, but a public page can't use your personal plan.) Each question runs
 through Claude with exactly the tools MCP clients get and the same instructions
 (`./gt prompt`), so it answers the way `./gt eval --tier live` grades, and every
 answer lists the sources its tools returned. It's public on purpose and never

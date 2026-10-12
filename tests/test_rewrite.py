@@ -432,6 +432,32 @@ class RewriteLoopTests(unittest.TestCase):
             repair.run(self.p)
         self.assertFalse(self.subjects()[0].startswith("fix:"))
 
+    def test_a_page_whose_sources_are_all_gone_is_retired(self):
+        write(self.p.root / "sources/pages/old-hours.md", "---\nsource_url: https://example.org/old\ncaptured: "
+              "2026-01-01\n---\n\n# Winter schedule\n\nThe winter schedule ran through the holidays.\n")
+        write(self.p.root / "wiki/entities/winter-schedule.md",
+              "---\ntitle: Winter schedule\npage_type: entity\nlast_compiled: 2026-01-02\ncompiled_by: me\n"
+              "sources:\n  - sources/pages/old-hours.md\nstatus: published\ntags: [winter]\n---\n\n# Winter "
+              "schedule\n\nThe winter schedule ran through the holidays.\n\n## Sources & Lineage\n\n| Source | "
+              "Captured | URL |\n|---|---|---|\n| [[sources/pages/old-hours.md]] | 2026-01-01 | https://example.org/old |\n")
+        index = self.p.wiki_dir / "index.md"
+        index.write_text(index.read_text() + "\n- [[winter-schedule|The winter schedule]]\n")
+        with open(self.p.golden_path, "a") as fh:
+            fh.write("\n- id: winter\n  question: \"What was the winter schedule?\"\n  category: narrative\n"
+                     "  must_cite_page: winter-schedule\n")
+        review.mark_reviewed(self.p)
+        sh(self.root, "add", "-A")
+        sh(self.root, "commit", "-qm", "a seasonal page")
+        old = self.p.root / "sources/pages/old-hours.md"
+        old.write_text(old.read_text().replace("captured: 2026-01-01", "captured: 2026-01-01\nremoved_upstream: 2026-10-12"))
+        sh(self.root, "commit", "-qam", "refresh: the winter page is gone")
+        self.assertEqual(rewrite.run(self.p), 0)
+        self.assertTrue(self.subjects()[0].endswith("winter-schedule.md: retired, its sources are gone"))
+        self.assertFalse((self.p.root / "wiki/entities/winter-schedule.md").exists())
+        self.assertNotIn("winter-schedule", self.p.golden_path.read_text())
+        self.assertIn("- The winter schedule", index.read_text())  # the link became plain text
+        self.assertFalse([c for c in self.calls_made() if c["first"].startswith("You maintain")])  # no model
+
     def test_a_person_can_keep_facts_for_themselves(self):
         cfg = self.p.root / "groundtruth.yaml"
         cfg.write_text(cfg.read_text() + "\nfacts_updates: human\n")

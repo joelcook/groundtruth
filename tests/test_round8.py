@@ -42,6 +42,17 @@ class TestGrounding(unittest.TestCase):
         for value in [40, "2026-09-02", "14:00", "555-010-9999"]:
             self.assertFalse(all(idx.has(k, n) for k, n, _ in grounding.exact_values(value)), value)
 
+    def test_loose_hour_ranges_need_a_line_about_hours(self):
+        idx = grounding.SourceIndex.of("Open Monday to Friday 9-5.\nBorrow 9-5 books at a time. Ages 1-3.")
+        def ok(v):
+            return all(idx.has(k, n) for k, n, _ in grounding.exact_values(v))
+        self.assertTrue(ok("09:00"))
+        self.assertTrue(ok("17:00"))
+        idx2 = grounding.SourceIndex.of("Borrow 9-5 books at a time.")
+        self.assertFalse(all(idx2.has(k, n) for k, n, _ in grounding.exact_values("17:00")))  # not a clock
+        self.assertFalse(grounding.SourceIndex.of("Open 9-5 daily.").has("number", grounding._num("9")))
+        self.assertTrue(ok(3))  # "Ages 1-3" still states a 3
+
     def test_a_row_with_only_a_url_has_nothing_to_check_against(self):
         write(self.p.facts_dir / "links.yaml", "key: id\nsource: {url: https://example.org/x}\n"
               "tools: [{name: get_link, kind: lookup, description: Links.}]\nrows:\n  - {id: a, price_usd: 5}\n")
@@ -80,6 +91,16 @@ class TestIngest(unittest.TestCase):
         with mock.patch.object(ingest, "Fetcher", FakeFetcher):
             result = ingest.run(self.p, ["https://ex.org/gone"], save=False)
         self.assertEqual(result.removed, ["sources/pages/gone.md"])
+
+    def test_a_page_the_crawl_missed_is_still_refreshed(self):
+        write(self.p.pages_dir / "old.md", "---\nsource_url: https://ex.org/old\ncaptured: 2026-01-01\nsha256: x\n---\n\nOld.\n")
+        html = "<html><head><title>T</title></head><body><main>" + "The page says something new now. " * 5 + "</main></body></html>"
+        FakeFetcher.pages = {"https://ex.org/new": (200, "https://ex.org/new", html),
+                             "https://ex.org/old": (200, "https://ex.org/old", html)}
+        with mock.patch.object(ingest, "Fetcher", FakeFetcher):
+            result = ingest.run(self.p, ["https://ex.org/new"], save=False, max_pages=1)
+        self.assertIn("sources/pages/old.md", result.updated)  # not in this crawl, but still checked for changes
+        self.assertIn("something new", (self.p.pages_dir / "old.md").read_text())
 
     def test_a_redirect_off_the_site_is_never_captured(self):
         body = "<html><head><title>X</title></head><body><main>" + "Somewhere else entirely. " * 10 + "</main></body></html>"

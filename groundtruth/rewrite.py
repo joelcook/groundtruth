@@ -741,6 +741,43 @@ def append_log_entry(project: Project, done: list[tuple[str, str, str]]) -> bool
     return True
 
 
+# ===================================================================== retiring a page
+
+
+def retirable(project: Project) -> list[str]:
+    """Published pages every one of whose sources is gone upstream: nothing is left to write them from."""
+    gone = review.removed_upstream(project)
+    return [project.rel(p) for p in comp.served_pages(project)
+            if comp.page_sources(p) and all(s in gone for s in comp.page_sources(p))]
+
+
+def retire_page(project: Project, cfg: Config, rel: str, base: Baseline) -> list[str]:
+    """Delete the page, retire the golden questions that cite it, and unlink it elsewhere. [] when it's done."""
+    page = project.root / rel
+    meta, _ = checks.split_frontmatter(page.read_text(encoding="utf-8"))
+    title = str((meta or {}).get("title") or page.stem.replace("-", " "))
+    slug = page.stem
+    page.unlink()
+    link = re.compile(r"\[\[(?:wiki/)?(?:[\w/-]*/)?" + re.escape(slug) + r"(?:\.md)?(?:\|([^\]]+))?\]\]")
+    for other in project.wiki_dir.rglob("*.md"):  # index.md and log.md too: no link left pointing nowhere
+        text = other.read_text(encoding="utf-8")
+        unlinked = link.sub(lambda m: m.group(1) or title, text)
+        if unlinked != text:
+            other.write_text(unlinked, encoding="utf-8")
+    if project.golden_path.exists():
+        import yaml
+        items = yaml.safe_load(project.golden_path.read_text(encoding="utf-8")) or []
+        kept = [i for i in items if not (isinstance(i, dict)
+                                         and evals.page_matches(str(i.get("must_cite_page") or ""), rel))]
+        if len(kept) != len(items):
+            project.golden_path.write_text(yaml.safe_dump(kept, sort_keys=False, allow_unicode=True, width=10_000),
+                                           encoding="utf-8")
+    problems = gate_problems(project, base)
+    if problems:
+        restore(cfg.cwd)
+    return problems
+
+
 # ===================================================================== when something fails
 
 
@@ -787,7 +824,10 @@ def main(project: Project, *, pages: list[str] | None = None, max_pages: int | N
          dry_run: bool = False, force: bool = False, listing: bool = False) -> int:
     """``./gt rewrite``. On the refresh host, a crash alerts once a day."""
     try:
-        return run(project, pages=pages, max_pages=max_pages, dry_run=dry_run, force=force, listing=listing)
+        rc = run(project, pages=pages, max_pages=max_pages, dry_run=dry_run, force=force, listing=listing)
+        if not listing and not dry_run:
+            alerts.resolve(project, "the wiki rewrite job crashed")  # it ran: whatever crashed it is fixed
+        return rc
     except Exception as exc:
         if os.environ.get("GT_HOST_JOB") == "1":
             path = state_path(project)
@@ -856,8 +896,9 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
                 return 2
             queue.append(project.rel(target))
     else:
-        queue = [r for r in sorted(stale) if force or r not in failed or r in escalate]
-    if not queue and not facts_todo and not new_sources:
+        retiring = set(retirable(project))
+        queue = [r for r in sorted(stale) if (force or r not in failed or r in escalate) and r not in retiring]
+    if not queue and not facts_todo and not new_sources and not (not pages and retirable(project)):
         save_state(path, state)
         log("nothing to rewrite")
         return 0
@@ -885,6 +926,20 @@ def run(project: Project, *, pages: list[str] | None = None, max_pages: int | No
     base = baseline(project)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     done: list[tuple[str, str, str]] = []
+    if not dry_run:  # pages with nothing left to write them from go first; no model needed
+        for rel in retirable(project):
+            problems = retire_page(project, cfg, rel, base)
+            if problems:
+                alerts.notify(project, "a page whose sources are gone couldn't be retired",
+                              f"{rel}: {problems[0][:200]}")
+                continue
+            pre = _prefix(project)
+            host.git(cfg.cwd, "add", "-A", "--", pre + "wiki", pre + project.rel(project.golden_path))
+            host.git(cfg.cwd, "commit", "--quiet", "-m", f"{COMMIT_PREFIX} {pre + rel}: retired, its sources are gone",
+                     "-m", "Every source this page cited was removed upstream. The page, its golden questions, "
+                           "and the links to it went with them; nothing a model wrote.")
+            base = baseline(project)
+            log(f"  {rel}: retired (every source it cited is gone)")
     # Facts first: a page names the tool, so it never depends on a fact's value, but a source's
     # review is only recorded once its facts and its pages have all been checked.
     handled, stop, base = reconcile.run(project, cfg, state, aliases, stamp, base, dry_run=dry_run,

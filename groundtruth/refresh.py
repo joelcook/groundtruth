@@ -158,6 +158,15 @@ def run(project: Project, *, write: bool = False, open_pr: bool = False, live: b
             outage = _outage(project, result)
             if outage and write and not _outage_persists(project, result, push):
                 return fail(outage)
+            fetched = len(result.new) + len(result.updated) + len(result.unchanged)
+            unreachable = [s for s in result.skipped if "Error" in s or "Exception" in s or "HTTP 5" in s]
+            if push and len(unreachable) >= 3 and len(unreachable) > fetched:  # most of the site didn't answer
+                alerts.notify(project, "the sources aren't answering",
+                              f"{len(unreachable)} of {len(unreachable) + fetched} pages couldn't be fetched "
+                              f"(first: {unreachable[0][:120]}). The evidence is as of the last good capture; "
+                              f"the next run retries.")
+            elif push and fetched:
+                alerts.resolve(project, "the sources aren't answering")
             lines.append(f"- Sources: {result.summary()}")
             stamp = f"{today} {dt.datetime.now():%H:%M}" if quick else today
             message = f"refresh: {'quick ' if quick else ''}sources ({stamp})"

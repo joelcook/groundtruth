@@ -138,12 +138,21 @@ def repair_question(project: Project, cfg: rewrite.Config, item: dict, result: d
     keep = {pre + rel for rel in before}
     model = cfg.escalation or cfg.fallback
     errors: list[str] = []
+    from groundtruth import project as project_mod
+
+    def undo() -> None:  # back to main as it was, and forget the eval runs made against what's undone
+        rewrite.restore(cfg.cwd)
+        for run_file in set(project.runs_dir.glob("*.json")) - runs_before:
+            run_file.unlink()
+        project.config = project_mod.load(project.root).config
+
+    runs_before = set(project.runs_dir.glob("*.json")) if project.runs_dir.exists() else set()
     for attempt in (1, 2):
         res = rewrite.run_claude(cfg, model, build_prompt(project, item, result, errors),
                                  cfg.logs / f"{stamp}-repair-{item['id']}-{attempt}.jsonl",
                                  allowed=rewrite.writer_tools(sorted(keep)))
         if res.limited or res.auth_error:
-            rewrite.restore(cfg.cwd)
+            undo()
             return rewrite.Outcome("limited" if res.limited else "auth", problems=[res.text],
                                    pause_until=res.pause_until, pause_reason=res.pause_reason)
         rewrite.revert_others(cfg.cwd, keep)
@@ -156,16 +165,17 @@ def repair_question(project: Project, cfg: rewrite.Config, item: dict, result: d
             check, found = rewrite.check_claims(cfg, project, rel, cfg.logs / f"{stamp}-repair-{item['id']}-check.jsonl",
                                                 before[rel])
             if check.limited or check.auth_error:
-                rewrite.restore(cfg.cwd)
+                undo()
                 return rewrite.Outcome("limited" if check.limited else "auth", problems=[check.text],
                                        pause_until=check.pause_until, pause_reason=check.pause_reason)
             if found:
                 problems = [f"{rel}: {p}" for p in found]
                 break
-        if not problems:  # the answers must come from what's on disk now, not a cache a second old
+        if not problems:  # the answers must come from what's on disk now, not a cache or a config read earlier
             from groundtruth import search
             facts.store(project).refresh(force=True)
             search._page_cache.clear()
+            project.config = project_mod.load(project.root).config
         if not problems and evals.run(project, "live", only=str(item["id"]), quiet=True) != 0:
             problems = ["the assistant still gets this question wrong"]
         if not problems:
@@ -174,11 +184,13 @@ def repair_question(project: Project, cfg: rewrite.Config, item: dict, result: d
             lost = sorted(passed_before - passed_now)
             if lost:
                 problems = [f"it broke questions that passed before: {', '.join(lost[:5])}"]
+            elif str(item["id"]) not in passed_now:
+                problems = ["the question passed on its own but fails in the full run"]
         if not problems:
             summary = next((line.strip() for line in res.text.splitlines() if line.strip()), "")
             return rewrite.Outcome("ok", model_id=res.model_id or model, summary=summary[:200])
         log(f"  {item['id']}: repair attempt {attempt} failed: {problems[0][:200]}")
-        rewrite.restore(cfg.cwd)
+        undo()
         errors = problems
     return rewrite.Outcome("failed", problems=errors)
 
@@ -199,6 +211,9 @@ def run(project: Project, *, max_items: int | None = None, live_first: bool = Fa
         evals.run(project, "live", quiet=True)
     failed, passed = failing(project)
     golden = {str(i.get("id")): i for i in checks.load_golden(project) if isinstance(i, dict)}
+    latest = evals.latest_live_run(project)
+    worse = set(json.loads(latest.read_text()).get("regressions") or []) if latest else set()
+    failed = sorted(failed, key=lambda r: str(r.get("id")) not in worse)  # what just got worse comes first
     queue = [r for r in failed if str(r.get("id")) in golden][: max_items or int(os.environ.get("GT_REPAIR_MAX") or 2)]
     if not queue:
         log("nothing to repair: the latest live run has no failures")

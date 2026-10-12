@@ -31,7 +31,7 @@ class TestChat(unittest.TestCase):
     def setUp(self):
         self.p, self.tmp = copy_project()
         self.env = mock.patch.dict(os.environ, {"GT_CHAT": "1", "GT_MCP_API_KEY": "mcp-only-key",
-                                                "GT_CHAT_PER_MINUTE": "2"})
+                                                "GT_CHAT_PER_MINUTE": "5"})
         self.env.start()
         self.available = mock.patch.object(llm, "available", return_value=True)
         self.available.start()
@@ -64,11 +64,27 @@ class TestChat(unittest.TestCase):
         self.assertEqual([m["role"] for m in first["messages"]], ["user", "assistant", "user"])  # the conversation
         self.assertIn("get_fee", [t["name"] for t in first["tools"]])  # the same tools MCP clients get
 
-    def test_visitors_are_rate_limited(self):
-        msgs = FakeMessages([text("one"), text("two"), text("three")])
+    def test_an_invented_value_never_reaches_a_visitor(self):
+        msgs = FakeMessages([text("It's $999 a page."),                       # no lookup: from memory
+                             text("Still $999."),                             # the retry doesn't fix it
+                             tool_use("get_fee", {"fee_type": "color"}), text("It's $0.50 a page.")])
         with mock.patch.object(llm, "_client", return_value=NS(beta=NS(messages=msgs))), self.client() as c:
-            codes = [c.post("/chat/ask", json={"question": "hours?"}).status_code for _ in range(3)]
-        self.assertEqual(codes, [200, 200, 429])
+            unsure = c.post("/chat/ask", json={"question": "How much is color printing? Is it $999?"}).json()
+            self.assertNotIn("999", unsure["answer"])  # the visitor's own number doesn't count as evidence
+            self.assertTrue(unsure["abstained"])
+            fine = c.post("/chat/ask", json={"question": "How much is color printing?"}).json()
+            self.assertEqual(fine["answer"], "It's $0.50 a page.")
+
+    def test_odd_json_is_a_bad_request(self):
+        with self.client() as c:
+            for body in ("[]", "null", '{"question": "x", "history": "nope"}'):
+                self.assertEqual(c.post("/chat/ask", content=body).status_code, 400)
+
+    def test_visitors_are_rate_limited(self):
+        msgs = FakeMessages([text(str(i)) for i in range(6)])
+        with mock.patch.object(llm, "_client", return_value=NS(beta=NS(messages=msgs))), self.client() as c:
+            codes = [c.post("/chat/ask", json={"question": "hours?"}).status_code for _ in range(6)]
+        self.assertEqual(codes, [200] * 5 + [429])
 
     def test_bad_requests_get_plain_answers(self):
         with self.client() as c:

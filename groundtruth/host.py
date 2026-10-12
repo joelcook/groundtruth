@@ -623,8 +623,19 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
         if listing.strip() and not listing.startswith("nothing"):
             alerts.notify(project, "pages and facts wait for a rewrite that can't run",
                           f"{why}. Until then, changed sources stay unreviewed and ./gt check stays red.")
-    if not quick and (os.environ.get("ANTHROPIC_API_KEY") or why is None) and os.environ.get("GT_LIVE_EVAL", "1") != "0":
+    can_grade = (os.environ.get("ANTHROPIC_API_KEY") or why is None) and os.environ.get("GT_LIVE_EVAL", "1") != "0"
+    if can_grade and quick and ahead(root):
+        # Every two hours: just the golden questions this run's changes touch must stay right.
+        touched = affected_questions(project, root)
+        if touched and live_gate(project, step, only=touched) == "worse":
+            log(f"the questions these changes touch got worse ({', '.join(touched[:5])}); holding them back for "
+                f"tonight's run, which repairs or reports it")
+            reset(root)
+    elif can_grade and not quick:
         verdict = live_gate(project, step)
+        if verdict == "worse" and why is None and ahead(root):  # fix what got worse before giving up on the night
+            step("repair")
+            verdict = live_gate(project, step)
         if verdict == "worse" and ahead(root):
             alerts.notify(project, "the live eval got worse",
                           f"after this run's rewrites, the assistant answers golden questions it used to get right "
@@ -651,23 +662,40 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
     return 1 if (log_file.stat().st_size if log_file.exists() else 0) > alerted_before else 0
 
 
-def live_gate(project: Project, step) -> str:
-    """Run the live eval against the last run kept in the host's state: 'pass', 'failing' (as before),
-    or 'worse' (questions it used to answer right now fail)."""
+def affected_questions(project: Project, root: Path) -> list[str]:
+    """Golden questions the unpushed commits could change the answer to: ones that call a changed facts
+    file's tools, or cite a changed page."""
+    from groundtruth import checks, facts
+    pre = "" if project_path(project, root) == "." else project_path(project, root) + "/"
+    changed = {c[len(pre):] for c in git(root, "diff", "--name-only", "origin/main..HEAD").stdout.split()
+               if c.startswith(pre)}
+    try:
+        tools = {t.name for c in facts.load(project) if project.rel(c.file) in changed for t in c.tools}
+    except facts.FactsError:
+        tools = set()
+    pages = {Path(c).stem for c in changed if c.startswith("wiki/")}
+    return [str(i["id"]) for i in checks.load_golden(project) if isinstance(i, dict) and i.get("id")
+            and (i.get("must_call_tool") in tools or Path(str(i.get("must_cite_page") or "")).stem in pages)]
+
+
+def live_gate(project: Project, step, only: list[str] | None = None) -> str:
+    """Run the live eval against the last full run kept in the host's state: 'pass', 'failing' (as before),
+    or 'worse' (questions it used to answer right now fail). ``only``: just these questions."""
     from groundtruth import evals
     keep = alerts.state_dir(project) / "last-live.json"
     project.runs_dir.mkdir(parents=True, exist_ok=True)
-    if keep.exists():  # the runner starts fresh: put the last run where ./gt eval compares against it
-        shutil.copyfile(keep, project.runs_dir / "00000000T000000.json")
-    rc = step("eval", "--tier", "live")
+    if keep.exists():  # it must be the newest run on disk, which is what ./gt eval compares against
+        stamp = (dt.datetime.now() - dt.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%S")
+        shutil.copyfile(keep, project.runs_dir / f"{stamp}.json")
+    rc = step("eval", "--tier", "live", *(["--only", ",".join(only)] if only else []))
     latest = evals.latest_live_run(project)
     if latest is None:
         return "failing"
     import json
     run = json.loads(latest.read_text())
     keep.parent.mkdir(parents=True, exist_ok=True)
-    if not run.get("regressions"):
-        shutil.copyfile(latest, keep)  # a held-back run doesn't become the new baseline
+    if not run.get("regressions") and not only:
+        shutil.copyfile(latest, keep)  # a held-back or partial run doesn't become the new baseline
     if run.get("regressions"):
         return "worse"
     return "pass" if rc == 0 else "failing"
