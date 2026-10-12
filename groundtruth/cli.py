@@ -39,8 +39,8 @@ Keep it honest
   report               what people ask, what's missing, error rates
   watchdog             outside-in health check (--url for a deployed server, --repo for alerts/CI)
   refresh              the weekly agent: ingest, build, compile, check, eval, PR
-  rewrite              rewrite stale wiki pages with headless Claude Code, claims checked
-  host                 one machine refreshes, rewrites, and pushes main unattended (install, check)
+  rewrite              update changed facts, cover new sources, rewrite stale pages (checked)
+  host                 the refresh host: autopilot (GitHub Actions) or a machine (install, check)
   alerts               what the unattended jobs need a person for
   bundle               package data so deployed servers update without a redeploy
 
@@ -778,7 +778,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--push", action="store_true",
                     help="commit in place for the refresh host to push (no branch, no PR, no API spend)")
     sp.add_argument("--quick", action="store_true", help="with --push: re-capture only the sources facts cite")
-    sp = add("rewrite", cmd_rewrite, "rewrite stale wiki pages with headless Claude Code, claims checked")
+    sp = add("rewrite", cmd_rewrite, "update changed facts, cover new sources, rewrite stale pages (checked)")
     sp.add_argument("--list", action="store_true", help="list stale pages and why; rewrite nothing")
     sp.add_argument("--page", action="append", help="rewrite this page (repeatable)")
     sp.add_argument("--max-pages", type=int, help="pages per run (default GT_REWRITE_MAX_PAGES or 10)")

@@ -1,8 +1,14 @@
-"""``./gt rewrite``: rewrite stale wiki pages with headless Claude Code, unattended.
+"""``./gt rewrite``: keep facts and pages current with headless Claude Code, unattended.
+
+Each run works three queues, facts first: facts whose source changed
+(reconcile.py), sources nothing covers yet (cover.py), and stale pages (here).
+This module is the shared machinery (running ``claude -p`` confined to the files
+it may edit, usage limits, gates, the claim check, recording reviews) and the
+page rewrite itself.
 
 When a source changes, the pages built on it go stale. This hands each stale
-page to Claude Code in print mode (``claude -p``), on your Claude subscription
-rather than a metered API key, and keeps a rewrite only if:
+page to Claude Code in print mode (``claude -p``), on your Claude plan or an
+``ANTHROPIC_API_KEY``, and keeps a rewrite only if:
 
   1. the page is the only file it changed (stray edits are reverted);
   2. ./gt check finds nothing new and ./gt eval still passes;
@@ -12,8 +18,9 @@ rather than a metered API key, and keeps a rewrite only if:
 Each kept page is committed as ``wiki: rewrite <page> from current sources``.
 Once every page citing a changed source has passed that claim check, and no
 facts file cites it, the source is recorded as reviewed in sources.lock.yaml:
-the claim check is the review. A source your facts cite still waits for a
-person (./gt review --diff, then --done), because facts need a human's judgment.
+the claim check is the review. A source your facts cite is recorded once
+reconcile.py has updated and checked those facts too (or, with
+``facts_updates: human``, once a person runs ./gt review --done).
 
     ./gt rewrite --list                       what's stale, and why
     ./gt rewrite                              rewrite and commit up to 10 pages

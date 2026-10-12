@@ -11,10 +11,10 @@
 Two ways to run it unattended:
   * Weekly in GitHub Actions (.github/workflows/refresh.yml): changes land on a
     dated branch and a pull request a person reviews and merges.
-  * Nightly on a refresh host (./gt host): it commits in a worktree at origin/main
-    and the host pushes main when the gates pass. Stale pages are left to the
-    rewrite job (./gt rewrite), and a source your facts cite raises an alert, since
-    facts wait for a person (./gt review --done).
+  * Nightly on a refresh host (./gt host: GitHub Actions or a machine): it commits
+    in place and the host pushes main when the gates pass. Changed facts, new
+    sources, and stale pages are left to ./gt rewrite, which runs right after (with
+    ``facts_updates: human``, changed facts raise an alert for a person instead).
 
 Why it's safe to leave on a schedule:
   * A quiet run is free: no source changes means no commits, no PR, no API spend.
