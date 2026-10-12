@@ -627,9 +627,10 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
     if can_grade and quick and ahead(root):
         # Every two hours: just the golden questions this run's changes touch must stay right.
         touched = affected_questions(project, root)
-        if touched and live_gate(project, step, only=touched) == "worse":
-            log(f"the questions these changes touch got worse ({', '.join(touched[:5])}); holding them back for "
-                f"tonight's run, which repairs or reports it")
+        verdict = live_gate(project, step, only=touched) if touched else "pass"
+        if verdict in ("worse", "error"):
+            log(f"the questions these changes touch {'got worse' if verdict == 'worse' else 'could not be graded'} "
+                f"({', '.join(touched[:5])}); holding them back for tonight's run, which repairs or reports it")
             reset(root)
     elif can_grade and not quick:
         nightly_gate(project, root, env, step, can_repair=why is None)
@@ -645,6 +646,16 @@ def nightly_gate(project: Project, root: Path, env: dict[str, str], step, *, can
     if verdict == "worse" and can_repair:  # fix what got worse before giving up on the night
         step("repair")
         verdict, repaired = live_gate(project, step), True
+    if verdict == "error":
+        held = ahead(root)
+        alerts.notify(project, "the live eval couldn't run",
+                      f"./gt eval --tier live got no answers from the model (is GT_MODEL right, and the Claude "
+                      f"credential valid with credit?). " + (f"The {held} update commit(s) were held back until it "
+                      f"runs again; nothing changed for users." if held else "Nothing was waiting to ship."))
+        if held:
+            reset(root)
+        return
+    alerts.resolve(project, "the live eval couldn't run")
     if verdict == "worse":
         worse = regressions(project)
         # Only what this run caused is held back. A question main gets wrong too is already in front of
@@ -756,19 +767,24 @@ def already_live(project: Project, root: Path, env: dict[str, str], ids: list[st
 
 def live_gate(project: Project, step, only: list[str] | None = None) -> str:
     """Run the live eval against the last full run kept in the host's state: 'pass', 'failing' (as before),
-    or 'worse' (questions it used to answer right now fail). ``only``: just these questions."""
+    'worse' (questions it used to answer right now fail), or 'error' (it couldn't grade anything).
+    ``only``: just these questions."""
     from groundtruth import evals
     keep = _kept_live(project)
     project.runs_dir.mkdir(parents=True, exist_ok=True)
     if keep.exists():  # it must be the newest run on disk, which is what ./gt eval compares against
         stamp = (dt.datetime.now() - dt.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%S")
         shutil.copyfile(keep, project.runs_dir / f"{stamp}.json")
+    before = set(project.runs_dir.glob("*.json"))
     rc = step("eval", "--tier", "live", *(["--only", ",".join(only)] if only else []))
     latest = evals.latest_live_run(project)
-    if latest is None:
-        return "failing"
+    if latest is None or latest in before:
+        return "error"  # it didn't run: nothing was graded
     import json
     run = json.loads(latest.read_text())
+    graded = [r for r in run.get("results") or [] if not r.get("skipped")]
+    if graded and not any(str(r.get("response") or "").strip() for r in graded):
+        return "error"  # no answers at all: the model or its credential is unreachable, not the content
     if keep.exists():  # a question with no history has to pass: "not worse" can't grandfather it
         known = {str(r.get("id")) for r in json.loads(keep.read_text()).get("results") or []}
         new_failures = [str(r["id"]) for r in run.get("results") or []

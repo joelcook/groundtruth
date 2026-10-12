@@ -197,10 +197,12 @@ class HostTests(RemoteRepo):
     def test_the_live_gate_holds_back_only_what_got_worse(self):
         import json
 
+        runs = iter(range(10, 60))
+
         def step(regressions, rc):
-            def run(*args):
+            def run(*args):  # each eval writes a new run, newer than the last
                 self.p.runs_dir.mkdir(parents=True, exist_ok=True)
-                (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps({"regressions": regressions}))
+                (self.p.runs_dir / f"20991231T0000{next(runs)}.json").write_text(json.dumps({"regressions": regressions}))
                 return rc
             return run
         self.assertEqual(host.live_gate(self.p, step([], 0)), "pass")
@@ -208,6 +210,7 @@ class HostTests(RemoteRepo):
         self.assertEqual(host.live_gate(self.p, step(["card-fee"], 1)), "worse")
         self.assertEqual(json.loads((alerts.state_dir(self.p) / "last-live.json").read_text())["regressions"], [])
         self.assertEqual(host.live_gate(self.p, step([], 1)), "failing")  # wrong before too: not a regression
+        self.assertEqual(host.live_gate(self.p, lambda *a: 2), "error")  # it wrote no run: nothing was graded
         before = (alerts.state_dir(self.p) / "last-live.json").read_text()
         host.live_gate(self.p, step([], 0), only=["q1"])
         self.assertEqual((alerts.state_dir(self.p) / "last-live.json").read_text(), before)  # partial: not a baseline
@@ -239,6 +242,12 @@ class HostTests(RemoteRepo):
         self.assertTrue((alerts.state_dir(self.p) / "last-live.json").exists())  # the new comparison point
         self.assertIn("the live eval failed", logged())  # still reported
         self.assertIn("the live eval got worse", alerts.resolved(self.p))
+        with mock.patch.object(host, "live_gate", return_value="error"):  # no model: nothing ships ungraded
+            fees.write_text(fees.read_text() + "\n")
+            sh(wd, "commit", "-qam", "facts: update fees.yaml")
+            host.nightly_gate(self.p, wd, dict(os.environ), mock.Mock(), can_repair=True)
+        self.assertEqual(host.ahead(wd), 0)
+        self.assertIn("the live eval couldn't run", logged())
         sh(wd, "reset", "-q", "--hard", "origin/main")
         alerts.start_publishing(self.p)  # as if published: the next alert has to be a new one
         self.assertFalse(night(["card-fee"], [], unpushed=False))  # nothing to hold back: never silent
