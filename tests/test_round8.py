@@ -364,6 +364,6 @@ class TestRoundThreeHost(unittest.TestCase):
         def step(*args):
             self.p.runs_dir.mkdir(parents=True, exist_ok=True)
             (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps({"regressions": [], "results": [
-                {"id": "old", "passed": True}, {"id": "brand-new", "passed": False}]}))
+                {"id": "old", "passed": True, "response": "a"}, {"id": "brand-new", "passed": False, "response": "b"}]}))
             return 1
         self.assertEqual(host.live_gate(self.p, step), "worse")  # no history to grandfather it

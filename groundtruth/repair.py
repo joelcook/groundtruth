@@ -217,6 +217,10 @@ def run(project: Project, *, max_items: int | None = None, live_first: bool = Fa
     queue = [r for r in failed if str(r.get("id")) in golden][: max_items or int(os.environ.get("GT_REPAIR_MAX") or 2)]
     if not queue:
         log("nothing to repair: the latest live run has no failures")
+        if live_first and latest is not None:
+            host.accept_live(project)
+            if not failed:
+                alerts.resolve(project, "the live eval failed")
         return 0
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     base = rewrite.baseline(project)
@@ -240,6 +244,8 @@ def run(project: Project, *, max_items: int | None = None, live_first: bool = Fa
         else:
             log(f"  {qid}: couldn't fix it: {(outcome.problems or ['unknown'])[0][:200]}")
     remaining, _ = failing(project)
+    if live_first:  # a machine host's nightly run: what main answers now is what later rewrites are held to
+        host.accept_live(project)
     if not remaining:
         alerts.resolve(project, "the live eval failed")
     elif live_first:

@@ -105,5 +105,39 @@ class TestCopilotStudioExport(unittest.TestCase):
             evals.export_copilot_studio(self.p)
 
 
+
+class TestInventedValuesKeepUnits(unittest.TestCase):
+    """A value only counts as backed up when a tool returned it with the same meaning: unit, currency, kind."""
+
+    CASES = [
+        ({"duration_days": 30}, "Loans last 30 weeks.", ["30 weeks"]),
+        ({"duration_days": 30}, "Loans last 30 days.", []),
+        ({"amount_usd": 30}, "It costs £30.", ["£30"]),
+        ({"amount_usd": 30}, "It costs $30.", []),
+        ({"window_days": 30}, "Borrow up to 30 books.", ["up to 30"]),
+        ({"max_items": 30}, "You can borrow up to 30 books.", []),
+        ({"loan_days": 30}, "You can borrow for up to 30 days.", []),
+        ({"duration_days": 7}, "Loans last seven days.", []),
+        ({"closes": "12:00"}, "It closes at noon.", []),
+        ({"note": "Copies are 10 cents each."}, "Copies are $10.", ["$10"]),
+        ({"note": "Copies are 10 cents each."}, "Copies are $0.10 each.", []),
+        ({"note": "Loans last twenty-one days."}, "Loans last one day.", ["one day"]),
+        ({"note": "Loans last 21 days."}, "Loans last twenty-one days.", []),
+        ({"yearly_fee": 30}, "Loans last 30 days.", ["30 days"]),
+        ({"value": 2, "unit": "GB per file"}, "Uploads up to 2 GB.", []),
+        ({"value": 2, "unit": "GB per file"}, "Uploads up to 2 MB.", ["2 MB"]),
+        ({"max_items": 2}, "Uploads up to 2 GB.", ["2 GB"]),
+        ({"value": 30, "unit": "days"}, "Refunds within 30 days.", []),
+        ({"loanPeriodDays": 14}, "Loans last 14 days.", []),
+        ({"window_days": 30}, "The fee is $30.", ["$30"]),
+    ]
+
+    def test_cases(self):
+        for row, answer, invented in self.CASES:
+            calls = [{"name": "get_x", "input": {"query": "$30 30 weeks"}, "result": {"results": [row], "count": 1}}]
+            with self.subTest(row=row, answer=answer):
+                self.assertEqual(evals.invented_values("q", answer, calls), invented)
+
+
 if __name__ == "__main__":
     unittest.main()

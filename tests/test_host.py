@@ -202,7 +202,9 @@ class HostTests(RemoteRepo):
         def step(regressions, rc):
             def run(*args):  # each eval writes a new run, newer than the last
                 self.p.runs_dir.mkdir(parents=True, exist_ok=True)
-                (self.p.runs_dir / f"20991231T0000{next(runs)}.json").write_text(json.dumps({"regressions": regressions}))
+                (self.p.runs_dir / f"20991231T0000{next(runs)}.json").write_text(json.dumps({
+                    "regressions": regressions, "results": [{"id": "card-fee", "passed": not regressions,
+                                                             "response": "x"}]}))
                 return rc
             return run
         self.assertEqual(host.live_gate(self.p, step([], 0)), "pass")
@@ -252,6 +254,54 @@ class HostTests(RemoteRepo):
         alerts.start_publishing(self.p)  # as if published: the next alert has to be a new one
         self.assertFalse(night(["card-fee"], [], unpushed=False))  # nothing to hold back: never silent
         self.assertIn("the live eval failed", logged())
+
+    def test_the_gate_compares_with_what_shipped_and_new_questions_must_pass(self):
+        import json
+        wd = host.git_root(self.p)
+        runs = iter(range(10, 60))
+
+        def step(results):
+            def run(*args):
+                self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+                (self.p.runs_dir / f"20991231T0000{next(runs)}.json").write_text(json.dumps(
+                    {"regressions": [], "results": [{"id": q, "passed": ok, "response": "x"} for q, ok in results]}))
+                return 0 if all(ok for _, ok in results) else 1
+            return run
+        golden = self.p.golden_path
+        golden.write_text(golden.read_text() + "\n- id: brand-new\n  category: narrative\n  question: What's new?\n"
+                          "  must_cite_page: wiki/entities/new.md\n")
+        sh(wd, "commit", "-qam", "wiki: cover a new source")
+        self.assertIn("brand-new", host.new_questions(self.p))
+        self.assertNotIn("card-fee", host.new_questions(self.p))
+        # no history kept yet, and ./gt eval saw nothing to compare with: a new question still has to pass
+        self.assertEqual(host.live_gate(self.p, step([("card-fee", True), ("brand-new", False)])), "worse")
+        self.assertEqual(host.live_gate(self.p, step([("card-fee", True), ("brand-new", True)])), "pass")
+        # a newer run on disk (a repair's) that already fails card-fee doesn't make that failure look old
+        step([("card-fee", False)])()
+        self.assertEqual(host.live_gate(self.p, step([("card-fee", False), ("brand-new", True)])), "worse")
+
+    def test_a_machine_holds_back_rewrites_that_got_worse(self):
+        wd = host.git_root(self.p)
+        fees = self.p.root / "facts" / "fees.yaml"
+        fees.write_text(fees.read_text().replace("aliases: [room, study room]", "aliases: [room, study room, rooms]"))
+        sh(wd, "commit", "-qam", "facts: update fees.yaml")
+        with mock.patch.object(host, "can_grade_live", return_value=True), \
+                mock.patch.object(host, "live_gate", return_value="worse") as gate:
+            self.assertTrue(host.held_back(self.p, wd))
+        self.assertIn("printing-bw-cost", gate.call_args.kwargs["only"])  # just what the change touches
+        self.assertEqual(host.ahead(wd), 0)  # dropped, not pushed
+        self.assertIn("the live eval got worse", alerts.log_path(self.p).read_text())
+        self.assertTrue(host.waiting_after_hold_back(self.p, wd))  # not redone every half hour
+        seed = Path(self.tmp.name) / "other"
+        subprocess.run(["git", "clone", "-q", str(self.origin), str(seed)], check=True)
+        sh(seed, "-c", "user.email=t@example.org", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "a fix")
+        sh(seed, "push", "-q", "origin", "HEAD:main")
+        sh(wd, "fetch", "-q", "origin")
+        self.assertFalse(host.waiting_after_hold_back(self.p, wd))  # main moved: try again
+        with mock.patch.object(host, "can_grade_live", return_value=True), \
+                mock.patch.object(host, "live_gate", return_value="pass"):
+            self.assertFalse(host.held_back(self.p, wd))
+        self.assertIn("the live eval got worse", alerts.resolved(self.p))
 
     def test_main_is_graded_in_a_throwaway_worktree(self):
         wd = host.git_root(self.p)

@@ -376,6 +376,8 @@ def _run(project: Project, job: str, extra: list[str], *, locked: bool) -> int:
         alerts.notify(project, f"the {job} job couldn't update its worktree",
                       f"git {' '.join(exc.cmd[3:])} failed: {(exc.stderr or '').strip()[-300:]}")
         return 1
+    if job == "rewrite" and waiting_after_hold_back(project, wd):
+        return 0
     target = wd / project_path(project)
     cmd = [sys.executable, "-m", "groundtruth", "-p", str(target), *JOB_ARGS[job], *extra]
     at = git(wd, "rev-parse", "--short", "HEAD").stdout.strip()
@@ -390,6 +392,8 @@ def _run(project: Project, job: str, extra: list[str], *, locked: bool) -> int:
     if job == "rewrite" and not locked and in_quiet_hours(quiet_hours(), dt.datetime.now()):
         log("quiet hours: the nightly refresh is near, so rewrites wait for the next run")
         return rc
+    if job == "rewrite" and ahead(wd) and held_back(project, wd):
+        return rc
     wait = 0.0 if locked else REWRITE_PUSH_WAIT_SECONDS
     result = push(project, wd, wait=wait, locked=locked)
     if result == "busy":
@@ -398,6 +402,63 @@ def _run(project: Project, job: str, extra: list[str], *, locked: bool) -> int:
         reset(wd)
         log(f"couldn't push ({result}); dropped this run's commits, the next run redoes them")
     return rc
+
+
+HOLD_BACK_HOURS = 6  # after a hold-back, the same rewrites aren't redone until main moves or this passes
+
+
+def can_grade_live() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or claude_ready() is None) \
+        and os.environ.get("GT_LIVE_EVAL", "1") != "0"
+
+
+def held_back(project: Project, wd: Path) -> bool:
+    """Before a machine pushes rewrites: grade the golden questions they touch on the production model,
+    as the autopilot does. True (and the commits dropped, and an alert) if those answers got worse."""
+    import json
+    from groundtruth import project as project_mod
+    if not can_grade_live():
+        return False
+    target = project_mod.load(wd / project_path(project))
+    env = _job_env(project, wd)
+
+    def step(*args: str) -> int:
+        return subprocess.run([sys.executable, "-m", "groundtruth", "-p", str(target.root), *args], cwd=wd,
+                              env=env, check=False).returncode
+    touched = affected_questions(target, wd)
+    verdict = live_gate(target, step, only=touched, keep=_kept_live(project)) if touched else "pass"
+    record = alerts.state_dir(project) / "held-back.json"
+    if verdict == "pass" or verdict == "failing":  # failing as before: not this run's doing
+        record.unlink(missing_ok=True)
+        alerts.resolve(project, "the live eval got worse")
+        return False
+    from groundtruth import evals
+    latest = evals.latest_live_run(target)
+    worse = (json.loads(latest.read_text()).get("regressions") or []) if latest else []
+    alerts.notify(project, "the live eval got worse",
+                  f"the rewrites on {this_host()} made the assistant answer golden questions worse "
+                  f"({', '.join(map(str, worse[:3])) or 'it could not be graded'}). The {ahead(wd)} commit(s) were "
+                  f"held back; nothing changed for users. They're retried when main changes, or in "
+                  f"{HOLD_BACK_HOURS} hours; tonight's ./gt repair works on the questions.")
+    record.write_text(json.dumps({"main": git(wd, "rev-parse", "origin/main").stdout.strip(),
+                                  "at": time.time()}))
+    reset(wd)
+    return True
+
+
+def waiting_after_hold_back(project: Project, wd: Path) -> bool:
+    """Don't redo rewrites the live eval just held back, until main has moved or a while has passed."""
+    import json
+    record = alerts.state_dir(project) / "held-back.json"
+    try:
+        held = json.loads(record.read_text())
+    except (OSError, ValueError):
+        return False
+    same_main = held.get("main") == git(wd, "rev-parse", "origin/main").stdout.strip()
+    if same_main and time.time() - float(held.get("at") or 0) < HOLD_BACK_HOURS * 3600:
+        log("the last rewrites were held back by the live eval; waiting for main to change")
+        return True
+    return False
 
 
 # ===================================================================== the watcher
@@ -707,8 +768,10 @@ def affected_questions(project: Project, root: Path) -> list[str]:
     except facts.FactsError:
         tools = set()
     pages = {Path(c).stem for c in changed if c.startswith("wiki/")}
+    new = new_questions(project)
     return [str(i["id"]) for i in checks.load_golden(project) if isinstance(i, dict) and i.get("id")
-            and (i.get("must_call_tool") in tools or Path(str(i.get("must_cite_page") or "")).stem in pages)]
+            and (i.get("must_call_tool") in tools or Path(str(i.get("must_cite_page") or "")).stem in pages
+                 or str(i["id"]) in new)]
 
 
 def _kept_live(project: Project) -> Path:
@@ -765,12 +828,31 @@ def already_live(project: Project, root: Path, env: dict[str, str], ids: list[st
             git(root, "worktree", "prune", check=False)
 
 
-def live_gate(project: Project, step, only: list[str] | None = None) -> str:
+def new_questions(project: Project) -> set[str]:
+    """Golden questions that aren't on origin/main yet: tonight's, which have to pass."""
+    from groundtruth import checks
+    try:
+        root = git_root(project)
+        path = project.golden_path.resolve().relative_to(root).as_posix()
+    except (HostError, ValueError):
+        return set()
+    if git(root, "rev-parse", "--verify", "--quiet", "origin/main", check=False).returncode != 0:
+        return set()  # nothing to compare with
+    out = git(root, "show", f"origin/main:{path}", check=False)
+    try:  # not on main at all: every question is new
+        data = yaml.safe_load(out.stdout) if out.returncode == 0 else []
+    except yaml.YAMLError:
+        data = []
+    on_main = {str(i.get("id")) for i in data if isinstance(i, dict)} if isinstance(data, list) else set()
+    return {str(i.get("id")) for i in checks.load_golden(project) if isinstance(i, dict)} - on_main
+
+
+def live_gate(project: Project, step, only: list[str] | None = None, *, keep: Path | None = None) -> str:
     """Run the live eval against the last full run kept in the host's state: 'pass', 'failing' (as before),
     'worse' (questions it used to answer right now fail), or 'error' (it couldn't grade anything).
     ``only``: just these questions."""
     from groundtruth import evals
-    keep = _kept_live(project)
+    keep = keep or _kept_live(project)
     project.runs_dir.mkdir(parents=True, exist_ok=True)
     if keep.exists():  # it must be the newest run on disk, which is what ./gt eval compares against
         stamp = (dt.datetime.now() - dt.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%S")
@@ -785,12 +867,14 @@ def live_gate(project: Project, step, only: list[str] | None = None) -> str:
     graded = [r for r in run.get("results") or [] if not r.get("skipped")]
     if graded and not any(str(r.get("response") or "").strip() for r in graded):
         return "error"  # no answers at all: the model or its credential is unreachable, not the content
-    if keep.exists():  # a question with no history has to pass: "not worse" can't grandfather it
-        known = {str(r.get("id")) for r in json.loads(keep.read_text()).get("results") or []}
-        new_failures = [str(r["id"]) for r in run.get("results") or []
-                        if not r.get("passed") and not r.get("skipped") and str(r.get("id")) not in known]
-        run["regressions"] = sorted(set(run.get("regressions") or []) | set(new_failures))
-        latest.write_text(json.dumps(run, indent=2, default=str))  # so ./gt repair sees them first
+    failed = {str(r.get("id")) for r in graded if not r.get("passed")}
+    worse = {str(i) for i in run.get("regressions") or []}
+    if keep.exists():  # compared with what's live, directly, not with whichever run file sorts last
+        kept = {str(r.get("id")): r for r in json.loads(keep.read_text()).get("results") or []}
+        worse = {q for q in failed if q not in kept or kept[q].get("passed") or kept[q].get("skipped")}
+    worse |= failed & new_questions(project)  # no history to grandfather: "not worse" can't cover it
+    run["regressions"] = sorted(worse)
+    latest.write_text(json.dumps(run, indent=2, default=str))  # so ./gt repair sees them first
     keep.parent.mkdir(parents=True, exist_ok=True)
     if not run.get("regressions") and not only:
         shutil.copyfile(latest, keep)  # a held-back or partial run doesn't become the new baseline

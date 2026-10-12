@@ -40,13 +40,15 @@ LIMIT_RE = re.compile(r"\b(?:up to|maximum of|max(?:imum)?|limit(?:ed)? (?:of|to
                       r"minimum of|capped at|cap of|no more than|no fewer than)\s+\d[\d,]*"
                       r"|\b(?:includes?|including|comes? with|gets?|offers?|supports?|provides?|permits?|seats)"
                       r"\s+\d[\d,]*\s+[a-z]", re.I)
-NUMBER_WORDS = ("one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|"
-                "twenty|thirty|forty|forty-five|fifty|sixty|ninety|hundred")
+NUMBER_WORDS = ("(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[\\s-](?:one|two|three|four|five|six|"
+                "seven|eight|nine))?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+                "fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|hundred")
 UNITS = r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?)"
 DURATION_RE = re.compile(
     rf"\b\d+(?:\.\d+)?[\s-]?(?:business[\s-]|calendar[\s-])?{UNITS}\b"
     # "seven days" is exact; "about two weeks" / "a few days" is approximate and allowed
-    rf"|(?<!about )(?<!around )(?<!roughly )(?<!approximately )(?<!nearly )(?<!almost )"
+    rf"|(?<!about )(?<!around )(?<!roughly )(?<!approximately )(?<!nearly )(?<!almost )(?<!-)"
+    rf"(?<!twenty )(?<!thirty )(?<!forty )(?<!fifty )(?<!sixty )(?<!seventy )(?<!eighty )(?<!ninety )"
     rf"\b(?:{NUMBER_WORDS})[\s-](?:business[\s-]|calendar[\s-])?{UNITS}\b", re.I)
 TIME_RE = re.compile(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:1[0-2]|0?[1-9])\s?(?:am|pm|a\.m\.|p\.m\.)(?![a-z])", re.I)
 PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s?%")

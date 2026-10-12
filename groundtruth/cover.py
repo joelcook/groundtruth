@@ -338,10 +338,17 @@ def run(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], 
 
 
 def new_value_lines(project: Project, src: str) -> list[str]:
-    """Lines a changed source gained that state an exact value (a price, a date, a phone number...)."""
+    """What a changed source gained that states an exact value: a line with a price, a date, a phone
+    number..., or a table row with a number in it (as "Column: value; ..."), the same candidates
+    ./gt compile lists."""
+    from groundtruth import compile as compile_mod
     diff = review.diff(project, src) or ""
-    added = [line[1:].strip() for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++")]
-    return [line for line in added if any(rx.search(line) for _, rx in checks.PATTERNS)]
+    added = {line[1:].strip() for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++")}
+    path = project.root / src
+    if not added or not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [text for n, _, text in compile_mod.candidates(path) if 0 < n <= len(lines) and lines[n - 1].strip() in added]
 
 
 def extract_todo(project: Project, state: dict) -> dict[str, list[str]]:
@@ -480,8 +487,11 @@ def run_extract(project: Project, cfg: rewrite.Config, state: dict, aliases: lis
         elif o.status == "ok":
             failed.pop(src, None)
             alerts.resolve(project, f"new facts in a source would not extract — {src}")
-            if o.checked_by:
+            # Only a skip needs remembering. Added rows are their own record: once facts cite src it leaves
+            # this queue, and if the commit is held back the rows go and it comes back.
+            if o.checked_by and result.skipped:
                 state.setdefault("extracted", {})[src] = hashes.get(src)
+            if o.checked_by:
                 for f in result.touched:
                     rewrite.remember(project, state, "facts_verified", f, {src: hashes.get(src)})
             if result.skipped:
