@@ -65,6 +65,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GT_WATCHDOG_URL: ${{ vars.GT_WATCHDOG_URL }}
           GT_LIVE_EVAL: ${{ vars.GT_LIVE_EVAL }}
+          GT_REWRITE_QUIET_HOURS: ""  # a machine's guard around its nightly refresh; here the concurrency group does that
       - uses: actions/cache/save@v4  # even when the run is red: a raised alert is when state matters most
         if: always()
         with:

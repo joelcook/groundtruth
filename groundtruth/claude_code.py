@@ -91,7 +91,8 @@ def agent(project: Project, question: str, system: str, *, model: str) -> dict:
         config = Path(tmp) / "mcp.json"
         config.write_text(json.dumps({"mcpServers": {"groundtruth": {
             "command": sys.executable,
-            "args": ["-m", "groundtruth", "-p", str(project.root), "serve", "--stdio"],
+            # --force: grade the content as it is, even on a night ./gt check is red (a fact update failed)
+            "args": ["-m", "groundtruth", "-p", str(project.root), "serve", "--stdio", "--force"],
             "env": {"GT_LOG": "0", "PYTHONPATH": os.environ.get("PYTHONPATH", "")},
         }}}))
         events = _run(["--model", model, "--system-prompt", system, "--tools", "",
