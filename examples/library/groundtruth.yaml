@@ -21,6 +21,11 @@ search:
     wifi: [internet, computer, computers]
     pin: [password, login, sign]
 
+# The one machine that refreshes, rewrites stale pages, and pushes main on its own
+# (./gt host install): its short hostname, from `hostname -s`. Every other machine
+# stands down, so only one ever pushes. See docs/operations.md.
+# host: my-server
+
 # Where `./gt ingest` (and the weekly refresh) pulls evidence from.
 # URLs, sitemap.xml links, or folders. Empty for the demo: its sources are
 # hand-written pages in sources/pages/.

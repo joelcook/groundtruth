@@ -93,3 +93,34 @@ only accepts localhost by default. Set `GT_ALLOWED_HOSTS=your.host`, or set
 server refuses to start on a project that fails it. Still failing? Run the exact
 command from `./gt connect claude-desktop` in a terminal. It should sit silently
 waiting for input (that's stdio). Any error it prints is the problem.
+
+## The refresh host
+
+**"standing down: main names X as the refresh host"**: on purpose. Only the
+machine named by `host:` in main's `groundtruth.yaml` refreshes and pushes. To
+move it, change that line on main, then `./gt host install` on the new machine
+and `./gt host uninstall` on the old one.
+
+**"Claude Code needs a login on the refresh host"**: the login behind
+`./gt rewrite` expired. On the host, run `claude setup-token` and put the token
+in the checkout's `.env` as `CLAUDE_CODE_OAUTH_TOKEN=...`. Rewrites resume on
+the next run. Never commit `.env`.
+
+**"a wiki page would not rewrite"**: the page failed its checks on every model.
+The alert names the first problem: an unsupported claim, a fact in prose, a
+broken link. `logs/host/rewrite/` on the host has each attempt. Fix the page by
+hand (or the source upstream), or wait: it retries in seven days, or sooner if
+its sources change.
+
+**"facts cite sources that changed"**: a source behind your facts was
+re-captured with new content. The host never reviews facts on its own, so
+`./gt check` stays red on main until you do: `./gt review --diff`, fix the
+facts, `./gt review --done`. Then delete the alert's line from `ALERTS.md`.
+
+**Rewrites have stopped, with no alert**: they may be waiting out a usage
+window. `logs/host/rewrite.log` says "paused until ..." when that's it. Lower
+`GT_REWRITE_MAX_UTILIZATION` to leave more headroom, or raise it to use more.
+
+**Nothing has happened since I installed it**: check the crontab with
+`crontab -l`, and that cron can run `./gt` (`./gt host check`). Each job writes
+its log to `logs/host/` in the checkout.

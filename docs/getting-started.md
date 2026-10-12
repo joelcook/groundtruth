@@ -163,7 +163,10 @@ Studio, ChatGPT, claude.ai, your own app), see [deploy.md](deploy.md). Set
 - `.github/workflows/ci.yml` runs the tests, `./gt check`, and `./gt eval` on
   every push.
 - `.github/workflows/refresh.yml` re-ingests weekly and opens a PR when
-  something changed.
+  something changed. Or let one always-on machine do it all with nobody
+  merging: `./gt host install` refreshes nightly, rewrites stale pages with
+  headless Claude Code, has a second model check every claim, and pushes when
+  the gates pass.
 - `./gt report` turns real questions into your next eval cases.
 
 More in [operations.md](operations.md).

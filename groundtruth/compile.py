@@ -111,31 +111,55 @@ def uncovered(project: Project) -> list[SourceInfo]:
     return [s for s in sources(project) if s.rel not in cited and not _retired(s.path)]
 
 
+@dataclass
+class Staleness:
+    """Every reason a page may be out of date. ``./gt rewrite`` needs them all, not just the first."""
+    changed: list[str]       # cited sources that changed since the last review (sources.lock.yaml)
+    newer: list[str]         # cited sources captured after the page was last compiled
+    compiled: dt.date | None  # the page's last_compiled (None: missing)
+    age_days: int | None     # set when older than GT_STALE_DAYS
+
+    def reason(self) -> str | None:
+        if self.changed:
+            return f"source changed since the last review: {', '.join(self.changed)}"
+        if self.compiled is None:
+            return "no last_compiled date"
+        if self.newer:
+            return f"source changed since {self.compiled}: {', '.join(self.newer)}"
+        if self.age_days is not None:
+            return f"compiled {self.age_days} days ago"
+        return None
+
+
+def page_sources(page: Path) -> list[str]:
+    """The source paths a page cites, as written in its frontmatter (wikilink brackets removed)."""
+    return [str(s).strip("[]").split("|")[0] for s in (_frontmatter(page).get("sources") or [])]
+
+
+def staleness(project: Project, page: Path, changed: set[str], by_rel: dict[str, SourceInfo]) -> Staleness:
+    cited = page_sources(page)
+    compiled = _date(_frontmatter(page).get("last_compiled"))
+    newer = [s for s in cited if compiled and (src := by_rel.get(s)) and src.captured and src.captured > compiled]
+    age = (dt.date.today() - compiled).days if compiled else None
+    return Staleness(changed=[s for s in cited if s in changed], newer=newer, compiled=compiled,
+                     age_days=age if age is not None and STALE_DAYS and age > STALE_DAYS else None)
+
+
+def served_pages(project: Project) -> list[Path]:
+    """Published pages outside wiki/internal/: the ones staleness applies to."""
+    return [p for p in checks.wiki_pages(project)
+            if "internal" not in p.relative_to(project.wiki_dir).parts and not _is_draft(p)]
+
+
 def stale_pages(project: Project) -> list[tuple[Path, str]]:
     from groundtruth import review
     changed = {c.source for c in review.changes(project)}
     by_rel = {s.rel: s for s in sources(project)}
-    today = dt.date.today()
     out = []
-    for page in checks.wiki_pages(project):
-        if "internal" in page.relative_to(project.wiki_dir).parts or _is_draft(page):
-            continue
-        meta = _frontmatter(page)
-        cited = [str(s).strip("[]").split("|")[0] for s in (meta.get("sources") or [])]
-        hit = [s for s in cited if s in changed]
-        if hit:
-            out.append((page, f"source changed since the last review: {', '.join(hit)}"))
-            continue
-        compiled = _date(meta.get("last_compiled"))
-        if compiled is None:
-            out.append((page, "no last_compiled date"))
-            continue
-        newer = [s for s in (meta.get("sources") or [])
-                 if (src := by_rel.get(str(s))) and src.captured and src.captured > compiled]
-        if newer:
-            out.append((page, f"source changed since {compiled}: {', '.join(map(str, newer))}"))
-        elif STALE_DAYS and (today - compiled).days > STALE_DAYS:
-            out.append((page, f"compiled {(today - compiled).days} days ago"))
+    for page in served_pages(project):
+        why = staleness(project, page, changed, by_rel).reason()
+        if why:
+            out.append((page, why))
     return out
 
 

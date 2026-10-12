@@ -58,7 +58,10 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `compile.py` | Coverage and staleness; agent work orders; Claude drafting |
 | `observability.py`, `report.py` | Tool-call log and the dashboard |
 | `watchdog.py` | Outside-in health checks over real MCP |
-| `refresh.py` | The weekly agent |
+| `refresh.py` | The weekly agent (a PR), or the refresh host's nightly and quick refresh (a push) |
+| `rewrite.py` | Rewrites stale pages with headless Claude Code; gates, then a second model checks every claim |
+| `host.py` | The refresh host: one named pusher, worktrees at main, locks, the watcher, the schedule |
+| `alerts.py` | What the unattended jobs can't handle, into `ALERTS.md` where the watchdog sees it |
 | `bundle.py` | Data bundles and hot-swap for deployed servers |
 | `progress.py` | `./gt status`: the road to production and the next step |
 | `connect.py`, `scaffold.py`, `cli.py` | Client setup, `init`/`use`, the `./gt` command |
@@ -81,7 +84,20 @@ don't need for correctness you can't live without.
 5. review       a human reconciles changed evidence (./gt review --done) and merges the PR
 ```
 
-`./gt refresh` runs it; `.github/workflows/refresh.yml` schedules it weekly.
+`./gt refresh` runs it; `.github/workflows/refresh.yml` schedules it weekly, and a
+person merges the pull request.
+
+A refresh host (`./gt host`) runs the same loop with nobody merging. It ingests
+nightly, and every two hours for the sources facts cite. `./gt rewrite` does
+step 3 for pages: headless Claude Code rewrites each stale page, the gates run,
+and a second model with read-only tools checks every claim against the sources.
+That check is the review for a source only pages cite, so step 5 is recorded
+for it automatically. A source that facts cite is never reviewed by a model:
+it raises an alert and keeps `./gt check` red until a person runs
+`./gt review --done`. Every job runs in a worktree at `origin/main`, takes a
+lock to push, and stands down on any machine but the one `groundtruth.yaml`
+names. What it can't handle lands in `ALERTS.md`, and the daily watchdog fails
+on it.
 
 ## What "ready to ship" means
 
@@ -89,4 +105,4 @@ don't need for correctness you can't live without.
 - `./gt eval --tier release` passes 100% on the production model;
 - no facts in wiki prose; every fact has a source;
 - the server is deployed with an API key, watched by the watchdog, and the
-  weekly refresh is on.
+  weekly refresh (or a refresh host) is on.

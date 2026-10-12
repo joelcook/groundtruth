@@ -213,6 +213,14 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 - **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
   rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
   and costs nothing.
+- **Or nobody merges anything: a refresh host.** `./gt host install` puts one
+  always-on machine in charge. It re-captures sources nightly, and the ones your
+  facts cite every two hours. Every half hour, headless Claude Code (Haiku, on
+  your Claude plan) rewrites the pages that went stale, and Sonnet checks every
+  claim against the sources before anything is kept. It pushes main whenever
+  the gates pass. Anything it can't handle, like a changed source behind your
+  facts, becomes a line in `ALERTS.md`, and the daily watchdog fails until a
+  person deals with it. See [docs/operations.md](docs/operations.md#the-refresh-host-nobody-has-to-merge-anything).
 - **Data without redeploys**: `./gt bundle` packages your facts and wiki;
   servers started with `GT_DATA_URL` verify and hot-swap new bundles.
 - **`./gt report`**: what people ask, error rates, latency, and the gaps:
@@ -236,8 +244,11 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt tools` | The tools your assistant gets |
 | `./gt prompt` | The exact instructions every client receives |
 | `./gt report` | Usage, errors, latency, and gaps from the tool-call log |
-| `./gt watchdog [--url URL]` | Outside-in health check |
+| `./gt watchdog [--url URL] [--repo]` | Outside-in health check (`--repo`: open alerts, last refresh, CI, deployed code lag) |
 | `./gt refresh [--write --open-pr]` | The weekly agent |
+| `./gt rewrite [--list] [--page P] [--dry-run]` | Rewrite stale wiki pages with headless Claude Code; a second model checks every claim |
+| `./gt host check\|install\|run\|watch` | One machine refreshes, rewrites, and pushes main unattended |
+| `./gt alerts` | What the unattended jobs need a person for (`ALERTS.md`) |
 | `./gt bundle` | Package data for live updates |
 | `./gt status` | What's done, what's left, and the next command |
 | `./gt use PATH` · `doctor` · `setup` | Housekeeping |

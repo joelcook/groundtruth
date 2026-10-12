@@ -402,6 +402,7 @@ def health(project: Project, gate: Gate | None = None) -> dict[str, Any]:
         "ok": status["ok"],
         "name": project.name,
         "groundtruth": __version__,
+        "commit": os.environ.get("GT_BUILD_COMMIT", "").strip() or None,  # the code's commit, stamped at build
         "data_version": store.meta.get("fingerprint"),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(db.stat().st_mtime)) if db.exists() else None,
         "facts": json.loads(store.meta.get("counts", "{}")),

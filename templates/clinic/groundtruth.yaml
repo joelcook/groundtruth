@@ -13,5 +13,10 @@ search:
     insurance: [plan, coverage, network, accepted]
     new: [first, register, registration]
 
+# The one machine that refreshes, rewrites stale pages, and pushes main on its own
+# (./gt host install): its short hostname, from `hostname -s`. Every other machine
+# stands down, so only one ever pushes. See docs/operations.md.
+# host: my-server
+
 ingest:
   sources: []

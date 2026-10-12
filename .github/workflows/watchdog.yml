@@ -1,22 +1,36 @@
-# Daily outside-in check of your deployed server. A failed run is the alert
-# (GitHub emails you). Set the repo variable GT_WATCHDOG_URL to your /mcp URL,
-# and the secret GT_MCP_API_KEY if the server uses one.
+# Daily outside-in check. A failed run is the alert (GitHub emails you). It fails when:
+#   - ALERTS.md lists an open alert from the refresh host (./gt host),
+#   - no `refresh:` commit landed in 30 hours (only when groundtruth.yaml names a host),
+#   - CI failed on main's head commit,
+#   - and, with the repo variable GT_WATCHDOG_URL set to your /mcp URL (plus the secret
+#     GT_MCP_API_KEY if the server uses one): the server is down, its data is over
+#     8 days old, or its code is more than 72 hours behind main.
 name: watchdog
 on:
   schedule:
     - cron: "30 12 * * *"
   workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
 jobs:
   watchdog:
-    if: ${{ vars.GT_WATCHDOG_URL != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -e .
-      - run: python -m groundtruth watchdog --url "$GT_WATCHDOG_URL" --max-age-hours 192
+      - run: |
+          if [ -n "$GT_WATCHDOG_URL" ]; then
+            python -m groundtruth watchdog --repo --url "$GT_WATCHDOG_URL" --max-age-hours 192
+          else
+            python -m groundtruth watchdog --repo
+          fi
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GT_WATCHDOG_URL: ${{ vars.GT_WATCHDOG_URL }}
           GT_MCP_API_KEY: ${{ secrets.GT_MCP_API_KEY }}

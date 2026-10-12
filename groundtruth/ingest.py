@@ -385,6 +385,52 @@ def ingest_folder(project: Project, folder: Path, result: IngestResult, dry_run:
                 mark_removed(project, page, result, dry_run)
 
 
+def recapture(project: Project, rels: list[str], *, dry_run: bool = False, delay: float = 0.25) -> IngestResult:
+    """Re-capture exactly these source pages, from wherever each came from.
+
+    The quick refresh uses this on the pages your facts cite, so a changed price
+    or date shows up within hours without a full crawl. A page that's gone (404,
+    410, or a deleted file) is flagged removed upstream, as a full ingest would.
+    """
+    result = IngestResult()
+    fetcher: Fetcher | None = None
+    for rel in rels:
+        path = project.root / rel
+        meta = page_meta(path)
+        if not meta or meta.get("removed_upstream"):
+            continue
+        url, local = meta.get("source_url"), meta.get("source_path")
+        if local:
+            if Path(str(local)).exists():
+                ingest_folder(project, Path(str(local)), result, dry_run)
+            else:
+                mark_removed(project, path, result, dry_run)
+            continue
+        if not url:
+            continue
+        fetcher = fetcher or Fetcher(delay=delay)
+        if not fetcher.allowed(str(url)):
+            result.skipped.append(f"{url} (robots.txt)")
+            continue
+        try:
+            r = fetcher.get(str(url))
+        except Exception as exc:  # noqa: BLE001 - unreachable isn't proof of removal
+            result.skipped.append(f"{url} ({type(exc).__name__})")
+            continue
+        if r.status_code in (404, 410):
+            mark_removed(project, path, result, dry_run)
+        elif r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+            result.skipped.append(f"{url} (HTTP {r.status_code}, {r.headers.get('content-type', '?')})")
+        else:
+            final = _clean_url(str(r.url))
+            title, body = html_to_markdown(r.text, final)
+            if len(body) < 80:
+                result.skipped.append(f"{url} (almost no text)")
+            else:
+                write_page(project, slug_for(final), title, body, {"source_url": final}, result, dry_run)
+    return result
+
+
 # ===================================================================== entry point
 
 

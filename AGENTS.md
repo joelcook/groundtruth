@@ -23,6 +23,7 @@ Inside a project:
 | `sources.lock.yaml` | Which version of each source the facts/wiki were last reviewed against | Only via `./gt review --done` |
 | `prompts/system_prompt.md` | The assistant's instructions (what MCP clients receive) | Keep `{{FACT_TOOLS}}` in it: the routing table is generated from `facts/` |
 | `evals/golden.yaml` | Questions with known answers | Format: `docs/evals.md` |
+| `ALERTS.md` | Open alerts from the refresh host (`./gt host`) | Delete a line only after you've fixed its cause |
 | `build/`, `logs/`, `reports/` | Generated | Never edit, never commit |
 
 ## The one rule: facts come from tools
@@ -95,6 +96,22 @@ anything in the sources you couldn't place.
    a synonym in `groundtruth.yaml`, or the prompt.
 3. Watch it pass. Run the full gates.
 
+### Working alongside the refresh host
+
+If the project names a `host:` in `groundtruth.yaml`, one machine also commits
+to main on its own (docs/operations.md). Pull before you start. Its commits are
+`refresh: ...` (re-captured sources), `wiki: rewrite ...` (a stale page that
+headless Claude Code rewrote and a second model checked against its sources),
+and `alerts: ...`. Don't revert them; fix what's upstream instead.
+
+- **An alert in `ALERTS.md`:** fix the cause, run the gates, then delete its line
+  in the same commit. "Facts cite sources that changed" means: `./gt review
+  --diff`, fix the facts, `./gt review --done`. That one is always yours: the
+  host never reviews a source that facts cite.
+- **`./gt rewrite`** rewrites stale pages the same way the host does. It needs a
+  clean checkout (it reverts every file but the page) and the `claude` CLI.
+  `./gt rewrite --list` shows what's stale without changing anything.
+
 ### Changing the code in `groundtruth/`
 
 Keep it dependency-light and readable; every module starts with a docstring
@@ -112,5 +129,8 @@ Don't add per-domain logic to the code: domains belong in project YAML.
   right." Nothing verifies that judgment for you.
 - Don't edit `sources/`; re-run `./gt ingest`.
 - Don't commit `build/`, `logs/`, `reports/`, or `evals/runs/*-tools.json`.
+- Don't put a key or token in a tracked file (`ANTHROPIC_API_KEY`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `GT_MCP_API_KEY`...). They go in `.env`, which is
+  gitignored; `.env.example` holds empty placeholders only.
 - Don't invent facts to make an eval pass. If the evidence doesn't say it, the
   fact doesn't exist yet: tell the human.

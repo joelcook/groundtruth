@@ -37,8 +37,11 @@ Run it
 
 Keep it honest
   report               what people ask, what's missing, error rates
-  watchdog             outside-in health check (--url for a deployed server)
+  watchdog             outside-in health check (--url for a deployed server, --repo for alerts/CI)
   refresh              the weekly agent: ingest, build, compile, check, eval, PR
+  rewrite              rewrite stale wiki pages with headless Claude Code, claims checked
+  host                 one machine refreshes, rewrites, and pushes main unattended (install, check)
+  alerts               what the unattended jobs need a person for
   bundle               package data so deployed servers update without a redeploy
 
 Housekeeping
@@ -394,13 +397,73 @@ def cmd_report(args) -> int:
 
 def cmd_watchdog(args) -> int:
     from groundtruth import watchdog
-    project = None if args.url else _p(args)  # a remote check needs nothing local
-    return watchdog.run(project, url=args.url, api_key=args.api_key, max_age_hours=args.max_age_hours)
+    project = None if args.url and not args.repo else _p(args)  # a remote check needs nothing local
+    return watchdog.run(project, url=args.url, api_key=args.api_key, max_age_hours=args.max_age_hours,
+                        repo=args.repo, refresh_max_hours=args.refresh_max_hours,
+                        code_max_lag_hours=args.code_max_lag_hours)
 
 
 def cmd_refresh(args) -> int:
     from groundtruth import refresh
-    return refresh.run(_p(args), write=args.write, open_pr=args.open_pr, live=args.live)
+    if args.quick and not args.push:
+        _bad("--quick is for the refresh host: use it with --push (./gt host runs it for you)")
+        return 2
+    return refresh.run(_p(args), write=args.write, open_pr=args.open_pr, live=args.live,
+                       push=args.push, quick=args.quick)
+
+
+def cmd_rewrite(args) -> int:
+    from groundtruth import rewrite
+    return rewrite.main(_p(args), pages=args.page, max_pages=args.max_pages, dry_run=args.dry_run,
+                        force=args.force, listing=args.list)
+
+
+def cmd_alerts(args) -> int:
+    from groundtruth import alerts
+    project = _p(args)
+    entries = alerts.open_alerts(project)
+    if not entries:
+        _ok(f"no open alerts in {project.rel(project.root / alerts.ALERTS_FILE)}")
+    else:
+        print(f"{len(entries)} open alert(s) in {project.rel(project.root / alerts.ALERTS_FILE)}:")
+        for stamp, msg in entries:
+            print(f"  ✗ {stamp} {msg}")
+        print("\nFix each cause, then delete its line from ALERTS.md and push.")
+    log = alerts.log_path(project)
+    if log.exists():
+        recent = alerts.parse_log(log.read_text(encoding="utf-8"))[-args.last:]
+        if recent:
+            print(f"\nlatest on this machine ({project.rel(log)}):")
+            for stamp, msg in recent:
+                print(f"  {stamp} {msg}")
+    return 1 if entries else 0
+
+
+def cmd_host(args) -> int:
+    from groundtruth import host
+    project = _p(args)
+    try:
+        if args.action == "check":
+            return host.check(project)
+        if args.action == "print":
+            print(host.cron_block(project, at=args.at, rewrite=not args.no_rewrite), end="")
+            return 0
+        if args.action == "install":
+            _ok(host.install(project, at=args.at, rewrite=not args.no_rewrite))
+            print(f"  logs: {project.rel(host.alerts.state_dir(project))}/   check it with: ./gt host check")
+            return 0
+        if args.action == "uninstall":
+            _ok(host.uninstall(project))
+            return 0
+        if args.action == "watch":
+            return host.watch(project)
+        if not args.job:
+            _bad("say which job: ./gt host run refresh  (or rewrite)")
+            return 2
+        return host.run(project, args.job, ["--quick"] if args.quick else [])
+    except host.HostError as exc:
+        _bad(str(exc))
+        return 2
 
 
 def cmd_bundle(args) -> int:
@@ -487,6 +550,10 @@ def cmd_status(args) -> int:
           f"sources {len(comp.sources(project))} · evals {n_golden} question(s) · "
           f"{sum(1 for r in observability.read_log(project) if not r.get('probe'))} tool call(s) logged")
     gt = _gt(args, project)
+    from groundtruth import alerts
+    open_alerts = alerts.open_alerts(project)
+    if open_alerts:
+        print(f"  ! {len(open_alerts)} open alert(s) from the refresh host: {gt} alerts")
     todo = progress.steps(project, gt, _where(project))
     print(f"\nRoad to production ({sum(s.done for s in todo)} of {len(todo)} done):")
     width = max(len(s.title) for s in todo) + 2
@@ -538,6 +605,8 @@ def cmd_doctor(args) -> int:
     print(f"  {'✓' if llm.available() else '·'} Claude credentials "
           + ("found (live evals, ./gt ask answers, compile --write)" if llm.available()
              else "not set (optional: ANTHROPIC_API_KEY)"))
+    print(f"  {'✓' if shutil.which('claude') else '·'} claude CLI " + ("found (./gt rewrite)" if shutil.which("claude")
+          else "not found (optional: ./gt rewrite, the unattended page rewrites)"))
     print(f"  {'✓' if shutil.which('gh') else '·'} gh CLI " + ("found" if shutil.which("gh") else "not found (optional: refresh --open-pr)"))
     print(f"  {'✓' if shutil.which('docker') else '·'} docker " + ("found" if shutil.which("docker") else "not found (optional: deploy)"))
     print("healthy" if not bad else f"{bad} problem(s) above")
@@ -666,10 +735,31 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--url")
     sp.add_argument("--api-key")
     sp.add_argument("--max-age-hours", type=float)
+    sp.add_argument("--repo", action="store_true",
+                    help="also check the repo: open alerts, the last refresh, CI on main, deployed code lag")
+    sp.add_argument("--refresh-max-hours", type=float, default=30)
+    sp.add_argument("--code-max-lag-hours", type=float, default=72)
     sp = add("refresh", cmd_refresh, "the weekly agent")
     sp.add_argument("--write", action="store_true")
     sp.add_argument("--open-pr", action="store_true")
     sp.add_argument("--live", action="store_true", help="also run live evals (needs a key)")
+    sp.add_argument("--push", action="store_true",
+                    help="commit in place for the refresh host to push (no branch, no PR, no API spend)")
+    sp.add_argument("--quick", action="store_true", help="with --push: re-capture only the sources facts cite")
+    sp = add("rewrite", cmd_rewrite, "rewrite stale wiki pages with headless Claude Code, claims checked")
+    sp.add_argument("--list", action="store_true", help="list stale pages and why; rewrite nothing")
+    sp.add_argument("--page", action="append", help="rewrite this page (repeatable)")
+    sp.add_argument("--max-pages", type=int, help="pages per run (default GT_REWRITE_MAX_PAGES or 10)")
+    sp.add_argument("--dry-run", action="store_true", help="rewrite and check, but keep nothing")
+    sp.add_argument("--force", action="store_true", help="ignore a usage pause and the failed-page list")
+    sp = add("alerts", cmd_alerts, "open alerts from the refresh host")
+    sp.add_argument("--last", type=int, default=10, help="lines of this machine's alert log to show")
+    sp = add("host", cmd_host, "run the unattended refresh host on this machine")
+    sp.add_argument("action", choices=["check", "install", "uninstall", "print", "run", "watch"])
+    sp.add_argument("job", nargs="?", choices=["refresh", "rewrite"])
+    sp.add_argument("--quick", action="store_true", help="run refresh: re-capture only the sources facts cite")
+    sp.add_argument("--at", default="03:00", help="install: when the nightly refresh runs (default 03:00)")
+    sp.add_argument("--no-rewrite", action="store_true", help="install: don't schedule ./gt rewrite")
     add("bundle", cmd_bundle, "package data for live updates")
     add("status", cmd_status, "where things stand and what to do next")
     add("doctor", cmd_doctor, "check your environment")

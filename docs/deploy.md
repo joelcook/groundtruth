@@ -19,14 +19,17 @@ The server is one small container. Anything that runs a container can host it.
    for load balancers. It shows counts, a data version, one page title (the
    watchdog searches for it), and the check status; nothing that isn't already
    public knowledge in your assistant.
-3. **Serving without a key?** (Needed for ChatGPT and claude.ai connectors, which
+3. **Stamp the build.** Pass `--build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD)`.
+   `/healthz` then reports which commit the code came from, so the watchdog and
+   the refresh host can tell you when the running code falls behind main.
+4. **Serving without a key?** (Needed for ChatGPT and claude.ai connectors, which
    use OAuth or no auth.) Set `GT_ALLOWED_HOSTS=your.host`; otherwise the MCP SDK
    rejects requests for your domain with a 421 to prevent DNS rebinding.
 
 Test locally first:
 
 ```bash
-docker build -t my-assistant .
+docker build -t my-assistant --build-arg GT_BUILD_COMMIT=$(git rev-parse HEAD) .
 docker run --rm -p 8765:8765 -e GT_MCP_API_KEY=test-key my-assistant
 ./gt watchdog --url http://127.0.0.1:8765/mcp --api-key test-key
 ```
@@ -121,7 +124,11 @@ atomically. Code changes still need a deploy.
 Set the repo variable `GT_WATCHDOG_URL` to your `/mcp` URL (and the secret
 `GT_MCP_API_KEY`). `.github/workflows/watchdog.yml` then checks it daily: health,
 whether the live content passes `./gt check`, data age, a real MCP session, a
-fact lookup, and a wiki search for a real page. A failed run emails you.
+fact lookup, a wiki search for a real page, and (from a stamped build) whether
+the running code is more than 72 hours behind main. It also checks the repo
+every day, URL or not: open alerts in `ALERTS.md`, CI on main, and, with a
+refresh host, that a refresh landed recently ([operations.md](operations.md)).
+A failed run emails you.
 
 ## Privacy
 
