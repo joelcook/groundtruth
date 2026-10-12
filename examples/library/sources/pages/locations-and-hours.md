@@ -10,6 +10,19 @@ and **Lakeview**. Central keeps the longest hours, including evenings and a shor
 Sunday afternoon; Eastside is open daily except Sunday; Lakeview is open Tuesday
 through Saturday.
 
+## At Every Branch
+
+Every branch has free public computers and free WiFi. You don't need a library
+card for the WiFi, which is open during library hours and reaches the parking lot
+at most branches. Sign in to a computer with your card number and PIN; sessions
+are time-limited so everyone gets a turn, and you can usually extend if no one is
+waiting. Guests without a card can ask staff for a day pass.
+
+Print from a library computer or your own device and pay at the print-release
+station or the desk; black-and-white and color pages are priced differently.
+Scanning to email or to a USB drive is free: only printed and copied pages are
+charged.
+
 ## Maplewood Central Library (downtown)
 
 100 Library Plaza, Maplewood · 555-0100
