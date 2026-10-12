@@ -208,7 +208,16 @@ def run(project: Project, *, max_items: int | None = None, live_first: bool = Fa
         print("  ✗ the checkout has uncommitted changes; commit or stash them first")
         return 2
     if live_first:
+        before = evals.latest_live_run(project)
         evals.run(project, "live", quiet=True)
+        latest = evals.latest_live_run(project)
+        if latest is None or latest == before or not host.answered(json.loads(latest.read_text())):
+            alerts.notify(project, "the live eval couldn't run",
+                          "./gt eval --tier live got no answers from the model (is GT_MODEL right, and the Claude "
+                          "credential valid with credit?). Nothing was repaired, and later rewrites wait until "
+                          "it answers again.")
+            return 1
+        alerts.resolve(project, "the live eval couldn't run")
     failed, passed = failing(project)
     golden = {str(i.get("id")): i for i in checks.load_golden(project) if isinstance(i, dict)}
     latest = evals.latest_live_run(project)

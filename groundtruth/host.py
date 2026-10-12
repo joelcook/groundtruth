@@ -293,11 +293,12 @@ def reset(wd: Path) -> None:
     git(wd, "clean", "-fdq")
 
 
-def prepare(project: Project, wd: Path, *, locked: bool = False) -> bool:
+def prepare(project: Project, wd: Path, *, locked: bool = False, gate=None) -> bool:
     """Point a job's worktree at a fresh origin/main.
 
-    Commits a previous run couldn't push are pushed first. False means they're
-    still waiting for the lock, so this run should leave them and stop.
+    Commits a previous run couldn't push are pushed first, once ``gate`` (if any) lets them: a rewrite
+    that stopped before its live grading is graded now. False means they're still waiting for the lock,
+    so this run should leave them and stop.
     """
     root = git_root(project)
     git(root, "fetch", "origin", "--quiet")
@@ -308,6 +309,8 @@ def prepare(project: Project, wd: Path, *, locked: bool = False) -> bool:
         return True
     git(wd, "reset", "--hard", "--quiet", "HEAD")
     git(wd, "clean", "-fdq")
+    if ahead(wd) and gate is not None and gate():
+        log("leftover commits answered worse on the live eval; dropped them")
     if ahead(wd):
         result = push(project, wd, locked=locked)
         if result == "busy":
@@ -369,7 +372,8 @@ def run(project: Project, job: str, extra: list[str] | None = None) -> int:
 def _run(project: Project, job: str, extra: list[str], *, locked: bool) -> int:
     wd = workdir(project, job)
     try:
-        if not prepare(project, wd, locked=locked):
+        if not prepare(project, wd, locked=locked,
+                       gate=(lambda: held_back(project, wd)) if job == "rewrite" else None):
             log("earlier commits are still waiting to be pushed; trying again next run")
             return 0
     except subprocess.CalledProcessError as exc:
@@ -426,20 +430,32 @@ def held_back(project: Project, wd: Path) -> bool:
         return subprocess.run([sys.executable, "-m", "groundtruth", "-p", str(target.root), *args], cwd=wd,
                               env=env, check=False).returncode
     touched = affected_questions(target, wd)
-    verdict = live_gate(target, step, only=touched, keep=_kept_live(project)) if touched else "pass"
+    keep = _kept_live(project)
+    verdict = live_gate(target, step, only=touched, keep=keep) if touched else "pass"
+    if verdict == "worse":  # one repair try first, as the autopilot does
+        step("repair")
+        touched = affected_questions(target, wd)
+        verdict = live_gate(target, step, only=touched, keep=keep)
     record = alerts.state_dir(project) / "held-back.json"
-    if verdict == "pass" or verdict == "failing":  # failing as before: not this run's doing
+    if verdict in ("pass", "failing"):  # failing as before: not this run's doing
         record.unlink(missing_ok=True)
         alerts.resolve(project, "the live eval got worse")
+        alerts.resolve(project, "the live eval couldn't run")
         return False
-    from groundtruth import evals
-    latest = evals.latest_live_run(target)
-    worse = (json.loads(latest.read_text()).get("regressions") or []) if latest else []
-    alerts.notify(project, "the live eval got worse",
-                  f"the rewrites on {this_host()} made the assistant answer golden questions worse "
-                  f"({', '.join(map(str, worse[:3])) or 'it could not be graded'}). The {ahead(wd)} commit(s) were "
-                  f"held back; nothing changed for users. They're retried when main changes, or in "
-                  f"{HOLD_BACK_HOURS} hours; tonight's ./gt repair works on the questions.")
+    if verdict == "error":
+        alerts.notify(project, "the live eval couldn't run",
+                      f"./gt eval --tier live got no answers from the model on {this_host()} (is GT_MODEL right, and "
+                      f"the Claude credential valid with credit?). The {ahead(wd)} rewrite commit(s) were held back "
+                      f"until it answers; nothing changed for users.")
+    else:
+        from groundtruth import evals
+        latest = evals.latest_live_run(target)
+        worse = (json.loads(latest.read_text()).get("regressions") or []) if latest else []
+        alerts.notify(project, "the live eval got worse",
+                      f"the rewrites on {this_host()} made the assistant answer golden questions worse "
+                      f"({', '.join(map(str, worse[:3]))}), and ./gt repair couldn't fix it. The {ahead(wd)} "
+                      f"commit(s) were held back; nothing changed for users. They're retried when main changes, "
+                      f"or in {HOLD_BACK_HOURS} hours.")
     record.write_text(json.dumps({"main": git(wd, "rev-parse", "origin/main").stdout.strip(),
                                   "at": time.time()}))
     reset(wd)
@@ -786,11 +802,19 @@ def regressions(project: Project) -> list[str]:
     return [str(i) for i in json.loads(latest.read_text()).get("regressions") or []] if latest else []
 
 
+def answered(run: dict) -> bool:
+    """Did the model answer anything in this live run? (Not when it or its credential was unreachable.)"""
+    graded = [r for r in run.get("results") or [] if not r.get("skipped")]
+    return any(str(r.get("response") or "").strip() for r in graded)
+
+
 def accept_live(project: Project) -> None:
-    """The latest full live run becomes what later runs are compared with: it's what users get now."""
+    """The latest full live run becomes what later runs are compared with: it's what users get now. Never
+    a run the model didn't answer: that would make every real answer after it look like an improvement."""
+    import json
     from groundtruth import evals
     latest = evals.latest_live_run(project)
-    if latest is not None:
+    if latest is not None and answered(json.loads(latest.read_text())):
         _kept_live(project).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(latest, _kept_live(project))
 
@@ -854,18 +878,25 @@ def live_gate(project: Project, step, only: list[str] | None = None, *, keep: Pa
     from groundtruth import evals
     keep = keep or _kept_live(project)
     project.runs_dir.mkdir(parents=True, exist_ok=True)
-    if keep.exists():  # it must be the newest run on disk, which is what ./gt eval compares against
+    shown = None
+    if keep.exists():  # the newest run on disk while ./gt eval runs, so what it prints compares with it too
         stamp = (dt.datetime.now() - dt.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%S")
-        shutil.copyfile(keep, project.runs_dir / f"{stamp}.json")
+        shown = project.runs_dir / f"{stamp}-kept.json"
+        shutil.copyfile(keep, shown)
     before = set(project.runs_dir.glob("*.json"))
-    rc = step("eval", "--tier", "live", *(["--only", ",".join(only)] if only else []))
+    try:
+        rc = step("eval", "--tier", "live", *(["--only", ",".join(only)] if only else []))
+    finally:
+        if shown is not None:
+            shown.unlink(missing_ok=True)
+    before.discard(shown)
     latest = evals.latest_live_run(project)
     if latest is None or latest in before:
         return "error"  # it didn't run: nothing was graded
     import json
     run = json.loads(latest.read_text())
     graded = [r for r in run.get("results") or [] if not r.get("skipped")]
-    if graded and not any(str(r.get("response") or "").strip() for r in graded):
+    if graded and not answered(run):
         return "error"  # no answers at all: the model or its credential is unreachable, not the content
     failed = {str(r.get("id")) for r in graded if not r.get("passed")}
     worse = {str(i) for i in run.get("regressions") or []}

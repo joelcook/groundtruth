@@ -130,6 +130,12 @@ class TestInventedValuesKeepUnits(unittest.TestCase):
         ({"value": 30, "unit": "days"}, "Refunds within 30 days.", []),
         ({"loanPeriodDays": 14}, "Loans last 14 days.", []),
         ({"window_days": 30}, "The fee is $30.", ["$30"]),
+        ({"price": 30, "currency": "USD", "trial_days": 14, "seat_limit": 3}, "The plan costs $14.", ["$14"]),
+        ({"price": 30, "currency": "USD", "trial_days": 14, "seat_limit": 3},
+         "The plan costs $30, with a 14-day trial and up to 3 seats.", []),
+        ({"price": 30, "currency": "EUR"}, "It costs $30.", ["$30"]),
+        ({"durationDays": 30}, "Loans last 30 weeks.", ["30 weeks"]),
+        ({"value": "30", "unit": "days"}, "Borrow up to 30 books.", ["up to 30"]),
     ]
 
     def test_cases(self):

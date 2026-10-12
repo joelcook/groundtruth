@@ -158,6 +158,43 @@ def _health(url: str, max_age_hours: float | None, checks: Checks, api_key: str 
     return body
 
 
+def chat_question(project: Project | None) -> tuple[str, list[str]]:
+    """What to ask the public chat: a golden question with a known answer, or just something to answer."""
+    if project is not None:
+        from groundtruth import checks as gates
+        for item in gates.load_golden(project):
+            if isinstance(item, dict) and item.get("category") == "hard_fact" and item.get("must_contain"):
+                return str(item["question"]), [str(v) for v in item["must_contain"]]
+    return "What can you help me with?", []
+
+
+def chat_check(base: str, project: Project | None, checks: Checks) -> None:
+    """The public /chat answers a real question through the model, with the right value: a server whose
+    model credential expired otherwise looks healthy while every visitor gets an error."""
+    import httpx
+    from groundtruth import evals
+    question, expected = chat_question(project)
+    why = ""
+    for _ in range(2):  # one retry: a model can word a right answer oddly once
+        try:
+            r = httpx.post(base + "/chat/ask", json={"question": question}, timeout=120)
+            reply = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        except Exception as exc:  # noqa: BLE001
+            why = f"unreachable: {exc}"
+            continue
+        answer = str(reply.get("answer") or "")
+        if r.status_code != 200 or not answer.strip():
+            why = f"{r.status_code} {reply.get('error') or answer[:120]}"
+        elif reply.get("abstained"):
+            why = f"it couldn't confirm the answer to {question!r}"
+        elif missing := [v for v in expected if not evals.contains(answer, v)]:
+            why = f"its answer to {question!r} doesn't state {missing}"
+        else:
+            checks.ok(f"chat: answered {question!r}" + (" with the right value" if expected else ""))
+            return
+    checks.fail(f"the public chat is failing: {why}")
+
+
 def _leaf(exc: BaseException) -> BaseException:
     while getattr(exc, "exceptions", None):  # ExceptionGroup (3.11+) or the 3.10 backport
         exc = exc.exceptions[0]
@@ -305,6 +342,8 @@ def run(project: Project | None, url: str | None = None, api_key: str | None = N
                 repo_checks(project, checks, deployed=body.get("commit"), url=url,
                             refresh_max_hours=refresh_max_hours, code_max_lag_hours=code_max_lag_hours)
             anyio.run(_http, url, api_key or os.environ.get("GT_MCP_API_KEY") or None, checks, body.get("probe"))
+            if body.get("chat"):
+                chat_check(url.rstrip("/").removesuffix("/mcp"), project, checks)
         elif repo and project is not None:
             print(f"watchdog: {project.name} (repo checks)")
             repo_checks(project, checks, deployed=None, url=None,

@@ -112,11 +112,6 @@ def page_meta(path: Path) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _origin(meta: dict) -> str | None:
-    value = meta.get("source_url") or meta.get("source_path")
-    return str(value) if value else None
-
-
 def local_path(project: Project, value: str) -> Path:
     """Where a capture's source_path points. New captures store it relative to the project, so a
     commit never carries someone's home directory; older ones may be absolute."""
@@ -362,7 +357,7 @@ def ingest_url(project: Project, start: str, max_pages: int, result: IngestResul
         if len(body) < 80:
             result.skipped.append(f"{url} (almost no text)")
         else:
-            write_page(project, slug_for(final), title, body, _origin(project, url, final), result, dry_run)
+            write_page(project, slug_for(final), title, body, _fetched_origin(project, url, final), result, dry_run)
         if crawl:
             for link in _links(r.text, final):
                 if link not in seen and urlparse(link).netloc == host:
@@ -474,12 +469,12 @@ def recapture(project: Project, rels: list[str], *, dry_run: bool = False, delay
             if len(body) < 80:
                 result.skipped.append(f"{url} (almost no text)")
             else:
-                write_page(project, slug_for(final), title, body, _origin(project, str(url), final), result,
+                write_page(project, slug_for(final), title, body, _fetched_origin(project, str(url), final), result,
                            dry_run)
     return result
 
 
-def _origin(project: Project, url: str, final: str) -> dict:
+def _fetched_origin(project: Project, url: str, final: str) -> dict:
     """Where a fetched page is recorded as coming from. A page already captured that now redirects
     (/pricing -> /plans) stays that capture, with the new content: so what cites it sees the change,
     instead of keeping the old price under the old address forever."""

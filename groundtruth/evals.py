@@ -305,15 +305,32 @@ def _money(text: str):
     return _currency(text), n
 
 
+GENERIC_FIELDS = {"value", "amount", "quantity", "number", "total", "qty"}  # say what they measure in `unit`
+
+
+def _is_number(value) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)) \
+        or (isinstance(value, str) and bool(NUMBER_RE.fullmatch(value.strip())))
+
+
 def _leaves(obj, key: str = ""):
-    """(field, value) for every value in a tool result. A number's field carries the row's `unit` or
-    `currency` with it (`value: 30` next to `unit: days` is "value days"), since that's what it measures."""
+    """(field, value) for every value in a tool result. A generic number field takes the row's `unit` (and
+    a money field its `currency`) with it: `value: 30` next to `unit: days` is "value days". A field that
+    names its own kind keeps it: `trial_days` beside `currency: USD` is still days."""
     if isinstance(obj, dict):
-        said = " ".join(str(obj[c]) for c in ("unit", "units", "currency") if isinstance(obj.get(c), str))
+        unit = " ".join(str(obj[c]) for c in ("unit", "units") if isinstance(obj.get(c), str))
+        currency = str(obj["currency"]) if isinstance(obj.get("currency"), str) else ""
         for k, v in obj.items():
-            if str(k) not in NOT_EVIDENCE:
-                measured = said and isinstance(v, (int, float)) and not isinstance(v, bool)
-                yield from _leaves(v, f"{k} {said}" if measured else str(k))
+            if str(k) in NOT_EVIDENCE:
+                continue
+            name = str(k)
+            if _is_number(v):
+                words = _tokens(name)
+                if words & GENERIC_FIELDS and unit:
+                    name = f"{name} {unit}"
+                if currency and (words & MONEY_WORDS or _tokens(name) & MONEY_WORDS):
+                    name = f"{name} {currency}"
+            yield from _leaves(v, name)
     elif isinstance(obj, (list, tuple)):
         for v in obj:
             yield from _leaves(v, key)
@@ -340,16 +357,17 @@ class Evidence:
         self.sizes: set = set()
         self.counts: set = set()
         for key, value in leaves:
-            if isinstance(value, (int, float)) or NUMBER_RE.fullmatch(str(value).strip()):
+            if _is_number(value):
                 n, words = _number(str(value)), _tokens(key)
+                spaced = " ".join(sorted(words))  # loanPeriodDays -> "days loan period"
                 if words & MONEY_WORDS:
-                    self.money.add((_currency(key), n / 100 if "cents" in words else n))
+                    self.money.add((_currency(spaced), n / 100 if "cents" in words else n))
                 elif words & PERCENT_WORDS:
                     self.percents.add(n)
                 elif words & DURATION_WORDS:
-                    self.durations.add((_unit(key), n))
+                    self.durations.add((_unit(spaced), n))
                 elif words & SIZE_WORDS:
-                    self.sizes.add((_size_unit(key), n))
+                    self.sizes.add((_size_unit(spaced), n))
                 else:
                     self.counts.add(n)
                 continue

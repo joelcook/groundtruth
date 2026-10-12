@@ -142,6 +142,28 @@ held back and users saw no change. `./gt eval --tier live` shows which question.
 Usually a rewritten page now reads ambiguously, or a synonym is missing; fix
 that, and the next run's rewrites go through.
 
+**"the live eval couldn't run"**: the model gave no answers at all, so nothing
+could be graded and the rewrites wait (users see no change). Check `GT_MODEL`
+and that the Claude credential is valid and has credit; the alert clears on the
+next run that gets answers.
+
+**"the live eval failed"**: the assistant gets a golden question wrong, as it
+did before (nothing got worse), and `./gt repair` couldn't fix it. `./gt eval
+--tier live --only ID` shows the answer; do CLAUDE.md's "the assistant got X
+wrong" job.
+
+**"the public chat is failing"** (from the watchdog): `/chat/ask` didn't answer
+a golden question with its known value. A `503` means the server's
+`ANTHROPIC_API_KEY` is missing or expired; a wrong or unsure answer means the
+model there behaves differently from your live eval (check `GT_MODEL` on the
+server).
+
+**"a source hasn't been fetched in 3 refreshes"**: a source your facts or pages
+cite keeps failing to download (blocked, rate-limited, a timeout, robots.txt, or
+a redirect to another site). What cites it stays as of its last good capture.
+If it moved, ingest the new address; if the site blocks the crawler, allow its
+user agent, or capture the document another way.
+
 **The autopilot ran but pushed nothing**: check that the repo variable
 `GT_AUTOPILOT` is `true`, that `host: github-actions` is on main, and that
 workflows may write (Settings > Actions > General > Workflow permissions).

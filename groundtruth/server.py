@@ -424,6 +424,8 @@ def health(project: Project, gate: Gate | None = None, *, full: bool = True) -> 
         "tools": len(store.tools) + 2,
         "checks": status,
     }
+    from groundtruth import chat
+    body["chat"] = chat.enabled()  # so ./gt watchdog knows to ask it a question
     if os.environ.get("GT_DATA_URL", "").strip():
         from groundtruth import bundle
         body["data_update"] = bundle.status()

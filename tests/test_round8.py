@@ -366,6 +366,24 @@ class TestRoundThreeHost(unittest.TestCase):
         refresh._track_fetch_failures(self.p, ingest.IngestResult(unchanged=["sources/pages/contact-us.md"]))
         self.assertTrue(any("contact-us.md" in r for r in alerts.resolved(self.p)))
 
+    def test_a_live_eval_with_no_answers_is_an_outage_not_failures(self):
+        import json
+        from groundtruth import alerts, evals, repair, rewrite
+
+        def no_answers(project, tier, **kw):
+            project.runs_dir.mkdir(parents=True, exist_ok=True)
+            (project.runs_dir / "20991231T000000.json").write_text(json.dumps(
+                {"results": [{"id": "card-fee", "passed": False, "response": "", "reasons": ["agent failed"]}]}))
+            return 1
+        with mock.patch.object(rewrite, "config", return_value=mock.Mock(cwd=self.p.root)), \
+                mock.patch.object(rewrite, "changed_paths", return_value=[]), \
+                mock.patch.object(evals, "run", side_effect=no_answers), \
+                mock.patch.object(repair, "repair_question") as fix:
+            self.assertEqual(repair.run(self.p, live_first=True), 1)
+        fix.assert_not_called()  # nothing to repair: the model never answered
+        self.assertIn("the live eval couldn't run", alerts.log_path(self.p).read_text())
+        self.assertFalse((alerts.state_dir(self.p) / "last-live.json").exists())
+
     def test_a_new_question_has_to_pass(self):
         import json
         from groundtruth import alerts, host

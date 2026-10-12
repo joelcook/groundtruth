@@ -25,7 +25,10 @@ Every gap is a to-do: add the fact or write the page, then add the question to
 ```
 
 Checks `/healthz`, opens a real MCP session, lists tools, calls a fact tool and
-the wiki search, and (with `--max-age-hours`) fails if the data is stale.
+the wiki search, and (with `--max-age-hours`) fails if the data is stale. When
+the server has the chat page on, it also asks `/chat/ask` a golden question and
+checks the answer states the known value, so an expired model key on the server
+can't leave visitors with errors while everything else looks healthy.
 `--repo` adds what only the repo knows, so it still fires when the refresh host
 is off:
 

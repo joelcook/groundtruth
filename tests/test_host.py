@@ -228,7 +228,7 @@ class HostTests(RemoteRepo):
                 sh(wd, "commit", "-qam", "facts: update fees.yaml")
             self.p.runs_dir.mkdir(parents=True, exist_ok=True)
             (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps(
-                {"tier": "live", "results": [{"id": q, "passed": False} for q in regressed], "regressions": regressed}))
+                {"results": [{"id": q, "passed": False, "response": "x"} for q in regressed], "regressions": regressed}))
             step = mock.Mock(return_value=1)
             with mock.patch.object(host, "live_gate", return_value="worse"), \
                     mock.patch.object(host, "already_live", return_value=set(failing_on_main)) as main:
@@ -302,6 +302,36 @@ class HostTests(RemoteRepo):
                 mock.patch.object(host, "live_gate", return_value="pass"):
             self.assertFalse(host.held_back(self.p, wd))
         self.assertIn("the live eval got worse", alerts.resolved(self.p))
+
+    def test_leftover_rewrites_are_graded_before_any_push(self):
+        wd = host.workdir(self.p, "rewrite")
+        host.prepare(self.p, wd)
+        page = wd / "assistant" / "wiki" / "entities" / "summer-reading-program.md"
+        page.write_text(page.read_text() + "\nOne more line.\n")
+        sh(wd, "-c", "user.email=t@example.org", "-c", "user.name=t", "commit", "-qam", "wiki: rewrite (left over)")
+
+        def worse():
+            host.reset(wd)  # what held_back does when the answers got worse
+            return True
+        self.assertTrue(host.prepare(self.p, wd, gate=worse))
+        self.assertEqual(self.origin_subject(), "start")  # never pushed
+        sh(wd, "-c", "user.email=t@example.org", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "ok")
+        self.assertTrue(host.prepare(self.p, wd, gate=lambda: False))
+        self.assertEqual(self.origin_subject(), "ok")
+
+    def test_an_unanswered_run_never_becomes_the_baseline(self):
+        import json
+        keep = alerts.state_dir(self.p) / "last-live.json"
+        self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+        run = self.p.runs_dir / "20991231T000001.json"
+        run.write_text(json.dumps({"results": [{"id": "card-fee", "passed": False, "response": ""}]}))
+        host.accept_live(self.p)
+        self.assertFalse(keep.exists())
+        run.write_text(json.dumps({"results": [{"id": "card-fee", "passed": True, "response": "It's $2."}]}))
+        host.accept_live(self.p)
+        self.assertTrue(keep.exists())
+        host.live_gate(self.p, lambda *a: 0)
+        self.assertFalse(list(self.p.runs_dir.glob("*-kept.json")))  # the copy shown to ./gt eval is gone
 
     def test_main_is_graded_in_a_throwaway_worktree(self):
         wd = host.git_root(self.p)

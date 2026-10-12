@@ -104,3 +104,32 @@ class TestChat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWatchdogAsksTheChat(unittest.TestCase):
+    """A server whose model credential expired looks healthy over MCP; the watchdog asks /chat too."""
+
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+        self.addCleanup(self.tmp.cleanup)
+
+    def check(self, *replies):
+        from groundtruth import watchdog
+        checks = watchdog.Checks()
+        responses = [NS(status_code=code, headers={"content-type": "application/json"}, json=lambda b=body: b)
+                     for code, body in replies]
+        with mock.patch("httpx.post", side_effect=responses):
+            watchdog.chat_check("https://bot.example.org", self.p, checks)
+        return checks.failed
+
+    def test_it_needs_the_right_value(self):
+        from groundtruth import watchdog
+        question, expected = watchdog.chat_question(self.p)
+        self.assertTrue(expected)  # a golden question with a known answer
+        right = "It's " + " and ".join(expected) + "."
+        self.assertEqual(self.check((200, {"answer": right})), 0)
+        self.assertEqual(self.check((500, {"error": "Something went wrong."}), (200, {"answer": right})), 0)
+        self.assertEqual(self.check((503, {"error": "no key"}), (503, {"error": "no key"})), 1)
+        self.assertEqual(self.check((200, {"answer": chat.UNSURE, "abstained": True}),
+                                    (200, {"answer": chat.UNSURE, "abstained": True})), 1)
+        self.assertEqual(self.check((200, {"answer": "Not sure."}), (200, {"answer": "Not sure."})), 1)
