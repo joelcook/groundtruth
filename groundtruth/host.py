@@ -632,34 +632,51 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
                 f"tonight's run, which repairs or reports it")
             reset(root)
     elif can_grade and not quick:
-        verdict = live_gate(project, step)
-        if verdict == "worse" and why is None and ahead(root):  # fix what got worse before giving up on the night
-            step("repair")
-            verdict = live_gate(project, step)
-        if verdict == "worse" and ahead(root):
-            alerts.notify(project, "the live eval got worse",
-                          f"after this run's rewrites, the assistant answers golden questions it used to get right "
-                          f"(see the run log). The {ahead(root)} rewrite commit(s) were held back; nothing changed "
-                          f"for users. Run ./gt eval --tier live to see which.")
-            reset(root)
-        elif verdict == "failing":
-            from groundtruth import repair
-            if why is None:  # it didn't get worse, it was already wrong: try to fix the cause
-                step("repair")
-            remaining, _ = repair.failing(project)
-            if remaining:
-                alerts.notify(project, "the live eval failed",
-                              f"the assistant answers {len(remaining)} golden question(s) wrong on the production "
-                              f"model, and ./gt repair couldn't fix them ({', '.join(str(r['id']) for r in remaining[:3])}). "
-                              f"Run ./gt eval --tier live to see why.")
-            else:
-                alerts.resolve(project, "the live eval failed")
-        elif verdict == "pass":
-            alerts.resolve(project, "the live eval failed")
-            alerts.resolve(project, "the live eval got worse")
+        nightly_gate(project, root, env, step, can_repair=why is None)
     publish()
     publish_alerts_here(project)
     return 1 if (log_file.stat().st_size if log_file.exists() else 0) > alerted_before else 0
+
+
+def nightly_gate(project: Project, root: Path, env: dict[str, str], step, *, can_repair: bool) -> None:
+    """The full live eval after a night's rewrites: hold back what they made worse (after one repair try),
+    ship the rest, and keep ALERTS.md to what's still wrong."""
+    verdict, repaired = live_gate(project, step), False
+    if verdict == "worse" and can_repair:  # fix what got worse before giving up on the night
+        step("repair")
+        verdict, repaired = live_gate(project, step), True
+    if verdict == "worse":
+        worse = regressions(project)
+        # Only what this run caused is held back. A question main gets wrong too is already in front of
+        # users (a model change, an earlier push): holding tonight's updates back wouldn't fix it, and
+        # would hold back every night after it as well.
+        caused = sorted(set(worse) - already_live(project, root, env, worse)) if ahead(root) else []
+        if caused:
+            alerts.notify(project, "the live eval got worse",
+                          f"after this run's rewrites, the assistant answers golden questions it used to get "
+                          f"right ({', '.join(caused[:3])}). The {ahead(root)} rewrite commit(s) were held back; "
+                          f"nothing changed for users. Run ./gt eval --tier live to see why.")
+            reset(root)
+        else:
+            log(f"main gets {', '.join(worse[:5])} wrong as well: not this run's doing; shipping it and reporting it")
+            accept_live(project)
+            verdict = "failing"
+    if verdict != "worse":
+        alerts.resolve(project, "the live eval got worse")
+    if verdict == "failing":
+        from groundtruth import repair
+        if can_repair and not repaired:  # it didn't get worse, it was already wrong: try to fix the cause
+            step("repair")
+        remaining, _ = repair.failing(project)
+        if remaining:
+            alerts.notify(project, "the live eval failed",
+                          f"the assistant answers {len(remaining)} golden question(s) wrong on the production "
+                          f"model, and ./gt repair couldn't fix them ({', '.join(str(r['id']) for r in remaining[:3])}). "
+                          f"Run ./gt eval --tier live to see why.")
+        else:
+            alerts.resolve(project, "the live eval failed")
+    elif verdict == "pass":
+        alerts.resolve(project, "the live eval failed")
 
 
 def affected_questions(project: Project, root: Path) -> list[str]:
@@ -683,11 +700,65 @@ def affected_questions(project: Project, root: Path) -> list[str]:
             and (i.get("must_call_tool") in tools or Path(str(i.get("must_cite_page") or "")).stem in pages)]
 
 
+def _kept_live(project: Project) -> Path:
+    return alerts.state_dir(project) / "last-live.json"
+
+
+def regressions(project: Project) -> list[str]:
+    """The questions the latest live run got wrong that the kept run got right (or that are new)."""
+    import json
+    from groundtruth import evals
+    latest = evals.latest_live_run(project)
+    return [str(i) for i in json.loads(latest.read_text()).get("regressions") or []] if latest else []
+
+
+def accept_live(project: Project) -> None:
+    """The latest full live run becomes what later runs are compared with: it's what users get now."""
+    from groundtruth import evals
+    latest = evals.latest_live_run(project)
+    if latest is not None:
+        _kept_live(project).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(latest, _kept_live(project))
+
+
+def already_live(project: Project, root: Path, env: dict[str, str], ids: list[str]) -> set[str]:
+    """Which of these golden questions origin/main, as it is now, gets wrong too.
+
+    Grades just those questions in a throwaway worktree of main, with main's code. A question that can't be
+    graded (no model, no answer) counts as not live, so the caller holds back: the safe side.
+    """
+    import json
+    import tempfile
+    from groundtruth import evals
+    from groundtruth import project as project_mod
+    if not ids:
+        return set()
+    with tempfile.TemporaryDirectory() as tmp:
+        wd = Path(tmp) / "main"
+        if git(root, "worktree", "add", "--quiet", "--detach", str(wd), "origin/main", check=False).returncode:
+            return set()
+        try:
+            target = project_mod.load(wd / project_path(project, root))
+            before = evals.latest_live_run(target)
+            subprocess.run([sys.executable, "-m", "groundtruth", "-p", str(target.root), "eval", "--tier", "live",
+                            "--only", ",".join(ids)], cwd=wd,
+                           env={**env, "PYTHONPATH": _job_env(project, wd)["PYTHONPATH"]},
+                           capture_output=True, check=False)
+            latest = evals.latest_live_run(target)
+            results = json.loads(latest.read_text()).get("results") or [] if latest and latest != before else []
+            # a real wrong answer, not a model that couldn't be reached (that proves nothing about main)
+            return {str(r.get("id")) for r in results if not r.get("passed") and not r.get("skipped")
+                    and str(r.get("response") or "").strip()} & set(ids)
+        finally:
+            git(root, "worktree", "remove", "--force", str(wd), check=False)
+            git(root, "worktree", "prune", check=False)
+
+
 def live_gate(project: Project, step, only: list[str] | None = None) -> str:
     """Run the live eval against the last full run kept in the host's state: 'pass', 'failing' (as before),
     or 'worse' (questions it used to answer right now fail). ``only``: just these questions."""
     from groundtruth import evals
-    keep = alerts.state_dir(project) / "last-live.json"
+    keep = _kept_live(project)
     project.runs_dir.mkdir(parents=True, exist_ok=True)
     if keep.exists():  # it must be the newest run on disk, which is what ./gt eval compares against
         stamp = (dt.datetime.now() - dt.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%S")

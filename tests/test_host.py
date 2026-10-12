@@ -212,6 +212,50 @@ class HostTests(RemoteRepo):
         host.live_gate(self.p, step([], 0), only=["q1"])
         self.assertEqual((alerts.state_dir(self.p) / "last-live.json").read_text(), before)  # partial: not a baseline
 
+    def test_the_nightly_gate_holds_back_only_what_this_run_caused(self):
+        import json
+        wd = host.git_root(self.p)
+        fees = self.p.root / "facts" / "fees.yaml"
+
+        def night(regressed, failing_on_main, *, unpushed=True):
+            if unpushed:
+                fees.write_text(fees.read_text() + "\n")
+                sh(wd, "commit", "-qam", "facts: update fees.yaml")
+            self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+            (self.p.runs_dir / "20991231T000000.json").write_text(json.dumps(
+                {"tier": "live", "results": [{"id": q, "passed": False} for q in regressed], "regressions": regressed}))
+            step = mock.Mock(return_value=1)
+            with mock.patch.object(host, "live_gate", return_value="worse"), \
+                    mock.patch.object(host, "already_live", return_value=set(failing_on_main)) as main:
+                host.nightly_gate(self.p, wd, dict(os.environ), step, can_repair=False)
+            return main.called
+
+        self.assertTrue(night(["card-fee"], []))  # tonight's change broke it: held back, alerted
+        self.assertEqual(host.ahead(wd), 0)
+        logged = lambda: " ".join(" ".join(entry) for entry in alerts.pending(self.p)[0])  # noqa: E731
+        self.assertIn("the live eval got worse", logged())
+        night(["card-fee"], ["card-fee"])  # main gets it wrong too: not tonight's doing, so tonight ships
+        self.assertEqual(host.ahead(wd), 1)
+        self.assertTrue((alerts.state_dir(self.p) / "last-live.json").exists())  # the new comparison point
+        self.assertIn("the live eval failed", logged())  # still reported
+        self.assertIn("the live eval got worse", alerts.resolved(self.p))
+        sh(wd, "reset", "-q", "--hard", "origin/main")
+        alerts.start_publishing(self.p)  # as if published: the next alert has to be a new one
+        self.assertFalse(night(["card-fee"], [], unpushed=False))  # nothing to hold back: never silent
+        self.assertIn("the live eval failed", logged())
+
+    def test_main_is_graded_in_a_throwaway_worktree(self):
+        wd = host.git_root(self.p)
+        fake = Path(self.tmp.name) / "claude"
+        write(fake, "#!/bin/sh\nexit 1\n")  # a model that can't be reached proves nothing about main
+        fake.chmod(0o755)
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        with mock.patch.dict(os.environ, {"GT_CLAUDE": str(fake), "CLAUDE_CODE_OAUTH_TOKEN": "x"}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            self.assertEqual(host.already_live(self.p, wd, {**env, "GT_CLAUDE": str(fake),
+                                                            "CLAUDE_CODE_OAUTH_TOKEN": "x"}, ["card-fee"]), set())
+        self.assertEqual(len(sh(wd, "worktree", "list").splitlines()), 1)  # and it's gone afterwards
+
     def test_quick_runs_grade_only_what_their_changes_touch(self):
         wd = host.git_root(self.p)
         fees = self.p.root / "facts" / "fees.yaml"
