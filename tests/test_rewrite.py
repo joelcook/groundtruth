@@ -13,7 +13,7 @@ from unittest import mock
 
 from helpers import LIBRARY, write
 
-from groundtruth import alerts, cover, host, project, reconcile, review, rewrite
+from groundtruth import alerts, compile as comp, cover, host, project, reconcile, review, rewrite
 
 NOW = 1_800_000_000.0
 
@@ -301,11 +301,15 @@ class RewriteLoopTests(unittest.TestCase):
 
     def test_a_new_source_gets_a_page_a_question_and_a_review(self):
         self.new_source()
+        comp.write_drafts(self.p)  # what ./gt compile leaves behind
+        sh(self.root, "add", "-A")
+        sh(self.root, "commit", "-qm", "drafts")
         self.assertIn("sources/pages/gift-cards.md", cover.todo(self.p, {}))
         self.assertEqual(rewrite.run(self.p), 0)
         self.assertIn("wiki: cover sources/pages/gift-cards.md", self.subjects())
         self.assertTrue((self.p.root / "wiki/gift-cards.md").exists())
         self.assertIn("gift-cards", self.p.golden_path.read_text())
+        self.assertFalse([d for d in (self.p.wiki_dir / "drafts").glob("*.md")])  # the draft gave way
         self.assertIn("sources/pages/gift-cards.md", review.load_lock(self.p))  # its review is recorded
         self.assertEqual(cover.todo(self.p, rewrite.load_state(rewrite.state_path(self.p))), [])
         self.assertEqual(sh(self.root, "status", "--porcelain"), "")

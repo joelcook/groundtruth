@@ -59,7 +59,8 @@ def build_prompt(project: Project, src: str, page: str, errors: list[str]) -> st
         f"`{pre}{src}`. Nothing covers it yet.",
         "",
         "First read CLAUDE.md, docs/wiki.md, docs/facts.md, and docs/evals.md. Then read the source, the",
-        f"existing pages under `{pre}wiki/`, and the facts files under `{pre}facts/`.",
+        f"existing pages under `{pre}wiki/`, and the facts files under `{pre}facts/`. If `{pre}wiki/drafts/`",
+        "  has a draft for this source, start from it (it's removed once your page lands).",
         "",
         "Do this:",
         f"1. Write one new wiki page at exactly `{pre}{page}` that explains what the source says, the",
@@ -265,6 +266,10 @@ def run(project: Project, cfg: rewrite.Config, state: dict, aliases: list[str], 
                     f"Model: {o.model_id} (Claude Code, headless)"]
             if o.checked_by:
                 body.append(f"Checked by: {o.checked_by}; every claim is supported by the source")
+            for draft in [p for p in checks.wiki_pages(project) if checks.is_draft(p) and src in comp.page_sources(p)]:
+                draft.unlink()  # ./gt compile's skeleton for this source: the real page replaces it
+                paths.append(pre + project.rel(draft))
+                body.append(f"Removed the draft {project.rel(draft)}: the new page replaces it")
             host.git(cfg.cwd, "add", "-A", "--", *paths)
             host.git(cfg.cwd, "commit", "--quiet", "-m", f"{COMMIT_PREFIX} {src}", "-m", "\n".join(body))
             base = rewrite.baseline(project)
