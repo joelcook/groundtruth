@@ -203,9 +203,12 @@ def alerts_result(entries: list[tuple[str, str]]) -> tuple[bool, str]:
 
 def refresh_result(now: float, commit_ts: int | None, label: str, max_hours: float) -> tuple[bool, str]:
     if commit_ts is None:
-        return False, "no `refresh:` commit on main yet: is the refresh host running? (./gt host check)"
+        return False, ("no `refresh:` commit on main yet: is the refresh host running? (GitHub Actions: the "
+                       "GT_AUTOPILOT variable and the autopilot workflow's runs; a machine: ./gt host check)")
     age = (now - commit_ts) / 3600
-    return age <= max_hours, f"last refresh {label} landed {age:.0f}h ago (limit {max_hours:.0f}h)"
+    return age <= max_hours, (f"last refresh {label} landed {age:.0f}h ago (limit {max_hours:.0f}h)"
+                              + ("" if age <= max_hours else ": is the refresh host running? (GitHub Actions: "
+                                 "the autopilot workflow's runs; a machine: ./gt host check)"))
 
 
 def ci_result(runs: list[dict], sha: str) -> tuple[bool | None, str]:

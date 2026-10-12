@@ -80,8 +80,10 @@ def launch_steps(project: Project, gt: str = "./gt") -> list[Step]:
                  "gh variable set GT_PUBLISH_DATA --body true, and GT_DATA_URL on the server (docs/deploy.md)"))
     return [
         online,
-        Step("Connect your users", None, "Copilot Studio, Claude, ChatGPT, or your app (docs/connect.md)",
-             f"{gt} connect CLIENT"),
+        Step("Connect your users", True if body is not None and chat_live(url) else None,
+             f"{url.rstrip('/').removesuffix('/mcp')}/chat answers" if body is not None and chat_live(url) else
+             "the chat page (GT_CHAT=1 on the server), or an MCP client (docs/connect.md)",
+             "GT_CHAT=1 and ANTHROPIC_API_KEY on the server; or ./gt connect CLIENT"),
         data,
         Step("Keep it current", bool(named),
              ("GitHub Actions is the refresh host (autopilot.yml)" if named == host.ACTIONS_HOST else
@@ -92,6 +94,15 @@ def launch_steps(project: Project, gt: str = "./gt") -> list[Step]:
         Step("Watch it", None, "the daily watchdog (watchdog.yml) checks alerts, refreshes, CI, and the server",
              "gh workflow run watchdog.yml, then check it passes"),
     ]
+
+
+def chat_live(url: str) -> bool:
+    """Does the deployed server serve the chat page?"""
+    import httpx
+    try:
+        return httpx.get(url.rstrip("/").removesuffix("/mcp") + "/chat", timeout=8).status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def probe(url: str) -> dict | None:

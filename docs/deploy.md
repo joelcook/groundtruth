@@ -102,6 +102,24 @@ mcp.example.org {
 No Docker? `GT_MCP_HOST=0.0.0.0 GT_MCP_API_KEY=<key> ./gt serve` under systemd,
 behind the same proxy.
 
+## A chat page for your users
+
+MCP clients need someone to connect them. To give the people the assistant is
+for something to use right away, set these on the server:
+
+```bash
+GT_CHAT=1
+ANTHROPIC_API_KEY=...        # the chat's model; GT_MODEL picks it (default claude-opus-5-5)
+```
+
+Then `https://your.host/chat` (and `/`) is a small web chat. Each question runs
+through Claude with exactly the tools MCP clients get and the same instructions
+(`./gt prompt`), so it answers the way `./gt eval --tier live` grades, and every
+answer lists the sources its tools returned. It's public on purpose and never
+needs the MCP key. It limits each visitor to `GT_CHAT_PER_MINUTE` (6) questions a
+minute and the server to `GT_CHAT_PER_DAY` (2000) a day, so a busy day can't run
+up the bill. Set a spend limit on the key at console.anthropic.com as well.
+
 ## What `/healthz` means
 
 Without the key, `/healthz` shows only what a load balancer needs: `ok`, the

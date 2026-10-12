@@ -30,8 +30,9 @@ where it came from.
 
 It speaks MCP, so it works with Claude Desktop, Claude Code, Codex, Cursor, VS
 Code, Copilot Studio, and anything else that does. It runs on your laptop or any
-server. It's MIT licensed and 100% free: every piece described here is in this
-repo.
+server. It's MIT licensed, and every piece described here is in this repo. All of
+it runs free except what needs a model: live evals, and the unattended rewrites,
+which run on your Claude plan or API key.
 
 ## Try it: 2 minutes, no API key
 
@@ -241,6 +242,9 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
   pass, and the second model agrees. Anything it can't handle becomes a line in
   `ALERTS.md`, and the daily watchdog fails until it's fixed. See
   [docs/operations.md](docs/operations.md#the-refresh-host-nobody-in-the-loop).
+- **A chat page, no client to set up**: with `GT_CHAT=1` and an Anthropic key on
+  the server, `/chat` is a web chatbot for your users. It uses the same tools and
+  instructions your evals grade, shows its sources, and rate-limits visitors.
 - **Data without redeploys**: `./gt bundle` packages your facts and wiki;
   servers started with `GT_DATA_URL` verify and hot-swap new bundles.
 - **`./gt report`**: what people ask, error rates, latency, and the gaps:

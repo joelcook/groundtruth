@@ -50,6 +50,7 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `facts.py` | Load, validate, build, and query facts; generate tool specs |
 | `search.py`, `embeddings.py` | Wiki search: keyword scan, optional embeddings |
 | `server.py` | The MCP server, auth, host rules, `/healthz` |
+| `chat.py` | `/chat`: a public web chat on the same tools and instructions, rate-limited |
 | `checks.py` | `./gt check`: facts, source review, wiki structure, prose lint, golden wiring, prompt |
 | `review.py` | `sources.lock.yaml`: detects evidence that changed since facts and pages were reviewed |
 | `examples.py` | Finds and removes a template's fictional example content |

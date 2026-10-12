@@ -1,0 +1,90 @@
+"""The built-in chat page: a working chatbot the moment the server is deployed (fake Claude, no spend)."""
+import os
+import unittest
+from types import SimpleNamespace as NS
+from unittest import mock
+
+from helpers import copy_project
+
+from groundtruth import chat, llm, server
+
+
+class FakeMessages:
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append({**kwargs, "messages": list(kwargs.get("messages", []))})  # snapshot
+        return self.script.pop(0)
+
+
+def tool_use(name, args):
+    return NS(stop_reason="tool_use", content=[NS(type="tool_use", name=name, input=args, id="t1")])
+
+
+def text(t):
+    return NS(stop_reason="end_turn", content=[NS(type="text", text=t)])
+
+
+class TestChat(unittest.TestCase):
+    def setUp(self):
+        self.p, self.tmp = copy_project()
+        self.env = mock.patch.dict(os.environ, {"GT_CHAT": "1", "GT_MCP_API_KEY": "mcp-only-key",
+                                                "GT_CHAT_PER_MINUTE": "2"})
+        self.env.start()
+        self.available = mock.patch.object(llm, "available", return_value=True)
+        self.available.start()
+        chat.LIMITS = chat.Limits()
+
+    def tearDown(self):
+        self.available.stop()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def client(self):
+        from starlette.testclient import TestClient
+        return TestClient(server.http_app(self.p), base_url="http://127.0.0.1:8765")
+
+    def test_the_page_is_public_and_answers_with_sources(self):
+        msgs = FakeMessages([tool_use("get_fee", {"fee_type": "color printing"}), text("It's $0.50 a page.")])
+        with mock.patch.object(llm, "_client", return_value=NS(beta=NS(messages=msgs))), self.client() as c:
+            page = c.get("/chat")
+            self.assertEqual(page.status_code, 200)  # no MCP key needed: it's for the people the bot serves
+            self.assertIn("Maplewood Public Library", page.text)
+            self.assertIn("default-src 'none'", page.headers["content-security-policy"])
+            reply = c.post("/chat/ask", json={"question": "How much is color printing?",
+                                              "history": [{"role": "user", "content": "hi"},
+                                                          {"role": "assistant", "content": "Hello!"}]})
+            self.assertEqual(reply.status_code, 200)
+            self.assertEqual(reply.json()["answer"], "It's $0.50 a page.")
+            self.assertEqual(reply.json()["sources"][0]["url"], "https://example.org/policies/borrowing")
+            self.assertEqual(c.post("/mcp", json={}).status_code, 401)  # MCP itself still needs the key
+        first = msgs.calls[0]
+        self.assertEqual([m["role"] for m in first["messages"]], ["user", "assistant", "user"])  # the conversation
+        self.assertIn("get_fee", [t["name"] for t in first["tools"]])  # the same tools MCP clients get
+
+    def test_visitors_are_rate_limited(self):
+        msgs = FakeMessages([text("one"), text("two"), text("three")])
+        with mock.patch.object(llm, "_client", return_value=NS(beta=NS(messages=msgs))), self.client() as c:
+            codes = [c.post("/chat/ask", json={"question": "hours?"}).status_code for _ in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
+
+    def test_bad_requests_get_plain_answers(self):
+        with self.client() as c:
+            self.assertEqual(c.post("/chat/ask", json={"question": ""}).status_code, 400)
+            self.assertEqual(c.post("/chat/ask", json={"question": "x" * 3000}).status_code, 413)
+            self.assertEqual(c.get("/chat/ask").status_code, 405)
+
+    def test_off_unless_asked_for(self):
+        os.environ["GT_CHAT"] = "0"
+        with self.client() as c:
+            self.assertEqual(c.get("/chat").status_code, 401)  # just another path behind the MCP key
+
+    def test_the_project_name_is_escaped(self):
+        self.p.config["name"] = "<script>alert(1)</script>"
+        self.assertNotIn("<script>alert(1)", chat.page(self.p))
+
+
+if __name__ == "__main__":
+    unittest.main()

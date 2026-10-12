@@ -9,7 +9,8 @@ checks every one against the text of its cited source, deterministically:
     numbers   39 matches "$39", "39.00", or "USD 39"; 1200 matches "1,200";
               0.1 matches "$0.10" or "10 cents"
     dates     2026-09-01 matches "September 1, 2026", "Sept. 1", "9/1/2026", or 2026-09-01
-    times     "13:00" matches "1 p.m.", "1:00 PM", or "13:00"; "12:00" matches "noon"
+    times     "13:00" matches "1 p.m.", "1:00 PM", "13:00", or an hours range like "9-1";
+              "12:00" matches "noon"
     contacts  phone numbers by their digits; emails and URLs as written
 
 Words (a weekday, a branch, a plan name) aren't checked here: they're names, not
@@ -41,6 +42,7 @@ NAMED_DATE = re.compile(MONTH_RE + r"\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*[–-]
 DAY_FIRST_DATE = re.compile(r"\b(\d{1,2})\s+" + MONTH_RE + r"\.?,?\s+(\d{4})", re.I)
 SLASH_DATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b")
 TIME_24 = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:a\.?m\.?|p\.?m\.?))", re.I)
+HOUR_RANGE = re.compile(r"\b(1[0-2]|0?[1-9])\s*(?:-|–|—|to|until|till)\s*(1[0-2]|0?[1-9])\b(?!\s*(?:a\.?m|p\.?m))", re.I)
 TIME_12 = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 URL = re.compile(r"https?://[^\s)>\]\"']+", re.I)
@@ -88,6 +90,9 @@ class SourceIndex:
         for h, mi, half in TIME_12.findall(text):
             hour = int(h) % 12 + (12 if half.lower().startswith("p") else 0)
             idx.times.add((hour, int(mi or 0)))
+        for a, b_ in HOUR_RANGE.findall(text):  # "9-5", "10 to 6": opening hours written loosely
+            for h in (int(a), int(b_)):
+                idx.times.update({(h % 12, 0), (h % 12 + 12, 0)})
         if re.search(r"\bnoon\b", text, re.I):
             idx.times.add((12, 0))
         if re.search(r"\bmidnight\b", text, re.I):

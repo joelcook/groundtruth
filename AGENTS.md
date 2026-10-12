@@ -108,6 +108,7 @@ available, also run `./gt eval --tier live` and report the result.
 Done looks like this, and `./gt status` checks what it can:
 - the server runs in a container behind HTTPS, with an API key and a stamped
   build, and `url:` in `groundtruth.yaml` says where;
+- the people it's for can use it at `https://HOST/chat`;
 - every green push to main publishes a data bundle that the server installs
   within minutes, with no deploy;
 - GitHub Actions is the refresh host (`host: github-actions`, `autopilot.yml`):
@@ -124,9 +125,10 @@ otherwise:
   `railway whoami`). Recipes are in docs/deploy.md. If none is, ask for a Fly.io
   login (`fly auth login`): it's the shortest recipe.
 - **Refresh host:** GitHub Actions. No machine to choose or keep running.
-- **Client:** the server speaks MCP, so it works in Claude, ChatGPT, Copilot
-  Studio, Cursor, and anything else that does. `./gt connect CLIENT` prints the
-  setup for each; you don't need to pick one to launch.
+- **Client:** turn on the built-in chat page (`GT_CHAT=1` and `ANTHROPIC_API_KEY`
+  on the server): `https://HOST/chat` works the moment it's deployed, with no
+  product to configure. The server also speaks MCP, so Claude, ChatGPT, Copilot
+  Studio, and Cursor can connect too (`./gt connect CLIENT`).
 
 **Ask once, for credentials only,** and all of them in one message: the hosting
 login (if none is logged in), a GitHub login with admin rights on the repo (if
@@ -162,9 +164,12 @@ Never write a credential into a file, a commit, or your reply.
    Verify: `gh workflow run autopilot.yml`, wait, and check it passed and pushed a
    `refresh:` commit.
 6. **Watchdog.** `gh workflow run watchdog.yml` passes.
-7. **Connect users.** `./gt connect CLIENT` prints the setup (it uses `url:`).
-   For Copilot Studio, paste `./gt prompt` into the agent's instructions and grade
-   the model it runs there: `./gt eval --export copilot-studio` (docs/evals.md).
+7. **Connect users.** Set `GT_CHAT=1` and `ANTHROPIC_API_KEY` on the server
+   (docs/deploy.md, "A chat page for your users"). Verify: `https://HOST/chat`
+   answers a real question and lists its sources. For MCP clients,
+   `./gt connect CLIENT` prints the setup (it uses `url:`); for Copilot Studio,
+   paste `./gt prompt` into the agent's instructions and grade the model it runs
+   there with `./gt eval --export copilot-studio` (docs/evals.md).
 
 After that nobody needs to do anything. If the person has no GitHub Actions
 minutes to spare, or wants the jobs on their own machine, `./gt host install` on

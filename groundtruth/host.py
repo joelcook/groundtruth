@@ -575,17 +575,24 @@ def autopilot(project: Project, *, quick: bool = False) -> int:
         return subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, *args], cwd=root, env=env,
                               check=False).returncode
 
+    def publish() -> None:
+        result = push(project, root, locked=True)
+        if result == "rejected":  # e.g. branch protection on main: say so instead of losing work quietly
+            alerts.notify(project, "the autopilot can't push main",
+                          "its pushes are rejected. Let GitHub Actions push to main (branch protection, and "
+                          "Settings > Actions > General > Workflow permissions: read and write).")
+        if result in ("conflict", "rejected"):
+            reset(root)
+
     rc = step("refresh", "--write", "--push", *(["--quick"] if quick else []))
     if rc not in (0, 1):
         alerts.notify(project, "the refresh crashed", f"./gt refresh exited {rc} in GitHub Actions; see the run log.")
-    if push(project, root, locked=True) in ("conflict", "rejected"):
-        reset(root)
+    publish()
     why = claude_ready()
     if why is None:
         if step("rewrite") not in (0, 1):
             alerts.notify(project, "the wiki rewrite job crashed", "./gt rewrite crashed in GitHub Actions; see the run log.")
-        if push(project, root, locked=True) in ("conflict", "rejected"):
-            reset(root)
+        publish()
     else:
         listing = subprocess.run([sys.executable, "-m", "groundtruth", "-p", target, "rewrite", "--list"], cwd=root,
                                  env=env, text=True, capture_output=True, check=False).stdout

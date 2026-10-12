@@ -39,6 +39,12 @@ codex mcp add my-assistant -- /path/to/groundtruth/.venv/bin/python -m groundtru
 
 Paste the printed JSON into `.vscode/mcp.json` in your workspace.
 
+## No client at all: the chat page
+
+Set `GT_CHAT=1` and `ANTHROPIC_API_KEY` on the deployed server, and
+`https://your.host/chat` is a web chat for your users, built on the same tools
+and instructions. See [deploy.md](deploy.md#a-chat-page-for-your-users).
+
 ## Hosted platforms
 
 These need the HTTP server reachable on the internet over HTTPS. See

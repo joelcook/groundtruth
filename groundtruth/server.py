@@ -441,6 +441,34 @@ class GatewayMiddleware:
         self.api_key = api_key
         self.gate = gate
 
+    async def _chat(self, scope, receive, send, path: str, headers: dict):
+        """The public chat page (chat.py): no MCP key, its own limits."""
+        from groundtruth import chat
+        if path == "/":
+            await send({"type": "http.response.start", "status": 302, "headers": [(b"location", b"/chat")]})
+            return await send({"type": "http.response.body", "body": b""})
+        if path != "/chat/ask":
+            data = chat.page(self.project).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-type", b"text/html; charset=utf-8"),
+                                    (b"content-security-policy",
+                                     b"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                     b"connect-src 'self'"),
+                                    (b"content-length", str(len(data)).encode())]})
+            return await send({"type": "http.response.body", "body": data})
+        if scope.get("method") != "POST":
+            return await self._send_json(send, 405, {"error": "POST a question"})
+        body, more = b"", True
+        while more and len(body) <= chat.MAX_BODY:
+            message = await receive()
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+        forwarded = headers.get(b"x-forwarded-for", b"").decode(errors="ignore").split(",")[0].strip()
+        visitor = forwarded or (scope.get("client") or ("?",))[0]
+        import anyio
+        status, reply = await anyio.to_thread.run_sync(chat.handle, self.project, body, visitor, self.gate)
+        return await self._send_json(send, status, reply)
+
     def _authorized(self, headers: dict) -> bool:
         if not self.api_key:
             return True
@@ -464,6 +492,9 @@ class GatewayMiddleware:
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
+        from groundtruth import chat
+        if path in ("/", "/chat", "/chat/", "/chat/ask") and chat.enabled():
+            return await self._chat(scope, receive, send, path, headers)
         if path in ("/healthz", "/health"):
             try:
                 body = health(self.project, self.gate, full=self._authorized(headers))

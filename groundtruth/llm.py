@@ -81,11 +81,14 @@ def _text(resp) -> str:
 
 
 def agent(question: str, system: str, tools: list[dict], dispatch: Callable[[str, dict], Any],
-          *, model_name: str | None = None, max_turns: int = 10) -> dict:
-    """Run one question through Claude with your tools until it stops calling them."""
+          *, model_name: str | None = None, max_turns: int = 10, history: list[dict] | None = None) -> dict:
+    """Run one question through Claude with your tools until it stops calling them.
+
+    ``history``: earlier turns of a conversation, as [{"role": "user"|"assistant", "content": text}].
+    """
     client = _client()
     model_name = model_name or model()
-    messages: list[dict] = [{"role": "user", "content": question}]
+    messages: list[dict] = [*(history or []), {"role": "user", "content": question}]
     calls: list[dict] = []
     tool_defs = [{"name": t["name"], "description": t["description"], "input_schema": t["input_schema"]}
                  for t in tools]
