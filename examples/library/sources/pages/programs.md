@@ -23,7 +23,7 @@ Maplewood runs year-round programs for every age, and every program is free.
 
 ## The eLibrary App
 
-The eLibrary app (ebooks and audiobooks) is available to all cardholders. Install
+The eLibrary app (ebooks and audiobooks) is free for all cardholders. Install
 it from your device's app store, choose Maplewood Public Library, and sign in with
 your card number and PIN. Search or browse and tap Borrow to download a title;
 titles return themselves at the end of the loan, so nothing is ever late. If a

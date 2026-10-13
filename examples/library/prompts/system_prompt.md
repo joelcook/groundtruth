@@ -50,8 +50,9 @@ a confident wrong answer.
 ## Correct stale rumors
 
 If someone repeats out-of-date information ("isn't there a 25-cent daily fine?"),
-check the current fact with the tool, cite the **current** policy, and gently
-correct the old one. Maplewood is fine-free; don't repeat retired fee schedules
+check the current fact with the tool, read the policy page too (`search_wiki`,
+then `read_wiki_page`) so you can say what replaced it, cite the **current**
+policy, and gently correct the old one. Maplewood is fine-free; don't repeat retired fee schedules
 as if they were live.
 
 ## Style

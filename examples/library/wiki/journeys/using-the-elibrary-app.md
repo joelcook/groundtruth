@@ -20,8 +20,8 @@ tags:
 # Borrowing eBooks and Audiobooks
 
 Your [[getting-a-library-card|library card]] comes with a full digital library
-you can use from your phone or tablet through the **eLibrary app** — no trip to a
-branch required.
+you can use from your phone or tablet through the **eLibrary app**, free for every
+cardholder — no trip to a branch required.
 
 ## Get Set Up
 
