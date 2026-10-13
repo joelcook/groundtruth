@@ -2,6 +2,8 @@
 # A day with `closed: true` means the branch is closed all day.
 description: Opening hours for each branch, one row per day.
 key: id
+rules:
+  - opens < closes     # a row with both must open before it closes (closed days have neither)
 source:
   path: sources/pages/locations-and-hours.md
   url: https://example.org/locations

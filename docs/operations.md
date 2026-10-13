@@ -167,7 +167,8 @@ its golden questions, and the links to it go, with no model involved (commit:
    that cite it, and the expected values of the golden questions that check
    them. It ships only if:
    - nothing else changed;
-   - every exact value in those files appears in its cited source;
+   - every exact value in those files appears in its cited source, where the source describes its row,
+     and every row keeps its file's `rules:`;
    - if more than 30% of the rows changed, `opus` agrees too;
    - the gates pass;
    - `sonnet` agrees row by row.

@@ -376,7 +376,7 @@ def commit(project: Project, cfg: rewrite.Config, src: str, files: list[str], re
             paths.append(pre + "sources/.history")
     o = result.outcome
     body = [f"{src} changed. What changed in the facts:", "", *(result.changes or ["(nothing: the facts already "
-            "matched the source)"]), "", "Every exact value above appears in its cited source (checked by script).",
+            "matched the source)"]), "", "Every exact value above appears in its cited source, where it describes its row (checked by script).",
             f"Model: {o.model_id} (Claude Code, headless)"]
     if o.checked_by:
         body.append(f"Rows checked by: {o.checked_by}; each one is supported by the source")

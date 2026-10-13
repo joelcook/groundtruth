@@ -132,6 +132,19 @@ grounding. Either the value is wrong, or it lives in another source: cite that
 one (`source: {path: ...}` on the row). A derived value (a monthly price from an
 annual one) fails on purpose; store what the source says.
 
+**"facts/x.yaml: row y: opens has '13:00', which sources/pages/z.md gives for
+row-w (...), not for this row (...)"**: grounding by row. The value is on the
+page, but only on another row's line; the second quote is the line about this
+row, usually with the right value on it. If the page really does state it for
+this row somewhere the check can't connect to the row (a sentence that names the
+row only in the sentence before), put the row's name or alias where the check
+can see it, or cite a source that states it plainly.
+
+**"hours.yaml: row y breaks the rule `opens < closes`"**: a `rules:` line in that
+facts file doesn't hold for row y. Both values may be in the source (the closing
+time copied into `opens`), so grounding can't catch it; the rule does. Fix the
+row. A row missing either field is skipped, so closed days need no special case.
+
 **"pages and facts wait for a rewrite that can't run"**: the autopilot has no
 Claude credential. Set the `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` repo
 secret.

@@ -16,6 +16,7 @@ source:                                            # default provenance for ever
   url: https://example.org/fees                    #   where a human can verify it
 match: [fee_type, notes]                           # optional: fields a lookup searches (default: all text fields)
 date_field: date                                   # optional: ISO YYYY-MM-DD field, enables "upcoming"
+rules: [amount_usd >= 0]                           # optional: what must hold in every row (see Row rules)
 tools:
   - name: get_fee                                  # lowercase_snake_case, unique across all files
     kind: lookup                                   # lookup | list
@@ -119,6 +120,34 @@ Statements are a fine start; real fields (`price_usd: 39`) make sharper tools.
 
 A file with no `tools:` gets one lookup tool named `get_<file name>`.
 
+## Row rules
+
+Grounding checks each value against the source. It can't see how a row's values
+relate: Tuesday's closing time typed into Tuesday's `opens` is on the page, on
+Tuesday's own line, and still wrong. Say what has to hold, and `./gt check`
+holds every row to it:
+
+```yaml
+# facts/hours.yaml
+key: id
+rules:
+  - opens < closes
+rows:
+  - {id: lakeview-tue, branch: lakeview, day: tuesday, opens: "10:00", closes: "18:00"}
+  - {id: lakeview-mon, branch: lakeview, day: monday, closed: true}   # no opens: skipped
+```
+
+A rule compares two fields, or a field and a number (`price_usd >= 0`), with
+`<`, `<=`, `>`, `>=`, `==`, or `!=`. Values compare as what they are: `HH:MM`
+times, `YYYY-MM-DD` dates, or numbers. A row missing either field is skipped. A
+row whose values can't be compared (`9am` against `17:00`) fails, so write times
+as `HH:MM`. Good candidates: `opens < closes`, `starts <= ends`,
+`min_age <= max_age`, `deadline < classes_begin`.
+
+A broken rule fails `./gt check`, like a duplicate key. Unattended fact updates
+can change rows but not a file's rules, so an update that breaks one doesn't
+ship.
+
 ## Rules `./gt check` enforces
 
 - Every row has its `key`, and keys are unique (case-insensitive).
@@ -128,6 +157,7 @@ A file with no `tools:` gets one lookup tool named `get_<file name>`.
 - `limit` and `upcoming_only` are reserved parameter names.
 - Filters and `match` name fields that exist; `ref` names a real collection.
 - `date_field` values are real dates written `YYYY-MM-DD` (`2026-02-30` fails).
+- Every row keeps the file's `rules:` (see Row rules).
 
 - A `source_path` points at a file that exists. (A typo'd path fails, with the
   closest real file suggested.)
@@ -140,13 +170,35 @@ use) fails on them, and so does every unattended fact update. It compares by
 meaning, not spelling: `39` matches "$39" and "USD 39.00", `1200` matches
 "1,200", `0.1` matches "$0.10" and "10 cents", `2026-09-01` matches
 "September 1, 2026", `"13:00"` matches "1 p.m.", and phone numbers compare by
-their digits. Words (a weekday, a branch name) aren't checked here; a model
+their digits. Words (a weekday, a branch name) aren't checked as values; a model
 checks those when the refresh host updates facts. Your `key`, `aliases`, and
 `tags` are yours, not the source's, so they're skipped; `notes` are checked,
 since the assistant reads them as part of the fact (and an alias the refresh host
-adds must be a word the source uses). A row whose only
-source is a URL (nothing captured) fails too: there's nothing to check it
-against, so `./gt ingest` the page first.
+adds must be a word the source uses). A row whose only source is a URL (nothing
+captured) fails too: there's nothing to check it against, so `./gt ingest` the
+page first.
+
+**And where it's stated.** The likeliest wrong value isn't invented; it's real
+and from the wrong row: Sunday's `13:00` typed into Saturday's `opens`. So a
+value must also be where the source describes its row. The check splits the page
+into table rows, list items, and sentences, reads each with the headings above
+it, and uses each row's words (its key, aliases, text fields, and, through a
+`ref`, the names of the row it points to: `branch: central` brings in "Maplewood
+Central Library") to tell which line is about which row:
+
+```
+facts/hours.yaml: row central-sat: opens has '13:00', which sources/pages/locations-and-hours.md
+gives for central-sun ("Sunday | 1:00 p.m. – 5:00 p.m."), not for this row
+("Saturday | 10:00 a.m. – 5:00 p.m.")
+```
+
+It fails a value only when the page has a line about this row that states some
+other value of that kind, and every line stating this one is about another row.
+A page that can't tell its rows apart (one sentence naming every row, or a
+pricing grid with a column per plan) can't fail this way; there the value is checked
+against the whole page. Ranges count: "Monday to Thursday" is a line about
+Tuesday. Give rows words their source uses (an alias, a `name`) and the check
+can see more.
 
 A value you derive (a monthly price from an annual one) isn't in any source and
 fails, on purpose. Store what the source says, and let the assistant do the

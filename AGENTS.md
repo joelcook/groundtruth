@@ -41,9 +41,13 @@ fact tool disagree, the tool is right and the page is stale.
 
 **And every fact is grounded.** Every exact value in `facts/` (number, money,
 date, time, phone number, email, URL) must appear in the captured source its row
-cites. `./gt check` warns about any that don't; `./gt check --production` (what
-the server, Docker, and data bundles use) fails on them. Treat a grounding
-warning as an error: fix the value, or cite the source that states it.
+cites, where that source describes the row: Saturday's opening time from
+Saturday's line, not Sunday's. `./gt check` warns about any that don't;
+`./gt check --production` (what the server, Docker, and data bundles use) fails
+on them. Treat a grounding warning as an error: fix the value, or cite the
+source that states it. Where a row's fields have an order, say so with `rules:`
+(`opens < closes`, `starts <= ends`; docs/facts.md, "Row rules"): grounding
+can't tell an opening time from a closing time when both are on the row's line.
 
 ## The gates: run before you say you're done
 
@@ -83,7 +87,8 @@ available, also run `./gt eval --tier live` and report the result.
      verify every row against its source, and reshape statements into real
      fields where you can (`price_usd: 39`; reuse a template file's shape), then
      rename `_proposed-x.yaml` to `x.yaml`. Give every tool a sharp `description`.
-     Every value must appear in the cited source (`./gt check` says if one doesn't).
+     Every value must appear in the cited source, on the row's own line
+     (`./gt check` says if one doesn't). Add `rules:` for fields with an order.
    - Explanations become wiki pages: finish the drafts (or write new pages), one
      topic per page, the words people use in `title` and `tags`, sources listed,
      lineage table at the bottom. Set `status: published` when a page is done.

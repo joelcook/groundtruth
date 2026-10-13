@@ -63,7 +63,7 @@ clients       Claude Desktop, Claude Code, Codex, Cursor, VS Code, Copilot Studi
 | `rewrite.py` | `./gt rewrite`: headless Claude Code, confined to the files it updates; rewrites stale pages, then gates and a second model's claim check |
 | `reconcile.py` | Updates facts from a changed source; ships only grounded, gated, model-checked rows |
 | `cover.py` | Writes a page (and facts) for a source nothing covers yet, under the same checks |
-| `grounding.py` | Every exact value in `facts/` must appear in the source its row cites |
+| `grounding.py` | Every exact value in `facts/` must appear in the source its row cites, where it describes that row |
 | `repair.py` | Fixes what the live eval got wrong (synonyms, prompt, pages, aliases), then re-asks live |
 | `claude_code.py` | Live evals through headless Claude Code and the MCP server, for a Claude plan with no API key |
 | `host.py` | The refresh host: GitHub Actions (`autopilot`) or a machine (worktrees at main, locks, the watcher, cron); one named pusher |
@@ -107,7 +107,8 @@ Code:
 
 Every pass is confined to the files it may touch, and it ships only when:
 
-- every exact value appears in the cited source (`grounding.py`);
+- every exact value appears in the cited source, where it describes its row (`grounding.py`), and the
+  file's `rules:` hold;
 - the gates find nothing new;
 - a second model with read-only tools agrees;
 - the golden questions it touches, asked of the production model, don't get

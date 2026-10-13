@@ -31,11 +31,13 @@ import datetime as dt
 import hashlib
 import json
 import keyword
+import operator
 import os
 import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +50,9 @@ RESERVED_PARAMS = {"limit", "upcoming_only"}
 TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+RULE_RE = re.compile(r"\s*([A-Za-z_]\w*)\s*(<=|>=|==|!=|<|>)\s*([A-Za-z_]\w*|-?\d+(?:\.\d+)?)\s*")
+RULE_OPS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge, "==": operator.eq,
+            "!=": operator.ne}
 INTERNAL_FIELDS = {"aliases", "source", "source_url", "source_path"}
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 200
@@ -190,6 +195,8 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
         clean_rows.append(clean)
 
     all_fields = {f for r in clean_rows for f in r}
+    for rule in _as_list(data.get("rules")):
+        problems += _rule_problems(where, str(rule), clean_rows, key, all_fields)
     tools: list[ToolSpec] = []
     raw_tools = data.get("tools")
     if raw_tools is None:
@@ -258,6 +265,54 @@ def _parse_collection(path: Path, data: Any, problems: list[str]) -> Collection 
         date_field=str(date_field) if date_field else None,
         match=match, file=str(path),
     )
+
+
+def _comparable(value: Any) -> tuple[str, Any] | None:
+    """A value as something a rule can compare: a time of day (HH:MM), a date (YYYY-MM-DD), or a number."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return ("number", Decimal(str(value)))
+    text = str(value).strip()
+    if m := re.fullmatch(r"([01]?\d|2[0-4]):([0-5]\d)", text):
+        return ("time", int(m[1]) * 60 + int(m[2]))
+    if ISO_DATE_RE.match(text):
+        try:
+            return ("date", dt.date.fromisoformat(text))
+        except ValueError:
+            return None
+    try:
+        n = Decimal(text.replace(",", ""))
+    except InvalidOperation:
+        return None
+    return ("number", n) if n.is_finite() else None  # "NaN" and "Infinity" parse, but compare as nothing
+
+
+def _rule_problems(where: str, rule: str, rows: list[dict], key: str, all_fields: set[str]) -> list[str]:
+    """A rule says how a row's fields relate (`opens < closes`). Grounding can't see that: 18:00 can be the
+    source's real closing time and still be wrong as the opening time. A row lacking either field is skipped."""
+    m = RULE_RE.fullmatch(rule)
+    if not m:
+        return [f"{where}: rule {rule!r} must compare two fields, or a field and a number, e.g. `opens < closes` "
+                f"or `price_usd >= 0`"]
+    left, op, right = m.groups()
+    literal = right[0].isdigit() or right[0] == "-"
+    for f in [left] + ([] if literal else [right]):
+        if f not in all_fields:
+            return [f"{where}: rule `{rule.strip()}` names `{f}`, but no row has that field"]
+    out = []
+    for row in rows:
+        lv, rv = row.get(left), right if literal else row.get(right)
+        if lv in (None, "") or rv in (None, ""):
+            continue  # a closed day has no opening time to compare
+        a, b = _comparable(lv), _comparable(rv)
+        shown = f"{left} is {lv!r}" + ("" if literal else f", {right} is {rv!r}")
+        if a is None or b is None or a[0] != b[0]:
+            out.append(f"{where}: row {row.get(key)!s} can't be checked against the rule `{left} {op} {right}` "
+                       f"({shown}): write both as HH:MM times, YYYY-MM-DD dates, or numbers")
+        elif not RULE_OPS[op](a[1], b[1]):
+            out.append(f"{where}: row {row.get(key)!s} breaks the rule `{left} {op} {right}` ({shown})")
+    return out
 
 
 def friendly_yaml_error(name: str, exc: yaml.YAMLError) -> str:

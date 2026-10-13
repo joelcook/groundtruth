@@ -414,14 +414,13 @@ def run(project: Project, production: bool = False) -> Report:
 
 
 def check_grounding(project: Project, report: Report, production: bool) -> None:
-    """Every exact value in facts/ appears in its cited source (groundtruth/grounding.py)."""
+    """Every exact value in facts/ appears in its cited source, where it describes that row (grounding.py)."""
     from groundtruth import grounding
     found = grounding.problems(project)
     for msg in found:
-        (report.error if production else report.warn)(
-            "grounding", f"{msg}. Fix the value, or cite the source that states it")
+        (report.error if production else report.warn)("grounding", msg)
     if not found:
-        report.notes["grounding"] = "every exact value in facts/ appears in its cited source"
+        report.notes["grounding"] = "every exact value in facts/ appears in its cited source, where it describes its row"
 
 
 TOOLISH_RE = re.compile(r"`((?:get|list|find|lookup|search|read)_[a-z0-9_]+)`")
