@@ -333,6 +333,32 @@ class HostTests(RemoteRepo):
         host.live_gate(self.p, lambda *a: 0)
         self.assertFalse(list(self.p.runs_dir.glob("*-kept.json")))  # the copy shown to ./gt eval is gone
 
+    def test_a_partial_outage_doesnt_lower_the_bar(self):
+        import json
+        from groundtruth import repair
+        keep = alerts.state_dir(self.p) / "last-live.json"
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        keep.write_text(json.dumps({"results": [{"id": "a", "passed": True, "response": "x"},
+                                                {"id": "b", "passed": True, "response": "y"}]}))
+        self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+        tonight = {"results": [{"id": "a", "passed": True, "response": "x"},
+                               {"id": "b", "passed": False, "response": "", "reasons": ["agent failed: API Error: 429"]}]}
+        (self.p.runs_dir / "20991231T000001.json").write_text(json.dumps(tonight))
+        self.assertEqual(repair.failing(self.p)[0], [])  # unanswered isn't wrong: nothing to repair
+        host.accept_live(self.p)
+        kept = {r["id"]: r for r in json.loads(keep.read_text())["results"]}
+        self.assertTrue(kept["b"]["passed"])  # b keeps what was known: a wrong b later is still worse
+
+        def step(results):
+            def run(*args):
+                (self.p.runs_dir / "20991231T000009.json").write_text(json.dumps({"results": results}))
+                return 1
+            return run
+        self.assertEqual(host.live_gate(self.p, step(tonight["results"])), "error")  # only b, unanswered
+        wrong = [{"id": "a", "passed": True, "response": "x"}, {"id": "b", "passed": False, "response": "no"}]
+        (self.p.runs_dir / "20991231T000009.json").unlink()
+        self.assertEqual(host.live_gate(self.p, step(wrong)), "worse")
+
     def test_main_is_graded_in_a_throwaway_worktree(self):
         wd = host.git_root(self.p)
         fake = Path(self.tmp.name) / "claude"

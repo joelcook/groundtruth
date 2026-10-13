@@ -59,7 +59,8 @@ import yaml
 from groundtruth import alerts
 from groundtruth.project import Project
 
-BOT_PREFIXES = ("refresh:", "wiki: rewrite", "wiki: cover", "facts: update", "alerts:")  # the host's own commits
+BOT_PREFIXES = ("refresh:", "wiki: rewrite", "wiki: cover", "facts: update", "facts: add", "fix:",
+                "alerts:")  # the host's own commits
 CODE_PATHS = ("groundtruth", "Dockerfile", "pyproject.toml")  # what a server image runs; data ships in bundles
 JOBS = ("refresh", "rewrite", "repair")
 JOB_ARGS = {"refresh": ["refresh", "--write", "--push"], "rewrite": ["rewrite"], "repair": ["repair", "--eval"]}
@@ -472,7 +473,8 @@ def waiting_after_hold_back(project: Project, wd: Path) -> bool:
         return False
     same_main = held.get("main") == git(wd, "rev-parse", "origin/main").stdout.strip()
     if same_main and time.time() - float(held.get("at") or 0) < HOLD_BACK_HOURS * 3600:
-        log("the last rewrites were held back by the live eval; waiting for main to change")
+        log(f"the last rewrites were held back by the live eval; waiting for main to change, or up to "
+            f"{HOLD_BACK_HOURS} hours")
         return True
     return False
 
@@ -818,9 +820,18 @@ def accept_live(project: Project) -> None:
     import json
     from groundtruth import evals
     latest = evals.latest_live_run(project)
-    if latest is not None and answered(json.loads(latest.read_text())):
-        _kept_live(project).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(latest, _kept_live(project))
+    if latest is None:
+        return
+    run = json.loads(latest.read_text())
+    if not answered(run):
+        return
+    keep = _kept_live(project)
+    kept = {str(r.get("id")): r for r in json.loads(keep.read_text()).get("results") or []} if keep.exists() else {}
+    # A question the model didn't answer tonight (a rate limit, a timeout) wasn't graded: it keeps what the
+    # kept run knew, so a wrong answer to it later still counts as worse.
+    run["results"] = [kept.get(str(r.get("id")), r) if _agent_failed(r) else r for r in run.get("results") or []]
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    keep.write_text(json.dumps(run, indent=2, default=str))
 
 
 def already_live(project: Project, root: Path, env: dict[str, str], ids: list[str]) -> set[str]:
@@ -908,6 +919,9 @@ def live_gate(project: Project, step, only: list[str] | None = None, *, keep: Pa
         kept = {str(r.get("id")): r for r in json.loads(keep.read_text()).get("results") or []}
         worse = {q for q in failed if q not in kept or kept[q].get("passed") or kept[q].get("skipped")}
     worse |= failed & new_questions(project)  # no history to grandfather: "not worse" can't cover it
+    unanswered = {str(r.get("id")) for r in graded if _agent_failed(r)}
+    if worse and worse <= unanswered:
+        return "error"  # what "got worse" is only what the model didn't answer: an outage, not the content
     run["regressions"] = sorted(worse)
     latest.write_text(json.dumps(run, indent=2, default=str))  # so ./gt repair sees them first
     keep.parent.mkdir(parents=True, exist_ok=True)

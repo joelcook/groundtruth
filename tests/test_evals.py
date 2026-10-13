@@ -137,6 +137,7 @@ class TestInventedValuesKeepUnits(unittest.TestCase):
         ({"durationDays": 30}, "Loans last 30 weeks.", ["30 weeks"]),
         ({"value": "30", "unit": "days"}, "Borrow up to 30 books.", ["up to 30"]),
         ({"amount": 30, "unit": "days"}, "The fee is $30.", ["$30"]),
+        ({"amount": 30, "unit": "days", "currency": "USD"}, "The fee is $30.", ["$30"]),
         ({"amount": 0.1, "unit": "per page"}, "It's $0.10 per page.", []),
         ({"opens": "10:00", "closes": "17:00"}, "Open 10:00 AM to 5:00 PM.", []),
         ({"opens": "10:00", "closes": "17:00"}, "Open 10:00 to 5:00.", []),

@@ -73,6 +73,10 @@ def build(project: Project, *, verified: bool = False) -> Path:
         members["prompts/system_prompt.md"] = project.prompt_path.read_bytes()
     members["config.json"] = json.dumps({k: project.config[k] for k in SERVED_CONFIG if k in project.config},
                                         default=str).encode()
+    from groundtruth import ingest  # where each capture came from, so /chat links a new source's page too
+    links = {project.rel(path): str(meta["source_url"]) for path, meta in ingest._existing_pages(project)
+             if str(meta.get("source_url") or "").startswith(("http://", "https://"))}
+    members["sources.json"] = json.dumps(links, sort_keys=True).encode()
     store = facts.store(project)
     store.refresh(force=True)
     manifest = {

@@ -342,7 +342,7 @@ def _leaves(obj, key: str = ""):
                     names_kind = _tokens(unit) & (DURATION_WORDS | SIZE_WORDS | PERCENT_WORDS)
                     pure = words <= GENERIC_FIELDS and not unit.lower().startswith("per ")
                     name = f"value {unit}" if pure and names_kind else f"{name} {unit}"
-                if currency and (words & MONEY_WORDS or _tokens(name) & MONEY_WORDS):
+                if currency and _tokens(name) & MONEY_WORDS:  # `amount` in days takes no currency
                     name = f"{name} {currency}"
             yield from _leaves(v, name)
     elif isinstance(obj, (list, tuple)):

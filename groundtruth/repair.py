@@ -42,7 +42,8 @@ def failing(project: Project) -> tuple[list[dict], set[str]]:
         return [], set()
     results = json.loads(latest.read_text()).get("results") or []
     graded = [r for r in results if not r.get("skipped")]
-    return [r for r in graded if not r.get("passed")], {str(r["id"]) for r in graded if r.get("passed")}
+    wrong = [r for r in graded if not r.get("passed") and not host._agent_failed(r)]  # unanswered isn't wrong
+    return wrong, {str(r["id"]) for r in graded if r.get("passed")}
 
 
 def build_prompt(project: Project, item: dict, result: dict, errors: list[str]) -> str:

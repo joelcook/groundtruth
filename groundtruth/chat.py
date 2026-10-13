@@ -70,6 +70,16 @@ LIMITS = Limits()
 
 
 def _url_of_capture(project: Project, rel: str) -> str | None:
+    """A capture's web address: from the data bundle the server is running (which lists them, since it
+    doesn't carry the captures), else from the capture itself."""
+    links = project.data_root / "sources.json" if project.data_root is not None else None
+    if links is not None and links.exists():
+        try:
+            url = json.loads(links.read_text(encoding="utf-8")).get(rel)
+        except (OSError, ValueError):
+            url = None
+        if url:
+            return str(url)
     meta = ingest.page_meta(project.root / rel)
     url = meta.get("source_url")
     return str(url) if url and str(url).startswith(("http://", "https://")) else None
@@ -88,8 +98,9 @@ def sources(project: Project, calls: list[dict]) -> list[dict[str, str]]:
         elif isinstance(result, dict):
             for row in result.get("results") or []:
                 url = str(row.get("source") or "")
-                if not url.startswith(("http://", "https://")) and row.get("source_file"):
-                    url = _url_of_capture(project, str(row["source_file"])) or ""
+                if not url.startswith(("http://", "https://")):  # a row that cites a capture by its path
+                    path = row.get("source_file") or (url if url.endswith(".md") else None)
+                    url = _url_of_capture(project, str(path)) or "" if path else ""
                 if url.startswith(("http://", "https://")):
                     out.setdefault(url, url)
     return [{"url": u, "title": t} for u, t in list(out.items())[:8]]

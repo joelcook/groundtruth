@@ -106,6 +106,26 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestChatLinks(unittest.TestCase):
+    def test_links_come_from_the_bundle_and_from_paths(self):
+        import json
+        from groundtruth import bundle
+        p, tmp = copy_project()
+        self.addCleanup(tmp.cleanup)
+        by_path = [{"name": "get_contact", "result": {"results": [{"source": "sources/pages/contact-us.md"}]}}]
+        self.assertEqual(chat.sources(p, by_path)[0]["url"], "https://example.org/contact")
+        import tarfile
+        with tarfile.open(bundle.build(p)) as tar:
+            links = json.loads(tar.extractfile("sources.json").read())
+        self.assertEqual(links["sources/pages/contact-us.md"], "https://example.org/contact")
+        served = p.build_dir / "served"
+        served.mkdir()
+        (served / "sources.json").write_text(json.dumps({"sources/pages/new.md": "https://example.org/new"}))
+        p.data_root = served  # a server on a bundle has no captures, just the list
+        page = [{"name": "read_wiki_page", "result": {"title": "New", "sources": ["sources/pages/new.md"]}}]
+        self.assertEqual(chat.sources(p, page), [{"url": "https://example.org/new", "title": "New"}])
+
+
 class TestWatchdogAsksTheChat(unittest.TestCase):
     """A server whose model credential expired looks healthy over MCP; the watchdog asks /chat too."""
 
