@@ -142,8 +142,9 @@ held back and users saw no change. `./gt eval --tier live` shows which question.
 Usually a rewritten page now reads ambiguously, or a synonym is missing; fix
 that, and the next run's rewrites go through.
 
-**"the live eval couldn't run"**: the model gave no answers at all, so nothing
-could be graded and the rewrites wait (users see no change). Check `GT_MODEL`
+**"the live eval couldn't run"**: the model didn't answer the questions the
+gate needed (all of them, or just some: an outage or a rate limit), so they
+couldn't be graded and the rewrites wait (users see no change). Check `GT_MODEL`
 and that the Claude credential is valid and has credit; the alert clears on the
 next run that gets answers.
 

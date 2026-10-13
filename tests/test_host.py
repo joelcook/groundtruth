@@ -369,6 +369,19 @@ class HostTests(RemoteRepo):
         host.accept_live(self.p)  # a new host: nothing kept yet
         self.assertEqual([r["id"] for r in json.loads(keep.read_text())["results"]], ["a"])  # b must pass first
 
+    def test_with_no_history_an_unanswered_question_is_an_outage(self):
+        import json
+
+        def step(*args):
+            self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+            (self.p.runs_dir / "20991231T000005.json").write_text(json.dumps({"regressions": [], "results": [
+                {"id": "card-fee", "passed": True, "response": "x"},
+                {"id": "printing-bw-cost", "passed": False, "response": "",
+                 "reasons": ["agent failed: API Error: 429"]}]}))
+            return 1
+        self.assertFalse((alerts.state_dir(self.p) / "last-live.json").exists())
+        self.assertEqual(host.live_gate(self.p, step), "error")  # not waved through, not blamed on content
+
     def test_a_night_held_only_by_unanswered_questions_is_an_outage(self):
         import json
         wd = host.git_root(self.p)

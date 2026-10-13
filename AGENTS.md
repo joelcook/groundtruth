@@ -202,8 +202,9 @@ Fix the cause, run the gates, and delete the line in the same commit:
   couldn't fix it. `./gt eval --tier live` shows which question. Fix the fact,
   the page, the synonyms, or the prompt (see "The assistant got X wrong"). "Got
   worse" means that night's rewrites were held back.
-- **the live eval couldn't run:** the model gave no answers at all, so rewrites
-  wait. Check `GT_MODEL` and the Claude credential (step 5 above); it clears on
+- **the live eval couldn't run:** the model didn't answer the questions the
+  gate needed (an outage, a rate limit, a bad model name or credential), so
+  rewrites wait. Check `GT_MODEL` and the Claude credential (step 5 above); it clears on
   the next run that gets answers.
 - **Claude Code needs a login / pages wait for a rewrite that can't run:** the
   refresh host needs a working Claude credential (step 5 above).

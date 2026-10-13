@@ -943,6 +943,8 @@ def live_gate(project: Project, step, only: list[str] | None = None, *, keep: Pa
         worse = {q for q in failed if q not in kept or kept[q].get("passed") or kept[q].get("skipped")}
     worse |= failed & new_questions(project)  # no history to grandfather: "not worse" can't cover it
     unanswered = {str(r.get("id")) for r in graded if _agent_failed(r)}
+    if not keep.exists():
+        worse |= unanswered  # nothing known yet: an ungraded question can't be waved through
     if worse and worse <= unanswered:
         return "error"  # what "got worse" is only what the model didn't answer: an outage, not the content
     run["regressions"] = sorted(worse)
