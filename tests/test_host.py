@@ -359,6 +359,34 @@ class HostTests(RemoteRepo):
         (self.p.runs_dir / "20991231T000009.json").unlink()
         self.assertEqual(host.live_gate(self.p, step(wrong)), "worse")
 
+    def test_an_unanswered_question_with_no_history_stays_unknown(self):
+        import json
+        keep = alerts.state_dir(self.p) / "last-live.json"
+        self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+        (self.p.runs_dir / "20991231T000001.json").write_text(json.dumps({"results": [
+            {"id": "a", "passed": True, "response": "x"},
+            {"id": "b", "passed": False, "response": "", "reasons": ["agent failed: API Error: 429"]}]}))
+        host.accept_live(self.p)  # a new host: nothing kept yet
+        self.assertEqual([r["id"] for r in json.loads(keep.read_text())["results"]], ["a"])  # b must pass first
+
+    def test_a_night_held_only_by_unanswered_questions_is_an_outage(self):
+        import json
+        wd = host.git_root(self.p)
+        fees = self.p.root / "facts" / "fees.yaml"
+        fees.write_text(fees.read_text() + "\n")
+        sh(wd, "commit", "-qam", "facts: update fees.yaml")
+        self.p.runs_dir.mkdir(parents=True, exist_ok=True)
+        (self.p.runs_dir / "20991231T000001.json").write_text(json.dumps({"regressions": ["a", "b"], "results": [
+            {"id": "a", "passed": False, "response": "wrong"},
+            {"id": "b", "passed": False, "response": "", "reasons": ["agent failed: API Error: 429"]}]}))
+        with mock.patch.object(host, "live_gate", return_value="worse"), \
+                mock.patch.object(host, "already_live", return_value={"a"}):  # a is wrong on main too
+            host.nightly_gate(self.p, wd, dict(os.environ), mock.Mock(), can_repair=False)
+        self.assertEqual(host.ahead(wd), 0)  # held back: b couldn't be graded
+        log = alerts.log_path(self.p).read_text()
+        self.assertIn("the live eval couldn't run", log)
+        self.assertNotIn("the live eval got worse", log)  # not blamed on the content
+
     def test_main_is_graded_in_a_throwaway_worktree(self):
         wd = host.git_root(self.p)
         fake = Path(self.tmp.name) / "claude"

@@ -726,6 +726,19 @@ def nightly_gate(project: Project, root: Path, env: dict[str, str], step, *, can
     if verdict == "worse" and can_repair:  # fix what got worse before giving up on the night
         step("repair")
         verdict, repaired = live_gate(project, step), True
+    caused: list[str] = []
+    if verdict == "worse":
+        worse = regressions(project)
+        # Only what this run caused is held back. A question main gets wrong too is already in front of
+        # users (a model change, an earlier push): holding tonight's updates back wouldn't fix it, and
+        # would hold back every night after it as well.
+        caused = sorted(set(worse) - already_live(project, root, env, worse)) if ahead(root) else []
+        if caused and set(caused) <= unanswered(project):
+            verdict = "error"  # all that's left is what the model didn't answer: an outage, not the content
+        elif not caused:
+            log(f"main gets {', '.join(worse[:5])} wrong as well: not this run's doing; shipping it and reporting it")
+            accept_live(project)
+            verdict = "failing"
     if verdict == "error":
         held = ahead(root)
         alerts.notify(project, "the live eval couldn't run",
@@ -738,23 +751,13 @@ def nightly_gate(project: Project, root: Path, env: dict[str, str], step, *, can
         return
     alerts.resolve(project, "the live eval couldn't run")
     if verdict == "worse":
-        worse = regressions(project)
-        # Only what this run caused is held back. A question main gets wrong too is already in front of
-        # users (a model change, an earlier push): holding tonight's updates back wouldn't fix it, and
-        # would hold back every night after it as well.
-        caused = sorted(set(worse) - already_live(project, root, env, worse)) if ahead(root) else []
-        if caused:
-            alerts.notify(project, "the live eval got worse",
-                          f"after this run's rewrites, the assistant answers golden questions it used to get "
-                          f"right ({', '.join(caused[:3])}). The {ahead(root)} rewrite commit(s) were held back; "
-                          f"nothing changed for users. Run ./gt eval --tier live to see why.")
-            reset(root)
-        else:
-            log(f"main gets {', '.join(worse[:5])} wrong as well: not this run's doing; shipping it and reporting it")
-            accept_live(project)
-            verdict = "failing"
-    if verdict != "worse":
-        alerts.resolve(project, "the live eval got worse")
+        alerts.notify(project, "the live eval got worse",
+                      f"after this run's rewrites, the assistant answers golden questions it used to get "
+                      f"right ({', '.join(caused[:3])}). The {ahead(root)} rewrite commit(s) were held back; "
+                      f"nothing changed for users. Run ./gt eval --tier live to see why.")
+        reset(root)
+        return
+    alerts.resolve(project, "the live eval got worse")
     if verdict == "failing":
         from groundtruth import repair
         if can_repair and not repaired:  # it didn't get worse, it was already wrong: try to fix the cause
@@ -825,15 +828,33 @@ def accept_live(project: Project) -> None:
     if latest is None:
         return
     run = json.loads(latest.read_text())
-    if not answered(run):
-        return
-    keep = _kept_live(project)
+    if answered(run):
+        _store_kept(run, _kept_live(project))
+
+
+def _store_kept(run: dict, keep: Path) -> None:
+    """Make ``run`` the comparison point. A question the model didn't answer (a rate limit, a timeout)
+    wasn't graded: it keeps what the kept run knew, or, with no history, is left out, so it has to pass
+    before it counts as known. Either way a wrong answer to it later is still worse."""
+    import json
     kept = {str(r.get("id")): r for r in json.loads(keep.read_text()).get("results") or []} if keep.exists() else {}
-    # A question the model didn't answer tonight (a rate limit, a timeout) wasn't graded: it keeps what the
-    # kept run knew, so a wrong answer to it later still counts as worse.
-    run["results"] = [kept.get(str(r.get("id")), r) if _agent_failed(r) else r for r in run.get("results") or []]
+    results = []
+    for r in run.get("results") or []:
+        if not _agent_failed(r):
+            results.append(r)
+        elif str(r.get("id")) in kept:
+            results.append(kept[str(r.get("id"))])
     keep.parent.mkdir(parents=True, exist_ok=True)
-    keep.write_text(json.dumps(run, indent=2, default=str))
+    keep.write_text(json.dumps({**run, "results": results}, indent=2, default=str))
+
+
+def unanswered(project: Project) -> set[str]:
+    """The questions the latest live run couldn't get an answer to."""
+    import json
+    from groundtruth import evals
+    latest = evals.latest_live_run(project)
+    results = json.loads(latest.read_text()).get("results") or [] if latest else []
+    return {str(r.get("id")) for r in results if _agent_failed(r)}
 
 
 def already_live(project: Project, root: Path, env: dict[str, str], ids: list[str]) -> set[str]:
@@ -926,9 +947,8 @@ def live_gate(project: Project, step, only: list[str] | None = None, *, keep: Pa
         return "error"  # what "got worse" is only what the model didn't answer: an outage, not the content
     run["regressions"] = sorted(worse)
     latest.write_text(json.dumps(run, indent=2, default=str))  # so ./gt repair sees them first
-    keep.parent.mkdir(parents=True, exist_ok=True)
     if not run.get("regressions") and not only:
-        shutil.copyfile(latest, keep)  # a held-back or partial run doesn't become the new baseline
+        _store_kept(run, keep)  # a held-back or partial run doesn't become the new baseline
     if run.get("regressions"):
         return "worse"
     return "pass" if rc == 0 else "failing"
