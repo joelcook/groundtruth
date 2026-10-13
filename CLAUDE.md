@@ -193,15 +193,30 @@ Fix the cause, run the gates, and delete the line in the same commit:
 - **the refresh failed / looks like an outage:** read the message. A site that's
   down needs nothing; the next run retries. A source that's really gone needs
   what cites it updated.
+- **a source hasn't been fetched in 3 refreshes:** a source the content cites
+  keeps failing to download (blocked, rate-limited, robots.txt, or moved to
+  another site). If it moved, ingest the new address and update what cites the
+  old one; if the site blocks the crawler, capture the document another way
+  (a saved copy in the project's documents folder).
 - **the live eval failed / got worse:** `./gt repair` already tried and
-  couldn't fix it. `./gt eval --tier live` shows which question. Fix the fact, the page, the synonyms, or the prompt (see "The
-  assistant got X wrong"). "Got worse" means that night's rewrites were held back.
+  couldn't fix it. `./gt eval --tier live` shows which question. Fix the fact,
+  the page, the synonyms, or the prompt (see "The assistant got X wrong"). "Got
+  worse" means that night's rewrites were held back.
+- **the live eval couldn't run:** the model gave no answers at all, so rewrites
+  wait. Check `GT_MODEL` and the Claude credential (step 5 above); it clears on
+  the next run that gets answers.
 - **Claude Code needs a login / pages wait for a rewrite that can't run:** the
   refresh host needs a working Claude credential (step 5 above).
 - **the deployed server needs a redeploy:** rebuild and deploy the image (step 3),
   or turn on `deploy.yml` so it happens by itself.
 - **the autopilot can't push main:** let GitHub Actions push (branch protection,
   and workflow permissions: read and write).
+
+The watchdog can also fail with no line in `ALERTS.md`: **the public chat is
+failing** means `/chat/ask` didn't answer a golden question with its known
+value. A `503` is the server's `ANTHROPIC_API_KEY` (missing, expired, or out of
+credit); a wrong answer means the server's `GT_MODEL` differs from the one the
+live eval grades.
 
 ### "Do the work in build/compile-packet.md"
 
