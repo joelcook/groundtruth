@@ -122,6 +122,14 @@ class TestWatchdogAsksTheChat(unittest.TestCase):
             watchdog.chat_check("https://bot.example.org", self.p, checks)
         return checks.failed
 
+    def test_a_must_match_question_works_too(self):
+        from groundtruth import watchdog
+        golden = self.p.golden_path
+        golden.write_text("- id: fee\n  question: How much is a replacement card?\n  category: hard_fact\n"
+                          "  must_call_tool: get_fee\n  tool_args: {fee_type: replacement-card}\n"
+                          "  must_match: {fee_type: replacement-card, amount_usd: 2.00}\n")
+        self.assertEqual(watchdog.chat_question(self.p), ("How much is a replacement card?", ["2.0"]))
+
     def test_it_needs_the_right_value(self):
         from groundtruth import watchdog
         question, expected = watchdog.chat_question(self.p)

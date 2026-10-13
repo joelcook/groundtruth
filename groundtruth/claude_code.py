@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,8 @@ from pathlib import Path
 from groundtruth.project import Project
 
 PREFIX = "mcp__groundtruth__"
+CLI_ERROR_RE = re.compile(r"(?:API Error\b|Not logged in\b|Invalid API key\b|Credit balance is too low\b|"
+                          r"OAuth token has expired\b|Please run /login\b)", re.I)
 TIMEOUT_SECONDS = 600
 
 
@@ -81,7 +84,8 @@ def parse(events: list[dict]) -> dict:
                 calls[block["tool_use_id"]]["result"] = _payload(block.get("content"))
         if event.get("type") == "result":
             response = str(event.get("result") or "")
-            stop = "error" if event.get("is_error") else "end_turn"
+            # a login or API failure, whether or not this CLI version flags it: no answer, not a wrong one
+            stop = "error" if event.get("is_error") or CLI_ERROR_RE.match(response.strip()) else "end_turn"
     return {"response": response, "tool_calls": [calls[i] for i in order], "stop_reason": stop}
 
 

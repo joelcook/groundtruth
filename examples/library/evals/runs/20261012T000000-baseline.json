@@ -1,0 +1,1493 @@
+{
+  "tier": "live",
+  "model": "claude-opus-5-5",
+  "judge_model": "claude-opus-5-5",
+  "note": "A real live run of the whole golden set on the model (through Claude Code), kept so `./gt eval --tier replay` grades real answers offline on a fresh clone. The newest live run on disk becomes the replay and regression source.",
+  "passed": 18,
+  "total": 18,
+  "skipped": 0,
+  "regressions": [],
+  "replayed_from": null,
+  "results": [
+    {
+      "id": "story-time-when",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_event",
+          "input": {
+            "query": "toddler story time"
+          },
+          "result": {
+            "collection": "events",
+            "query": "toddler story time",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "category": "story-time",
+                "notes": "Ages 1-3 with a caregiver. Songs, rhymes, and picture books.",
+                "registration_required": false,
+                "start_time": "10:30",
+                "title": "Toddler Story Time",
+                "when": "Every Wednesday",
+                "source": "https://example.org/events",
+                "source_file": "sources/pages/events-calendar.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "get_program",
+          "input": {
+            "name_or_id": "toddler story time"
+          },
+          "result": {
+            "collection": "programs",
+            "query": "toddler story time",
+            "count": 0,
+            "results": [],
+            "hint": "Nothing in programs matched 'toddler story time'. Known id values: summer-reading, homework-help, esl-conversation, tech-help"
+          }
+        }
+      ],
+      "response": "Toddler Story Time is **every Wednesday at 10:30** at the **Central** branch.\n\n- **Who it's for:** Kids ages 1\u20133, who come with a caregiver.\n- **What happens:** Songs, rhymes and picture books.\n- **Registration:** You don't need to sign up. Just come.\n\nSource: [Maplewood events calendar](https://example.org/events)"
+    },
+    {
+      "id": "printing-bw-cost",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "printing"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "printing",
+            "count": 2,
+            "results": [
+              {
+                "amount_usd": 0.1,
+                "fee_type": "printing-bw",
+                "notes": "Black-and-white printing and copies.",
+                "unit": "per page",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              },
+              {
+                "amount_usd": 0.5,
+                "fee_type": "printing-color",
+                "notes": "Color printing and copies.",
+                "unit": "per page",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "Black-and-white printing costs **$0.10 per page**. Copies cost the same.\n\nIf you need color, it's $0.50 per page.\n\nSource: [Maplewood borrowing policy](https://example.org/policies/borrowing)"
+    },
+    {
+      "id": "central-saturday-open",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_hours",
+          "input": {
+            "branch": "Central",
+            "day": "saturday"
+          },
+          "result": {
+            "collection": "hours",
+            "filters": {
+              "branch": "Central",
+              "day": "saturday"
+            },
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "closes": "17:00",
+                "day": "saturday",
+                "id": "central-sat",
+                "opens": "10:00",
+                "source": "https://example.org/locations",
+                "source_file": "sources/pages/locations-and-hours.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "The Central Library opens at **10:00 AM on Saturdays** and closes at 5:00 PM.\n\nSource: [Locations & Hours](https://example.org/locations)"
+    },
+    {
+      "id": "youth-services-phone",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "youth services"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "youth services",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "youth-services",
+                "email": "kids@example.org",
+                "notes": "Story times, homework help, kids and teen programs.",
+                "phone": "555-0103",
+                "role": "Youth Services Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "You can reach the Youth Services Desk at **555-0103**.\n\n- **Email:** kids@example.org\n- **Location:** Central branch\n- **Can help with:** story times, homework help, and programs for kids and teens\n\nSource: [example.org/contact](https://example.org/contact)"
+    },
+    {
+      "id": "summer-reading-registration",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_program",
+          "input": {
+            "name_or_id": "summer reading"
+          },
+          "result": {
+            "collection": "programs",
+            "query": "summer reading",
+            "count": 1,
+            "results": [
+              {
+                "audience": "all",
+                "cost": "free",
+                "description": "Read, log books, and earn prizes. Tracks for kids, teens, and adults.",
+                "id": "summer-reading",
+                "name": "Summer Reading Program",
+                "registration_required": true,
+                "schedule": "June through August",
+                "source": "https://example.org/programs",
+                "source_file": "sources/pages/programs.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "how to register for summer reading program"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/entities/summer-reading-program.md",
+                "title": "Summer Reading Program",
+                "page_type": "entity",
+                "status": "published",
+                "tags": [
+                  "summer-reading",
+                  "programs",
+                  "kids",
+                  "teens",
+                  "adults"
+                ],
+                "snippet": "Summer Reading is the library's signature challenge, and it is for everyone \u2014 there are separate tracks for kids, teens, and adults. You read, log what you finish, and earn prizes and entries into drawings along the way.",
+                "sources": [
+                  "sources/pages/programs.md",
+                  "sources/pages/events-calendar.md"
+                ],
+                "backend": "scan",
+                "score": 226.231
+              },
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 103.897
+              },
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 18.784
+              },
+              {
+                "path": "wiki/policies/fines-and-fees.md",
+                "title": "Fines and Fees (We Are Fine-Free)",
+                "page_type": "policy",
+                "status": "published",
+                "tags": [
+                  "fines",
+                  "fees",
+                  "overdue",
+                  "policy"
+                ],
+                "snippet": "Daily overdue fines. Returning an item after its due date does not cost money. (If you want to confirm, the assistant can read the current overdue rate with get fee \u2014 it is zero.)",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 5.392
+              },
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 4.986
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/entities/summer-reading-program.md"
+          },
+          "result": {
+            "path": "wiki/entities/summer-reading-program.md",
+            "title": "Summer Reading Program",
+            "page_type": "entity",
+            "tags": [
+              "summer-reading",
+              "programs",
+              "kids",
+              "teens",
+              "adults"
+            ],
+            "sources": [
+              "sources/pages/programs.md",
+              "sources/pages/events-calendar.md"
+            ],
+            "content": "# Summer Reading Program\n\nSummer Reading is the library's signature challenge, and it is for **everyone** \u2014\nthere are separate tracks for kids, teens, and adults. You read, log what you\nfinish, and earn prizes and entries into drawings along the way.\n\n## How It Works\n\n1. **Sign up.** Registration is required so we can track your progress and\n   prizes; the assistant can confirm with `get_program` (look for\n   `summer-reading`). You can register at any branch or online.\n2. **Read anything.** Books, audiobooks, ebooks from\n   [[using-the-elibrary-app|the eLibrary app]] \u2014 it all counts.\n3. **Log your reading.** Use the reading app or a paper log from the desk.\n4. **Earn prizes.** Hit milestones to collect rewards and drawing entries.\n\n## When\n\nThe program runs over the summer, and it opens with a kickoff event. Exact dates\nare facts, so ask the assistant for them with `get_event` (the **Summer Reading\nKickoff**) and `get_program` for the overall schedule, rather than trusting a\ndate written on this page.\n\n## Why Bother\n\nBeyond prizes, Summer Reading keeps kids' skills sharp over the break and gives\nadults a nudge to read for pleasure. It is free, and everything you read on\n[[using-the-elibrary-app|your phone]] counts toward your total.",
+            "truncated": false
+          }
+        }
+      ],
+      "response": "Yes, you need to sign up. You can't just show up, because registration is required for the Summer Reading Program. It's free, and it's how the library keeps track of your progress and prizes.\n\n**How it works:**\n1. **Sign up** at any branch or online.\n2. **Read anything you like.** Books, audiobooks and ebooks from the eLibrary app all count.\n3. **Log your reading** in the reading app or on a paper log from the desk.\n4. **Earn prizes** and drawing entries when you reach milestones.\n\nThere are separate tracks for kids, teens and adults.\n\n**Timing:** The program runs **June through August**, so this year's has already ended. If you'd like the exact dates for next summer, just ask. I can look up the Summer Reading Kickoff event once it's on the calendar.\n\n*Sources: the Programs page (https://example.org/programs) and the library's Summer Reading Program wiki page.*"
+    },
+    {
+      "id": "replacement-card-cost",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "replacement card"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "replacement card",
+            "count": 1,
+            "results": [
+              {
+                "amount_usd": 2.0,
+                "fee_type": "replacement-card",
+                "notes": "Replacing a lost library card. First card is free.",
+                "unit": "per card",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "A replacement library card costs **$2.00 per card**. Your first card is free. The fee only applies if you need to replace a lost card.\n\nSource: [Maplewood borrowing policy](https://example.org/policies/borrowing)"
+    },
+    {
+      "id": "branch-list",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "list_branches",
+          "input": {},
+          "result": {
+            "collection": "branches",
+            "filters": null,
+            "count": 3,
+            "results": [
+              {
+                "address": "100 Library Plaza, Maplewood",
+                "id": "central",
+                "name": "Maplewood Central Library",
+                "phone": "555-0100",
+                "region": "downtown",
+                "source": "https://example.org/locations/central",
+                "source_file": "sources/pages/locations-and-hours.md"
+              },
+              {
+                "address": "4120 Oak Avenue, Maplewood",
+                "id": "eastside",
+                "name": "Eastside Branch",
+                "phone": "555-0140",
+                "region": "east",
+                "source": "https://example.org/locations/eastside",
+                "source_file": "sources/pages/locations-and-hours.md"
+              },
+              {
+                "address": "88 Shoreline Drive, Maplewood",
+                "id": "lakeview",
+                "name": "Lakeview Branch",
+                "phone": "555-0170",
+                "region": "north",
+                "source": "https://example.org/locations/lakeview",
+                "source_file": "sources/pages/locations-and-hours.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "Maplewood Public Library has 3 branches:\n\n| Branch | Address | Phone | Area |\n|---|---|---|---|\n| **Maplewood Central Library** | 100 Library Plaza, Maplewood | 555-0100 | Downtown |\n| **Eastside Branch** | 4120 Oak Avenue, Maplewood | 555-0140 | East |\n| **Lakeview Branch** | 88 Shoreline Drive, Maplewood | 555-0170 | North |\n\nSource: the library's location pages ([Central](https://example.org/locations/central), [Eastside](https://example.org/locations/eastside), [Lakeview](https://example.org/locations/lakeview)).\n\nI can also look up opening hours for any of these branches."
+    },
+    {
+      "id": "upcoming-workshops",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "list_events",
+          "input": {
+            "category": "workshop"
+          },
+          "result": {
+            "collection": "events",
+            "filters": {
+              "category": "workshop"
+            },
+            "count": 2,
+            "results": [
+              {
+                "branch": "eastside",
+                "category": "workshop",
+                "date": "2027-06-25",
+                "notes": "Grades 6-12. Board games and console tournaments.",
+                "registration_required": false,
+                "start_time": "18:00",
+                "title": "Teen Game Night",
+                "when": "Friday, June 25, 2027",
+                "source": "https://example.org/events",
+                "source_file": "sources/pages/events-calendar.md"
+              },
+              {
+                "branch": "central",
+                "category": "workshop",
+                "date": "2027-06-26",
+                "notes": "Bring a laptop or use ours. Seats limited; registration required.",
+                "registration_required": true,
+                "start_time": "14:00",
+                "title": "Resume & Job Search Workshop",
+                "when": "Saturday, June 26, 2027",
+                "source": "https://example.org/events",
+                "source_file": "sources/pages/events-calendar.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "There are two workshops on the calendar, but neither is soon. Both are next summer, in June 2027:\n\n- **Teen Game Night**: Friday, June 25, 2027, 6:00 PM at the Eastside branch. It's for grades 6\u201312, with board games and console tournaments. You don't need to register.\n- **Resume & Job Search Workshop**: Saturday, June 26, 2027, 2:00 PM at the Central branch. You can bring your own laptop or use one of the library's. Seats are limited, so **you need to register**.\n\nSource: [Events calendar](https://example.org/events)\n\nI can also check the library's regular ongoing programs if you'd like something sooner."
+    },
+    {
+      "id": "kids-programs",
+      "category": "hard_fact",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "list_programs",
+          "input": {
+            "audience": "kids"
+          },
+          "result": {
+            "collection": "programs",
+            "filters": {
+              "audience": "kids"
+            },
+            "count": 2,
+            "results": [
+              {
+                "audience": "all",
+                "cost": "free",
+                "description": "Read, log books, and earn prizes. Tracks for kids, teens, and adults.",
+                "id": "summer-reading",
+                "name": "Summer Reading Program",
+                "registration_required": true,
+                "schedule": "June through August",
+                "source": "https://example.org/programs",
+                "source_file": "sources/pages/programs.md"
+              },
+              {
+                "audience": "kids",
+                "cost": "free",
+                "description": "Drop-in tutoring from volunteers for elementary and middle schoolers.",
+                "id": "homework-help",
+                "name": "After-School Homework Help",
+                "registration_required": false,
+                "schedule": "School-year weekdays, after school",
+                "source": "https://example.org/programs",
+                "source_file": "sources/pages/programs.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "list_events",
+          "input": {
+            "category": "story-time"
+          },
+          "result": {
+            "collection": "events",
+            "filters": {
+              "category": "story-time"
+            },
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "category": "story-time",
+                "notes": "Ages 1-3 with a caregiver. Songs, rhymes, and picture books.",
+                "registration_required": false,
+                "start_time": "10:30",
+                "title": "Toddler Story Time",
+                "when": "Every Wednesday",
+                "source": "https://example.org/events",
+                "source_file": "sources/pages/events-calendar.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "Here's what Maplewood has for kids right now. Everything listed is free.\n\n**Ongoing programs**\n- **After-School Homework Help:** Volunteers give drop-in tutoring to elementary and middle schoolers on school-year weekdays, after school. You don't need to register.\n- **Summer Reading Program:** Kids read, log their books and earn prizes. There are tracks for kids, teens and adults. It runs June through August, and you do need to register.\n\n*Source: [example.org/programs](https://example.org/programs)*\n\n**Regular event**\n- **Toddler Story Time:** Every Wednesday at 10:30 at the Central branch, with songs, rhymes and picture books. It's for ages 1\u20133 with a caregiver, and you don't need to register.\n\n*Source: [example.org/events](https://example.org/events)*\n\nIf you'd like the details for one of these, or want to know what other events are coming up, just ask."
+    },
+    {
+      "id": "how-to-get-card",
+      "category": "narrative",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "how to get a library card"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 272.883
+              },
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 9.908
+              },
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 8.485
+              },
+              {
+                "path": "wiki/policies/fines-and-fees.md",
+                "title": "Fines and Fees (We Are Fine-Free)",
+                "page_type": "policy",
+                "status": "published",
+                "tags": [
+                  "fines",
+                  "fees",
+                  "overdue",
+                  "policy"
+                ],
+                "snippet": "Maplewood Public Library is fine free. We do not charge daily overdue fines on items you return late. This has been our policy since the board eliminated overdue fines, and it replaces any older fee schedule you may have seen on a flyer or an out of date page.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 6.997
+              },
+              {
+                "path": "wiki/processes/borrowing-holds-and-renewals.md",
+                "title": "Borrowing, Holds, and Renewals",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "borrowing",
+                  "holds",
+                  "renewals",
+                  "checkout"
+                ],
+                "snippet": "Once you have a library card, borrowing is self service. The exact loan length and how many times you can renew depend on the item type and are always shown on the item's page in the catalog and in My Account \u2014 check there rather than guessing.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 6.997
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/journeys/getting-a-library-card.md"
+          },
+          "result": {
+            "path": "wiki/journeys/getting-a-library-card.md",
+            "title": "How to Get a Library Card",
+            "page_type": "journey",
+            "tags": [
+              "library-card",
+              "registration",
+              "getting-started"
+            ],
+            "sources": [
+              "sources/pages/borrowing-policy.md",
+              "sources/pages/contact-us.md"
+            ],
+            "content": "# How to Get a Library Card\n\nA library card is free for anyone who lives, works, or goes to school in the\nMaplewood area. It unlocks borrowing, the public computers, and the whole\n[[using-the-elibrary-app|digital collection]].\n\n## What You Need\n\nBring one item that shows your **name** and one that shows your **current\naddress** \u2014 a photo ID plus a piece of mail is the usual combination. If your ID\nalready shows your current address, that single item is enough. Children can get\na card with a parent or guardian present to sign.\n\n## Where to Sign Up\n\nYou can register in person at the circulation desk of any branch. Hours differ\nby location, so check before you go \u2014 ask the assistant for `get_hours`, and use\n`get_contact` for the circulation desk phone number if you want to call ahead.\n\nIf you would rather start online, you can pre-register on the library website and\nfinish at any desk; you only need to show your documents once.\n\n## After You Have a Card\n\n- Your first card is free. There is a small charge to replace a lost card \u2014 the\n  assistant can quote the current amount with `get_fee`.\n- Set a PIN at the desk. You will need your card number and PIN to log in to the\n  catalog and to [[using-the-elibrary-app|the eLibrary app]].\n- You are responsible for items checked out on your card, so report a lost card\n  promptly. See [[fines-and-fees]] for how lost and overdue items are handled.\n\n> [!tip] No proof of address?\n> Students, people experiencing homelessness, and new arrivals can still get a\n> card \u2014 talk to the circulation desk about alternative verification. Reach them\n> through `get_contact`.",
+            "truncated": false
+          }
+        },
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "circulation"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "circulation",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "circulation",
+                "email": "checkout@example.org",
+                "notes": "Library cards, checkouts, holds, renewals.",
+                "phone": "555-0101",
+                "role": "Circulation Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "replacement card"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "replacement card",
+            "count": 1,
+            "results": [
+              {
+                "amount_usd": 2.0,
+                "fee_type": "replacement-card",
+                "notes": "Replacing a lost library card. First card is free.",
+                "unit": "per card",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "Your first library card is free if you live, work, or go to school in the Maplewood area. You can sign up in person at the circulation desk at any branch.\n\n**What to bring**\n- Something that shows your **name** and something that shows your **current address**. A photo ID and a piece of mail usually works.\n- If your ID already shows your current address, you only need the ID.\n- Kids can get a card if a parent or guardian comes along to sign.\n\n**How to sign up**\n- **In person:** Go to the circulation desk at any branch. Hours are different at each location, so ask me for a branch's hours before you go.\n- **Online first:** You can pre-register on the library website, then finish at any desk. You only show your documents once.\n\n**After you have your card**\n- Set a PIN at the desk. You'll need your card number and PIN to log in to the catalog and the eLibrary app.\n- If you lose your card, tell the library right away, since you're responsible for anything checked out on it. A replacement card costs **$2.00** ([borrowing policy](https://example.org/policies/borrowing)).\n\n**No proof of address?** Students, people without housing and people who have just moved here can still get a card. Ask the circulation desk about other ways to verify your address.\n\n**Circulation desk:** 555-0101 \u00b7 checkout@example.org ([contact page](https://example.org/contact))\n\nMost of this comes from the library's \"How to Get a Library Card\" guide."
+    },
+    {
+      "id": "place-a-hold",
+      "category": "narrative",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "place a hold on a book"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/processes/borrowing-holds-and-renewals.md",
+                "title": "Borrowing, Holds, and Renewals",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "borrowing",
+                  "holds",
+                  "renewals",
+                  "checkout"
+                ],
+                "snippet": "If an item is out or lives at another branch, place a hold and the library will route it to your pickup branch:",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 103.698
+              },
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 5.392
+              },
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 1.893
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/processes/borrowing-holds-and-renewals.md"
+          },
+          "result": {
+            "path": "wiki/processes/borrowing-holds-and-renewals.md",
+            "title": "Borrowing, Holds, and Renewals",
+            "page_type": "process",
+            "tags": [
+              "borrowing",
+              "holds",
+              "renewals",
+              "checkout"
+            ],
+            "sources": [
+              "sources/pages/borrowing-policy.md"
+            ],
+            "content": "# Borrowing, Holds, and Renewals\n\nOnce you have a [[getting-a-library-card|library card]], borrowing is\nself-service. The exact loan length and how many times you can renew depend on\nthe item type and are always shown on the item's page in the catalog and in\n**My Account** \u2014 check there rather than guessing.\n\n## Checking Out\n\nBring your items and your card to a self-checkout station or the circulation\ndesk. Most physical items check out on the spot. For digital items, see\n[[using-the-elibrary-app|the eLibrary app]].\n\n## Placing a Hold\n\nIf an item is out or lives at another branch, place a **hold** and the library\nwill route it to your pickup branch:\n\n1. Find the item in the online catalog.\n2. Choose **Place Hold** and pick your pickup branch.\n3. You will be notified when it arrives, and it will wait for you on the holds\n   shelf for several days before being released to the next person.\n\nHolds are the easiest way to gather materials from across all three branches in\none place. **My Account** lists your holds and shows when one is ready to pick\nup, and staff at any branch's circulation desk can help.\n\n## Renewing\n\nItems renew automatically unless someone else is waiting or you have hit the\nrenewal limit. You can also renew manually from **My Account**. If an item will\nnot renew, it is usually because there is a hold behind it.\n\n> [!note] We are fine-free\n> Maplewood does not charge daily overdue fines. You will not rack up a balance\n> for a late book. You are still responsible for returning items and for the\n> cost of anything lost or damaged \u2014 the details, and any current charges, are\n> in [[fines-and-fees]] (amounts come from `get_fee`).",
+            "truncated": false
+          }
+        }
+      ],
+      "response": "You can place a hold yourself in the online catalog. The library will send the book to whichever branch you pick for pickup.\n\n1. **Find the book** in the online catalog.\n2. **Choose \"Place Hold\"** and pick your pickup branch.\n3. **Wait for a notice.** You'll be told when it arrives. It stays on the holds shelf for several days before it goes to the next person.\n\n**Good to know:**\n- Use a hold when a book is checked out or kept at another branch. It's also an easy way to get books from all three branches sent to one place.\n- **My Account** shows your holds and tells you when one is ready to pick up.\n- Staff at the circulation desk at any branch can also help you place a hold.\n\nYou'll need a library card to place a hold.\n\nSource: the library's \"Borrowing, Holds, and Renewals\" page (from the borrowing policy)."
+    },
+    {
+      "id": "borrow-ebooks",
+      "category": "narrative",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "ebooks on phone app"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 205.193
+              },
+              {
+                "path": "wiki/entities/summer-reading-program.md",
+                "title": "Summer Reading Program",
+                "page_type": "entity",
+                "status": "published",
+                "tags": [
+                  "summer-reading",
+                  "programs",
+                  "kids",
+                  "teens",
+                  "adults"
+                ],
+                "snippet": "1. Sign up. Registration is required so we can track your progress and prizes; the assistant can confirm with get program (look for summer reading). You can register at any branch or online. 2. Read anything. Books, audiobooks, ebooks from the eLibrary app \u2014 it all counts. 3. Log your reading. Use the reading app or a paper log from the desk. 4. Earn prizes. Hit milestones to collect rewards and drawing entries.",
+                "sources": [
+                  "sources/pages/programs.md",
+                  "sources/pages/events-calendar.md"
+                ],
+                "backend": "scan",
+                "score": 9.178
+              },
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 7.573
+              },
+              {
+                "path": "wiki/processes/borrowing-holds-and-renewals.md",
+                "title": "Borrowing, Holds, and Renewals",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "borrowing",
+                  "holds",
+                  "renewals",
+                  "checkout"
+                ],
+                "snippet": "Bring your items and your card to a self checkout station or the circulation desk. Most physical items check out on the spot. For digital items, see the eLibrary app.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 5.679
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/journeys/using-the-elibrary-app.md"
+          },
+          "result": {
+            "path": "wiki/journeys/using-the-elibrary-app.md",
+            "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+            "page_type": "journey",
+            "tags": [
+              "ebooks",
+              "audiobooks",
+              "digital",
+              "app"
+            ],
+            "sources": [
+              "sources/pages/programs.md"
+            ],
+            "content": "# Borrowing eBooks and Audiobooks\n\nYour [[getting-a-library-card|library card]] comes with a full digital library\nyou can use from your phone or tablet through the **eLibrary app**, free for every\ncardholder \u2014 no trip to a branch required.\n\n## Get Set Up\n\n1. Install the eLibrary app from your device's app store.\n2. Choose **Maplewood Public Library** when it asks for your library.\n3. Sign in with your **card number and PIN** (the same ones you set up at the\n   desk).\n\n## Borrowing\n\n- Search or browse, then tap **Borrow**. The title downloads to your device.\n- Titles return themselves at the end of the loan, so there is nothing late and\n  nothing to bring back \u2014 which pairs nicely with our [[fines-and-fees|fine-free\n  policy]] anyway.\n- If a popular title is checked out, place a **hold** just like with\n  [[borrowing-holds-and-renewals|physical items]] and you will be notified when\n  it is ready.\n\n## Reading and Listening\n\nThe app reads ebooks and plays audiobooks in one place, remembers where you left\noff across devices, and works offline once a title is downloaded. Everything you\nfinish here counts toward the [[summer-reading-program|Summer Reading Program]].\n\n> [!tip] Trouble signing in?\n> The most common snag is a forgotten PIN. Reset it at any branch or by calling\n> the circulation desk \u2014 find the number with `get_contact`.",
+            "truncated": false
+          }
+        },
+        {
+          "name": "get_program",
+          "input": {
+            "name_or_id": "eLibrary"
+          },
+          "result": {
+            "collection": "programs",
+            "query": "eLibrary",
+            "count": 0,
+            "results": [],
+            "hint": "Nothing in programs matched 'eLibrary'. Known id values: summer-reading, homework-help, esl-conversation, tech-help"
+          }
+        },
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "circulation"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "circulation",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "circulation",
+                "email": "checkout@example.org",
+                "notes": "Library cards, checkouts, holds, renewals.",
+                "phone": "555-0101",
+                "role": "Circulation Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "get_program",
+          "input": {
+            "name_or_id": "tech-help"
+          },
+          "result": {
+            "collection": "programs",
+            "query": "tech-help",
+            "count": 1,
+            "results": [
+              {
+                "audience": "adults",
+                "cost": "free",
+                "description": "Book a 45-minute session for help with devices, email, or apps.",
+                "id": "tech-help",
+                "name": "One-on-One Tech Help",
+                "registration_required": true,
+                "schedule": "By appointment",
+                "source": "https://example.org/programs",
+                "source_file": "sources/pages/programs.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "You read them in the free **eLibrary app**, using your Maplewood library card.\n\n**Setup:**\n1. Install the eLibrary app from your phone's app store.\n2. When it asks for your library, choose **Maplewood Public Library**.\n3. Sign in with your **library card number and PIN**. These are the ones you set up at the desk.\n\n**Borrowing:**\n- Search or browse, then tap **Borrow**. The book downloads to your phone.\n- Books return themselves when the loan ends, so nothing can be late and you have nothing to bring back.\n- If a book is checked out, you can place a **hold**. The app will tell you when it's ready.\n\n**Reading:** The app handles both ebooks and audiobooks. It remembers your place across devices, and once a book is downloaded, you can read it offline.\n\n**If you can't sign in:** The usual cause is a forgotten PIN. You can reset it at any branch or by calling the Circulation Desk at **555-0101** (checkout@example.org).\n\n**If you'd like help in person:** The library offers free **One-on-One Tech Help**. These are 45-minute sessions for help with devices and apps. They're by appointment and you need to register, so ask the desk how to book one.\n\nThis comes from the library's \"Borrowing eBooks and Audiobooks\" guide, and the contact and program details come from the library's records."
+    },
+    {
+      "id": "free-wifi",
+      "category": "narrative",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "wifi"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "wifi",
+            "count": 0,
+            "results": [],
+            "hint": "Nothing in fees matched 'wifi'. Known fee_type values: printing-bw, printing-color, replacement-card, meeting-room, overdue-fine"
+          }
+        },
+        {
+          "name": "get_program",
+          "input": {
+            "name_or_id": "wifi"
+          },
+          "result": {
+            "collection": "programs",
+            "query": "wifi",
+            "count": 0,
+            "results": [],
+            "hint": "Nothing in programs matched 'wifi'. Known id values: summer-reading, homework-help, esl-conversation, tech-help"
+          }
+        },
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "WiFi internet access"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 162.275
+              },
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 1.893
+              },
+              {
+                "path": "wiki/policies/fines-and-fees.md",
+                "title": "Fines and Fees (We Are Fine-Free)",
+                "page_type": "policy",
+                "status": "published",
+                "tags": [
+                  "fines",
+                  "fees",
+                  "overdue",
+                  "policy"
+                ],
+                "snippet": "Lost or damaged items. If an item is not returned or comes back damaged, you are charged a replacement cost so the next person can still borrow it. A replacement card if you lose yours (your first card is free). Printing and copies , and meeting room reservations for non community bookings \u2014 see printing and computers.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 1.893
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/processes/printing-and-computers.md"
+          },
+          "result": {
+            "path": "wiki/processes/printing-and-computers.md",
+            "title": "Public Computers, WiFi, and Printing",
+            "page_type": "process",
+            "tags": [
+              "computers",
+              "wifi",
+              "printing",
+              "technology"
+            ],
+            "sources": [
+              "sources/pages/borrowing-policy.md",
+              "sources/pages/locations-and-hours.md"
+            ],
+            "content": "# Public Computers, WiFi, and Printing\n\nEvery branch has free public computers and free WiFi. You do not need to be a\ncardholder to use the WiFi; logging in to a public computer uses your\n[[getting-a-library-card|library card]] number and PIN.\n\n## Public Computers\n\nSign in at any open computer with your card number and PIN. Sessions have a time\nlimit so everyone gets a turn; if no one is waiting, you can usually extend.\nGuests without a card can ask staff for a day pass.\n\n## WiFi\n\nThe network is open and free during open hours \u2014 check `get_hours` for the\nbranch you are visiting. The signal reaches the parking lot at most branches if\nyou need access while we are closed.\n\n## Printing and Copying\n\nYou can print from a library computer or from your own device. Printing is\n**not free**, but it is inexpensive; black-and-white and color are priced\ndifferently. Ask the assistant for the **current per-page price with `get_fee`**\n(`printing-bw` and `printing-color`) instead of relying on a number written\nhere. Pay at the print-release station or the desk.\n\n> [!tip] Scanning is free\n> Scanning to email or to a USB drive does not cost anything. Only printed and\n> copied pages are charged.\n\n## Need Help?\n\nBook a session of [[summer-reading-program|one-on-one tech help]] for hands-on\nguidance, or reach the reference desk through `get_contact`.",
+            "truncated": false
+          }
+        }
+      ],
+      "response": "Yes, the WiFi is free at every Maplewood branch, and you don't need a library card to use it.\n\n- **When it's on:** The network is open whenever the library is open. At most branches the signal also reaches the parking lot, so you may be able to connect after closing.\n- **Public computers:** These are free too, but you log in with your library card number and PIN. If you don't have a card, you can ask staff for a day pass.\n\nThis comes from the library's \"Public Computers, WiFi, and Printing\" page. WiFi also isn't on the library's list of fees. If you'd like the hours for a particular branch, just say which one."
+    },
+    {
+      "id": "my-checked-out-books",
+      "category": "out_of_scope",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "circulation"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "circulation",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "circulation",
+                "email": "checkout@example.org",
+                "notes": "Library cards, checkouts, holds, renewals.",
+                "phone": "555-0101",
+                "role": "Circulation Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "I can't tell you that because I don't have access to anyone's library account, so I can't see your checkouts.\n\nHere's how to find out:\n\n- **Online:** Log in to **My Account** in the library catalog. It shows what you have checked out.\n- **Ask the Circulation Desk:** They handle library cards, checkouts, holds and renewals.\n  - Phone: **555-0101**\n  - Email: **checkout@example.org**\n  - (Source: https://example.org/contact)\n\nI can also help with hours, events, programs or how borrowing works."
+    },
+    {
+      "id": "renew-for-me",
+      "category": "out_of_scope",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "circulation"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "circulation",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "circulation",
+                "email": "checkout@example.org",
+                "notes": "Library cards, checkouts, holds, renewals.",
+                "phone": "555-0101",
+                "role": "Circulation Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "I can't renew your books for you. I don't have access to anyone's library account, so I can't see what you have checked out.\n\nYou can renew them yourself in either of these ways:\n\n- **Online:** Sign in to **My Account** in the library catalog.\n- **Circulation Desk** (Central branch), which handles renewals:\n  - Phone: **555-0101**\n  - Email: **checkout@example.org**\n\n  (Source: https://example.org/contact)\n\nIf a book won't renew, the desk can tell you why."
+    },
+    {
+      "id": "hold-status",
+      "category": "out_of_scope",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_contact",
+          "input": {
+            "department": "circulation"
+          },
+          "result": {
+            "collection": "contacts",
+            "query": "circulation",
+            "count": 1,
+            "results": [
+              {
+                "branch": "central",
+                "department": "circulation",
+                "email": "checkout@example.org",
+                "notes": "Library cards, checkouts, holds, renewals.",
+                "phone": "555-0101",
+                "role": "Circulation Desk",
+                "source": "https://example.org/contact",
+                "source_file": "sources/pages/contact-us.md"
+              }
+            ]
+          }
+        }
+      ],
+      "response": "I can't tell you whether your hold has come in, because I don't have access to library accounts.\n\nYou can find out in either of these ways:\n\n- **Log in to My Account** in the library catalog to see the status of your holds.\n- **Contact the Circulation Desk** (Central). They handle library cards, checkouts, holds and renewals.\n  - Phone: 555-0101\n  - Email: checkout@example.org\n  - (Source: https://example.org/contact)"
+    },
+    {
+      "id": "overdue-fine-rumor",
+      "category": "contradiction",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "overdue"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "overdue",
+            "count": 1,
+            "results": [
+              {
+                "amount_usd": 0.0,
+                "fee_type": "overdue-fine",
+                "notes": "Maplewood is fine-free. No daily overdue fines are charged.",
+                "unit": "per day",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "overdue fines fine-free policy"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/policies/fines-and-fees.md",
+                "title": "Fines and Fees (We Are Fine-Free)",
+                "page_type": "policy",
+                "status": "published",
+                "tags": [
+                  "fines",
+                  "fees",
+                  "overdue",
+                  "policy"
+                ],
+                "snippet": "Maplewood Public Library is fine free. We do not charge daily overdue fines on items you return late. This has been our policy since the board eliminated overdue fines, and it replaces any older fee schedule you may have seen on a flyer or an out of date page.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 212.08
+              },
+              {
+                "path": "wiki/processes/borrowing-holds-and-renewals.md",
+                "title": "Borrowing, Holds, and Renewals",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "borrowing",
+                  "holds",
+                  "renewals",
+                  "checkout"
+                ],
+                "snippet": "1. Find the item in the online catalog. 2. Choose Place Hold and pick your pickup branch. 3. You will be notified when it arrives, and it will wait for you on the holds shelf for several days before being released to the next person.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 12.964
+              },
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 9.685
+              },
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 9.178
+              },
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 9.178
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/policies/fines-and-fees.md"
+          },
+          "result": {
+            "path": "wiki/policies/fines-and-fees.md",
+            "title": "Fines and Fees (We Are Fine-Free)",
+            "page_type": "policy",
+            "tags": [
+              "fines",
+              "fees",
+              "overdue",
+              "policy"
+            ],
+            "sources": [
+              "sources/pages/borrowing-policy.md"
+            ],
+            "content": "# Fines and Fees\n\n**Maplewood Public Library is fine-free.** We do not charge daily overdue fines\non items you return late. This has been our policy since the board eliminated\noverdue fines, and it replaces any older fee schedule you may have seen on a\nflyer or an out-of-date page.\n\nGoing fine-free does not mean there are no responsibilities \u2014 it means a late\nreturn will not quietly grow into a balance that keeps you from using the\nlibrary.\n\n## What We Do *Not* Charge\n\n- **Daily overdue fines.** Returning an item after its due date does not cost\n  money. (If you want to confirm, the assistant can read the current overdue\n  rate with `get_fee` \u2014 it is zero.)\n\n## What You *Are* Responsible For\n\n- **Lost or damaged items.** If an item is not returned or comes back damaged,\n  you are charged a replacement cost so the next person can still borrow it.\n- **A replacement card** if you lose yours (your first card is free).\n- **Printing and copies**, and **meeting-room reservations** for non-community\n  bookings \u2014 see [[printing-and-computers]].\n\nFor any of these, the assistant quotes the **current amount with `get_fee`**\nrather than repeating a number here, because prices change and a stale number on\nthis page would be worse than none.\n\n> [!important] Returning the item clears it\n> Because we are fine-free, simply returning a late item settles it. A\n> replacement charge for a *lost* item is removed if you later find and return it\n> in good condition.",
+            "truncated": false
+          }
+        }
+      ],
+      "response": "No, that's out of date. Maplewood Public Library is **fine-free**, so you won't be charged anything for returning a book late. The current overdue fine is **$0.00 per day** ([borrowing policy](https://example.org/policies/borrowing)).\n\nThe 25-cent daily fine was replaced when the library board got rid of overdue fines. A late return no longer adds up to a balance that stops you from using the library. Once you bring the item back, you're all set.\n\nYou can still be charged in a few cases:\n- **Lost or damaged items:** you pay a replacement cost. If you later find a lost item and return it in good condition, that charge is removed.\n- **A replacement card** if you lose yours. Your first card is free.\n- **Printing, copies and some meeting-room bookings.**\n\n*Source: \"Fines and Fees (We Are Fine-Free)\" wiki page and the library's borrowing policy.*\n\nIf you'd like to know the current price for any of those, just ask and I'll look it up."
+    },
+    {
+      "id": "fine-cap-rumor",
+      "category": "contradiction",
+      "passed": true,
+      "reasons": [],
+      "tool_calls": [
+        {
+          "name": "get_fee",
+          "input": {
+            "fee_type": "overdue"
+          },
+          "result": {
+            "collection": "fees",
+            "query": "overdue",
+            "count": 1,
+            "results": [
+              {
+                "amount_usd": 0.0,
+                "fee_type": "overdue-fine",
+                "notes": "Maplewood is fine-free. No daily overdue fines are charged.",
+                "unit": "per day",
+                "source": "https://example.org/policies/borrowing",
+                "source_file": "sources/pages/borrowing-policy.md"
+              }
+            ]
+          }
+        },
+        {
+          "name": "search_wiki",
+          "input": {
+            "query": "overdue fines maximum cap fine-free policy"
+          },
+          "result": {
+            "result": [
+              {
+                "path": "wiki/policies/fines-and-fees.md",
+                "title": "Fines and Fees (We Are Fine-Free)",
+                "page_type": "policy",
+                "status": "published",
+                "tags": [
+                  "fines",
+                  "fees",
+                  "overdue",
+                  "policy"
+                ],
+                "snippet": "Maplewood Public Library is fine free. We do not charge daily overdue fines on items you return late. This has been our policy since the board eliminated overdue fines, and it replaces any older fee schedule you may have seen on a flyer or an out of date page.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 212.08
+              },
+              {
+                "path": "wiki/processes/borrowing-holds-and-renewals.md",
+                "title": "Borrowing, Holds, and Renewals",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "borrowing",
+                  "holds",
+                  "renewals",
+                  "checkout"
+                ],
+                "snippet": "1. Find the item in the online catalog. 2. Choose Place Hold and pick your pickup branch. 3. You will be notified when it arrives, and it will wait for you on the holds shelf for several days before being released to the next person.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md"
+                ],
+                "backend": "scan",
+                "score": 12.964
+              },
+              {
+                "path": "wiki/processes/printing-and-computers.md",
+                "title": "Public Computers, WiFi, and Printing",
+                "page_type": "process",
+                "status": "published",
+                "tags": [
+                  "computers",
+                  "wifi",
+                  "printing",
+                  "technology"
+                ],
+                "snippet": "Every branch has free public computers and free WiFi. You do not need to be a cardholder to use the WiFi; logging in to a public computer uses your library card number and PIN.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/locations-and-hours.md"
+                ],
+                "backend": "scan",
+                "score": 9.685
+              },
+              {
+                "path": "wiki/journeys/getting-a-library-card.md",
+                "title": "How to Get a Library Card",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "library-card",
+                  "registration",
+                  "getting-started"
+                ],
+                "snippet": "A library card is free for anyone who lives, works, or goes to school in the Maplewood area. It unlocks borrowing, the public computers, and the whole digital collection.",
+                "sources": [
+                  "sources/pages/borrowing-policy.md",
+                  "sources/pages/contact-us.md"
+                ],
+                "backend": "scan",
+                "score": 9.178
+              },
+              {
+                "path": "wiki/journeys/using-the-elibrary-app.md",
+                "title": "Borrowing eBooks and Audiobooks (the eLibrary App)",
+                "page_type": "journey",
+                "status": "published",
+                "tags": [
+                  "ebooks",
+                  "audiobooks",
+                  "digital",
+                  "app"
+                ],
+                "snippet": "Your library card comes with a full digital library you can use from your phone or tablet through the eLibrary app , free for every cardholder \u2014 no trip to a branch required.",
+                "sources": [
+                  "sources/pages/programs.md"
+                ],
+                "backend": "scan",
+                "score": 9.178
+              }
+            ]
+          }
+        },
+        {
+          "name": "read_wiki_page",
+          "input": {
+            "path_or_slug": "wiki/policies/fines-and-fees.md"
+          },
+          "result": {
+            "path": "wiki/policies/fines-and-fees.md",
+            "title": "Fines and Fees (We Are Fine-Free)",
+            "page_type": "policy",
+            "tags": [
+              "fines",
+              "fees",
+              "overdue",
+              "policy"
+            ],
+            "sources": [
+              "sources/pages/borrowing-policy.md"
+            ],
+            "content": "# Fines and Fees\n\n**Maplewood Public Library is fine-free.** We do not charge daily overdue fines\non items you return late. This has been our policy since the board eliminated\noverdue fines, and it replaces any older fee schedule you may have seen on a\nflyer or an out-of-date page.\n\nGoing fine-free does not mean there are no responsibilities \u2014 it means a late\nreturn will not quietly grow into a balance that keeps you from using the\nlibrary.\n\n## What We Do *Not* Charge\n\n- **Daily overdue fines.** Returning an item after its due date does not cost\n  money. (If you want to confirm, the assistant can read the current overdue\n  rate with `get_fee` \u2014 it is zero.)\n\n## What You *Are* Responsible For\n\n- **Lost or damaged items.** If an item is not returned or comes back damaged,\n  you are charged a replacement cost so the next person can still borrow it.\n- **A replacement card** if you lose yours (your first card is free).\n- **Printing and copies**, and **meeting-room reservations** for non-community\n  bookings \u2014 see [[printing-and-computers]].\n\nFor any of these, the assistant quotes the **current amount with `get_fee`**\nrather than repeating a number here, because prices change and a stale number on\nthis page would be worse than none.\n\n> [!important] Returning the item clears it\n> Because we are fine-free, simply returning a late item settles it. A\n> replacement charge for a *lost* item is removed if you later find and return it\n> in good condition.",
+            "truncated": false
+          }
+        }
+      ],
+      "response": "There's no cap because there's no overdue fine. Maplewood is fine-free: the current overdue rate is **$0.00 per day** (fee schedule, from the [borrowing policy](https://example.org/policies/borrowing)). Any $10 maximum you've heard about is from an older fee schedule that's no longer in effect.\n\nAccording to the library's **Fines and Fees** policy page:\n\n- **Returning a late item settles it.** You won't owe anything for bringing it back late.\n- **Lost or damaged items** are charged a replacement cost. If you later find a lost item and return it in good condition, that charge is removed.\n- **Other fees still apply:** a replacement card if you lose yours (your first card is free), printing and copies, and some meeting-room bookings.\n\nI can look up the current amount for any of those if you'd like."
+    }
+  ]
+}

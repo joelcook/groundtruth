@@ -310,7 +310,7 @@ def prepare(project: Project, wd: Path, *, locked: bool = False, gate=None) -> b
     git(wd, "reset", "--hard", "--quiet", "HEAD")
     git(wd, "clean", "-fdq")
     if ahead(wd) and gate is not None and gate():
-        log("leftover commits answered worse on the live eval; dropped them")
+        log("the live eval held back the leftover commits (see ALERTS.md); dropped them")
     if ahead(wd):
         result = push(project, wd, locked=locked)
         if result == "busy":

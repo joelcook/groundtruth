@@ -136,7 +136,43 @@ class TestInventedValuesKeepUnits(unittest.TestCase):
         ({"price": 30, "currency": "EUR"}, "It costs $30.", ["$30"]),
         ({"durationDays": 30}, "Loans last 30 weeks.", ["30 weeks"]),
         ({"value": "30", "unit": "days"}, "Borrow up to 30 books.", ["up to 30"]),
+        ({"amount": 30, "unit": "days"}, "The fee is $30.", ["$30"]),
+        ({"amount": 0.1, "unit": "per page"}, "It's $0.10 per page.", []),
+        ({"opens": "10:00", "closes": "17:00"}, "Open 10:00 AM to 5:00 PM.", []),
+        ({"opens": "10:00", "closes": "17:00"}, "Open 10:00 to 5:00.", []),
+        ({"opens": "10:00", "closes": "17:00"}, "It closes at 6:00 PM.", ["6:00 PM"]),
+        ({"date": "2027-06-25"}, "It's on June 25, 2027, about 8 months away.", []),
     ]
+
+    def test_a_rumor_may_be_repeated_by_value(self):
+        calls = [{"name": "get_fee", "input": {}, "result": {"results": [{"amount_usd": 0.0, "unit": "per day"}]}}]
+        question, answer = "Is there a ten dollar cap on fines?", "There's no $10 cap: fines are $0.00 a day."
+        self.assertEqual(evals.invented_values(question, answer, calls, question_counts=True), [])
+        self.assertEqual(evals.invented_values(question, answer, calls), ["$10"])  # only on a contradiction item
+
+    def test_a_contact_lookup_can_be_allowed_on_a_refusal(self):
+        item = {"must_not_call_tool": "any", "may_call_tool": ["get_contact"]}
+        self.assertEqual(evals._grade_calls(item, [{"name": "get_contact", "input": {}}]), [])
+        self.assertTrue(evals._grade_calls(item, [{"name": "get_fee", "input": {}}]))
+
+    def test_an_error_from_claude_code_is_no_answer(self):
+        from unittest import mock
+        from groundtruth import claude_code, host, llm
+        out = claude_code.parse([{"type": "result", "is_error": True, "result": "API Error: 401 Invalid credentials"}])
+        item = {"id": "q", "question": "q?", "category": "hard_fact"}
+        with mock.patch.object(llm, "available", return_value=False), \
+                mock.patch.object(claude_code, "agent", return_value=out), \
+                mock.patch.object(evals.server, "tool_specs", return_value=[]), \
+                mock.patch.object(evals, "system_prompt", return_value=""):
+            results = evals.run_live(None, [item], use_judge=False)
+        self.assertFalse(host.answered({"results": results}))  # an outage, never a baseline
+
+    def test_a_login_failure_is_no_answer_even_unflagged(self):
+        from groundtruth import claude_code
+        for text in ("Not logged in · Please run /login", "API Error: 401 {\"error\": \"invalid\"}"):
+            out = claude_code.parse([{"type": "result", "is_error": False, "result": text}])
+            self.assertEqual(out["stop_reason"], "error")
+        self.assertEqual(claude_code.parse([{"type": "result", "result": "It opens at 10."}])["stop_reason"], "end_turn")
 
     def test_cases(self):
         for row, answer, invented in self.CASES:

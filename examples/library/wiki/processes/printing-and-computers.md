@@ -33,8 +33,7 @@ Guests without a card can ask staff for a day pass.
 ## WiFi
 
 The network is open and free during open hours — check `get_hours` for the
-branch you are visiting. The signal reaches the parking lot at most branches if
-you need access while we are closed.
+branch you are visiting. The signal reaches the parking lot at most branches.
 
 ## Printing and Copying
 

@@ -63,6 +63,12 @@ Without an API key, `./gt ask` shows what the model would look up
 (`get_hours(branch='central', day='saturday')`) and what comes back. With
 `ANTHROPIC_API_KEY` set, Claude writes the answer using those tools.
 
+On a real model the demo answers all 18 golden questions right: hours and fees
+from its tools, explanations from its pages, refusals for account questions,
+corrections for stale rumors. That run is in
+`examples/library/evals/runs/*-baseline.json`, and `./gt eval --tier replay`
+re-grades it for free.
+
 ## Make your own
 
 The fastest way: fork this repo, open it in Claude Code (or Codex, or Cursor),
