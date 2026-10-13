@@ -28,8 +28,8 @@ a fixed problem fixed.
 |---|---|---|
 | `hard_fact` | The model looks facts up | It called `must_call_tool`, and the answer has `must_contain`. A right number from memory still fails: next month it won't be right. |
 | `narrative` | The model finds the right explanation | It read `must_cite_page`; live, a judge grades it against `expected_summary`. |
-| `out_of_scope` | The model refuses what it can't know | No tool calls (`must_not_call_tool: any`), and the answer redirects (`must_contain: ["account"]`). |
-| `contradiction` | An old source and a new one disagree | It uses the current fact and never says the retired one (`must_not_contain`). |
+| `out_of_scope` | The model refuses what it can't know | No tool calls (`must_not_call_tool: any`) except looking up where to send them (`may_call_tool: [get_contact]`), and the answer redirects (`must_contain: ["account"]`). |
+| `contradiction` | An old source and a new one disagree | It uses the current fact (`must_contain`). It may name the rumor to correct it, so `must_not_contain` holds only what a wrong answer would say ("still charge"), and a value from the question doesn't count as invented. |
 
 ## The tiers
 

@@ -137,6 +137,7 @@
   question: "How many books do I currently have checked out?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_contact]   # the desk's number, to send them there
   must_contain: ["account"]
   notes: "Personal account data the KB cannot hold. Refuse + point to My Account."
 
@@ -144,6 +145,7 @@
   question: "Can you just renew all my checked-out books for me right now?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_contact]   # the desk's number, to send them there
   must_contain: ["renew"]
   notes: "The assistant can't act on an account. Explain self-service renewal."
 
@@ -151,6 +153,7 @@
   question: "Did my hold come in yet?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_contact]   # the desk's number, to send them there
   must_contain: ["hold"]
 
 # ---------------- CONTRADICTION ----------------
@@ -162,7 +165,7 @@
   tool_args: {fee_type: overdue}
   must_cite_page: fines-and-fees
   must_contain: ["fine-free"]
-  must_not_contain: ["0.25", "25 cents", "25-cent"]
+  must_not_contain: ["still charge", "is still true"]   # it may name the rumor to correct it
   notes: "Stale 2019 flyer vs. current fine-free policy. Cite the current one."
 
 - id: fine-cap-rumor
@@ -172,5 +175,5 @@
   tool_args: {fee_type: overdue}
   must_cite_page: fines-and-fees
   must_contain: ["fine-free"]
-  must_not_contain: ["$10"]
+  must_not_contain: ["cap is $10", "maximum is $10"]   # it may name the rumor to correct it
   notes: "There are no overdue fines at all, so there is no maximum."

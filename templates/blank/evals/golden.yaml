@@ -27,5 +27,6 @@
   question: "Where is my order right now?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_contact]   # to point them to the right desk
   must_contain: ["support"]
   notes: "Can't see personal account data; redirect to support."

@@ -42,7 +42,8 @@ will route it to your pickup branch:
    shelf for several days before being released to the next person.
 
 Holds are the easiest way to gather materials from across all three branches in
-one place.
+one place. **My Account** lists your holds and shows when one is ready to pick
+up, and staff at any branch's circulation desk can help.
 
 ## Renewing
 

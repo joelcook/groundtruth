@@ -1,4 +1,4 @@
-description: Ongoing programs and services, including whether you must register.
+description: Ongoing programs and services (all free), including whether you must register.
 key: id
 source:
   path: sources/pages/programs.md
@@ -22,22 +22,26 @@ rows:
     audience: all
     schedule: June through August
     registration_required: true
+    cost: free
     description: Read, log books, and earn prizes. Tracks for kids, teens, and adults.
   - id: homework-help
     name: After-School Homework Help
     audience: kids
     schedule: School-year weekdays, after school
     registration_required: false
+    cost: free
     description: Drop-in tutoring from volunteers for elementary and middle schoolers.
   - id: esl-conversation
     name: ESL Conversation Circle
     audience: adults
     schedule: Weekly, Thursday evenings
     registration_required: false
+    cost: free
     description: Informal English conversation practice for adult learners.
   - id: tech-help
     name: One-on-One Tech Help
     audience: adults
     schedule: By appointment
     registration_required: true
+    cost: free
     description: Book a 45-minute session for help with devices, email, or apps.

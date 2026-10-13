@@ -57,4 +57,5 @@
   question: "What's my GPA?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_office]   # to point them to the right desk
   must_contain: ["portal"]

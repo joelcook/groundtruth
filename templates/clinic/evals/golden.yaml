@@ -53,4 +53,5 @@
   question: "Are my lab results back?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_location]   # to point them to the right desk
   must_contain: ["portal"]

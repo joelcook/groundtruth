@@ -211,8 +211,10 @@ def _grade_calls(item: dict, calls: list[dict]) -> list[str]:
         if isinstance(expected, dict) and not any(match_rows(r.get("results") or [], expected) for r in results):
             reasons.append(f"no {want} call returned a row with {expected}")
     forbidden = item.get("must_not_call_tool")
-    if forbidden in ("any", "*") and called:
-        reasons.append(f"should not call any tool, but called {called}")
+    allowed = set(item.get("may_call_tool") or [])  # e.g. get_contact, to point someone to the right desk
+    if forbidden in ("any", "*") and [c for c in called if c not in allowed]:
+        reasons.append(f"should not call any tool{f' but {sorted(allowed)}' if allowed else ''}, but called "
+                       f"{[c for c in called if c not in allowed]}")
     elif forbidden and forbidden not in ("any", "*"):
         names = [forbidden] if isinstance(forbidden, str) else list(forbidden)
         hit = [n for n in names if n in called]
@@ -268,6 +270,15 @@ def digits(text: str) -> str:
     """Spelled-out durations as digits ("twenty-one days" -> "21 days"), so a duration is compared by value,
     never as a piece of another ("one day" inside "twenty-one days")."""
     return NUMBER_WORD_RE.sub(lambda m: str(_word_value(m.group(0))), text)
+
+
+MONEY_WORD_RE = re.compile(rf"\b(?:(?:{'|'.join(TENS)})(?:[\s-](?:{'|'.join(ONES)}))?|{'|'.join(TEENS)}|"
+                           rf"{'|'.join(ONES)}|a hundred|one hundred)(?=[\s-](?:dollars?|cents?|percent)\b)", re.I)
+
+
+def spelled_out(text: str) -> str:
+    """Amounts written in words as digits too: "a ten dollar cap" -> "a 10 dollar cap"."""
+    return MONEY_WORD_RE.sub(lambda m: str(_word_value(m.group(0))), digits(text))
 
 
 def _number(text: str):
@@ -327,7 +338,10 @@ def _leaves(obj, key: str = ""):
             if _is_number(v):
                 words = _tokens(name)
                 if words & GENERIC_FIELDS and unit:
-                    name = f"{name} {unit}"
+                    # `amount` with `unit: days` is days; with `unit: per page` it's still an amount (a rate)
+                    names_kind = _tokens(unit) & (DURATION_WORDS | SIZE_WORDS | PERCENT_WORDS)
+                    pure = words <= GENERIC_FIELDS and not unit.lower().startswith("per ")
+                    name = f"value {unit}" if pure and names_kind else f"{name} {unit}"
                 if currency and (words & MONEY_WORDS or _tokens(name) & MONEY_WORDS):
                     name = f"{name} {currency}"
             yield from _leaves(v, name)
@@ -401,6 +415,9 @@ class Evidence:
             return _number(raw) in self.counts
         if kind == "time" and re.search(r"noon|midnight", raw, re.I):
             raw = "12:00" if "noon" in raw.lower() else "00:00"
+        if kind == "time" and re.fullmatch(r"\d{1,2}:\d{2}", raw.strip()):  # no am/pm: "open 10:00 to 5:00"
+            hour, minute = (int(x) for x in raw.split(":"))
+            return any(self.index.has("time", (h, minute)) for h in {hour, (hour + 12) % 24} if h < 24)
         values = grounding.exact_values(raw)
         if not values:
             return " ".join(raw.lower().split()) in " ".join(self.text.lower().split())
@@ -417,11 +434,13 @@ def invented_values(question: str, response: str, calls: list[dict], *, question
     if not any("result" in c for c in calls):
         return [] if calls else [v for _, v in _exact_in(response) if not (question_counts and v in question)]
     evidence = Evidence([c.get("result") for c in calls if "result" in c])
+    asked = Evidence([spelled_out(question)]) if question_counts else None
     return [raw for kind, raw in _exact_in(response)
-            if not evidence.backs(kind, raw) and not (question_counts and raw in question)]
+            if not evidence.backs(kind, raw) and not (asked is not None and (raw in question or asked.backs(kind, raw)))]
 
 
 TYPED_KINDS = {"money", "duration", "percentage", "size limit", "date", "time"}
+APPROXIMATE_RE = re.compile(r"\b(?:about|around|roughly|approximately|nearly|almost|over|under|some)\s+$", re.I)
 
 
 def _exact_in(text: str) -> list[tuple[str, str]]:
@@ -429,8 +448,15 @@ def _exact_in(text: str) -> list[tuple[str, str]]:
     is part of a typed value ("up to 30 days") is judged as that value instead."""
     hits: list[tuple[str, str, tuple[int, int]]] = []
     for kind, rx in checks.PATTERNS:
-        if kind in EXACT_KINDS:
-            hits += [(kind, m.group(0), m.span()) for m in rx.finditer(text)]
+        if kind not in EXACT_KINDS:
+            continue
+        for m in rx.finditer(text):
+            raw, (a, b) = m.group(0), m.span()
+            if kind == "time" and (half := re.match(r"\s?(?:a\.m\.|p\.m\.|am|pm)(?![a-z])", text[b:b + 6], re.I)):
+                raw, b = raw + half.group(0), b + half.end()  # "5:00 PM" is 17:00, not 5:00
+            if kind == "duration" and APPROXIMATE_RE.search(text[max(0, a - 16):a]):
+                continue  # "about 8 months away" isn't a stated fact
+            hits.append((kind, raw, (a, b)))
     typed = [span for kind, _, span in hits if kind in TYPED_KINDS]
     found: list[tuple[str, str]] = []
     for kind, raw, (a, b) in hits:
@@ -484,6 +510,10 @@ def run_live(project: Project, items: list[dict], *, use_judge: bool) -> list[di
                 out = claude_code.agent(project, item["question"], system, model=llm.model())
         except Exception as exc:  # noqa: BLE001
             results.append(_result(item, False, [f"agent failed: {exc}"], tool_calls=[], response=""))
+            continue
+        if out.get("stop_reason") == "error":  # "API Error: 401 ..." is the model not answering, not a wrong answer
+            results.append(_result(item, False, [f"agent failed: {out['response'][:300]}"], tool_calls=[],
+                                   response=""))
             continue
         passed, reasons = grade(item, out["response"], out["tool_calls"], use_judge=use_judge)
         results.append(_result(item, passed, reasons, tool_calls=out["tool_calls"], response=out["response"]))

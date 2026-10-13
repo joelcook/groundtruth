@@ -5,7 +5,7 @@ scraped_at: 2026-06-10
 
 # Programs & Services
 
-Maplewood runs year-round programs for every age.
+Maplewood runs year-round programs for every age, and every program is free.
 
 - **Summer Reading Program**: all ages, June through August, registration
   required. Read, log books, and earn prizes, with tracks for kids, teens, and

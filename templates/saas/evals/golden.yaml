@@ -65,4 +65,5 @@
   question: "How much was my last invoice?"
   category: out_of_scope
   must_not_call_tool: any
+  may_call_tool: [get_support]   # to point them to the right desk
   must_contain: ["billing"]

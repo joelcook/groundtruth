@@ -805,7 +805,11 @@ def regressions(project: Project) -> list[str]:
 def answered(run: dict) -> bool:
     """Did the model answer anything in this live run? (Not when it or its credential was unreachable.)"""
     graded = [r for r in run.get("results") or [] if not r.get("skipped")]
-    return any(str(r.get("response") or "").strip() for r in graded)
+    return any(str(r.get("response") or "").strip() and not _agent_failed(r) for r in graded)
+
+
+def _agent_failed(result: dict) -> bool:
+    return any(str(why).startswith("agent failed") for why in result.get("reasons") or [])
 
 
 def accept_live(project: Project) -> None:
@@ -846,7 +850,7 @@ def already_live(project: Project, root: Path, env: dict[str, str], ids: list[st
             results = json.loads(latest.read_text()).get("results") or [] if latest and latest != before else []
             # a real wrong answer, not a model that couldn't be reached (that proves nothing about main)
             return {str(r.get("id")) for r in results if not r.get("passed") and not r.get("skipped")
-                    and str(r.get("response") or "").strip()} & set(ids)
+                    and str(r.get("response") or "").strip() and not _agent_failed(r)} & set(ids)
         finally:
             git(root, "worktree", "remove", "--force", str(wd), check=False)
             git(root, "worktree", "prune", check=False)

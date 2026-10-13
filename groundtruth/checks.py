@@ -312,6 +312,12 @@ def check_golden(project: Project, report: Report, collections: list[facts.Colle
             for k in (item.get("tool_args") or {}):
                 if k not in params[tool]:
                     report.error("evals", f"{iid}: tool_args has {k!r}, but {tool} takes {sorted(params[tool])}")
+        may = item.get("may_call_tool")
+        if may is not None and not isinstance(may, list):
+            report.error("evals", f"{iid}: may_call_tool must be a list, e.g. may_call_tool: [get_contact]")
+        for name in may if isinstance(may, list) and collections else []:
+            if name not in params and name not in ("search_wiki", "read_wiki_page"):
+                report.error("evals", f"{iid}: may_call_tool {name!r} is not a tool (have: {sorted(params)})")
         if cat == "hard_fact" and tool and not item.get("tool_args") and not item.get("must_contain"):
             report.warn("evals", f"{iid}: add tool_args + must_contain so ./gt eval can check the data offline")
         expected = item.get("must_match")

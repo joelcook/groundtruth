@@ -162,9 +162,15 @@ def chat_question(project: Project | None) -> tuple[str, list[str]]:
     """What to ask the public chat: a golden question with a known answer, or just something to answer."""
     if project is not None:
         from groundtruth import checks as gates
+        from groundtruth import evals
         for item in gates.load_golden(project):
-            if isinstance(item, dict) and item.get("category") == "hard_fact" and item.get("must_contain"):
-                return str(item["question"]), [str(v) for v in item["must_contain"]]
+            if not isinstance(item, dict) or item.get("category") != "hard_fact" or not item.get("question"):
+                continue
+            match = item.get("must_match") if isinstance(item.get("must_match"), dict) else {}
+            expected = [str(v) for v in item.get("must_contain") or []] or \
+                [str(v) for v in match.values() if evals._as_number(str(v)) is not None]  # as the grader reads it
+            if expected:
+                return str(item["question"]), expected
     return "What can you help me with?", []
 
 

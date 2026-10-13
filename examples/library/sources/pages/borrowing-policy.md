@@ -32,7 +32,9 @@ items checked out on your card, so report a lost card promptly.
 
 Check out at a self-checkout station or at the circulation desk. Loan lengths and
 renewal limits depend on the item type and are shown on each item's page in the
-catalog and in My Account.
+catalog and in My Account. My Account also lists your holds and shows when one is
+ready to pick up, and staff at any branch's circulation desk can help with
+checkouts, holds, and renewals.
 
 If an item is checked out or kept at another branch, place a hold: find it in the
 online catalog, choose Place Hold, and pick your pickup branch. We notify you when
