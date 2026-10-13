@@ -445,9 +445,10 @@ def held_back(project: Project, wd: Path) -> bool:
         return False
     if verdict == "error":
         alerts.notify(project, "the live eval couldn't run",
-                      f"./gt eval --tier live got no answers from the model on {this_host()} (is GT_MODEL right, and "
-                      f"the Claude credential valid with credit?). The {ahead(wd)} rewrite commit(s) were held back "
-                      f"until it answers; nothing changed for users.")
+                      f"./gt eval --tier live got no answer from the model to the questions it needed on "
+                      f"{this_host()} (an outage or a rate limit; or is GT_MODEL wrong, or the Claude credential "
+                      f"expired or out of credit?). The {ahead(wd)} rewrite commit(s) were held back until it "
+                      f"answers; nothing changed for users.")
     else:
         from groundtruth import evals
         latest = evals.latest_live_run(target)
@@ -728,9 +729,10 @@ def nightly_gate(project: Project, root: Path, env: dict[str, str], step, *, can
     if verdict == "error":
         held = ahead(root)
         alerts.notify(project, "the live eval couldn't run",
-                      f"./gt eval --tier live got no answers from the model (is GT_MODEL right, and the Claude "
-                      f"credential valid with credit?). " + (f"The {held} update commit(s) were held back until it "
-                      f"runs again; nothing changed for users." if held else "Nothing was waiting to ship."))
+                      f"./gt eval --tier live got no answer from the model to the questions it needed (an outage "
+                      f"or a rate limit; or is GT_MODEL wrong, or the Claude credential expired or out of credit?). "
+                      + (f"The {held} update commit(s) were held back until it runs again; nothing changed for "
+                         f"users." if held else "Nothing was waiting to ship."))
         if held:
             reset(root)
         return
