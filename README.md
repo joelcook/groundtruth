@@ -15,23 +15,32 @@ where it came from.
   them in plain YAML, and each file becomes tools the model has to call. No
   Python, no SQL.
 - **Explanations live in a small wiki.** How-tos and policies in markdown, every
-  page citing its sources. `./gt check` fails if a date, a time, a price, a
-  limit, or a phone number sneaks into the prose, and the server only serves
-  versions that pass.
-- **Every fact is grounded.** Each number, date, time, price, phone number,
-  email, and URL in your facts must appear in the captured source it cites. A
-  script checks every one, so a mistyped or invented value can't ship.
-- **Changed evidence can't hide.** Re-capture your sources and anything built on
-  a page that changed, or disappeared, gets flagged with a diff until it's
-  reconciled: by a person, or by the refresh host's checked rewrites.
+  page citing its sources. `./gt check` flags dates, times, prices, limits, and
+  phone numbers written into the prose, where they'd go stale unnoticed, and the
+  server only serves versions that pass.
+- **Every fact is checked against its source, row by row.** Each number, date,
+  time, price, phone number, email, and URL in your facts has to appear in the
+  page it cites, on the line about that row. A typo fails, a value the page
+  never states fails, and so does Sunday's opening time typed into Saturday's
+  row. Say what has to hold within a row (`opens < closes`) and that's checked
+  too.
+- **Changed evidence gets flagged.** Re-capture your sources, and anything built
+  on a page that changed or disappeared is flagged, with a diff, until someone
+  reconciles it.
 - **Evals prove it.** Questions with known answers. The free tier checks your
   data and your search with no API key. The live tier asks Claude, with the real
   tools, and fails any answer that came from memory instead of a lookup.
 
+None of this can tell you a source is wrong, and the checks are deterministic,
+so they have edges: the prose check knows the common ways of writing a fact, not
+every one, and a page that never says which value belongs to which row can only
+be checked as a whole. What they do is make the usual mistakes loud, early, and
+specific, before anyone asks.
+
 It speaks MCP, so it works with Claude Desktop, Claude Code, Codex, Cursor, VS
 Code, Copilot Studio, and anything else that does. It runs on your laptop or any
 server. It's MIT licensed, and every piece described here is in this repo. All of
-it runs free except what needs a model: live evals, and the unattended rewrites,
+it runs free except what needs a model: live evals, and the optional autopilot,
 which run on your Claude plan or API key.
 
 ## Try it: 2 minutes, no API key
@@ -71,18 +80,7 @@ re-grades it for free.
 
 ## Make your own
 
-The fastest way: fork this repo, open it in Claude Code (or Codex, or Cursor),
-and say what you want:
-
-> Build an assistant for our organization from https://our-site.example and
-> our policy folder, then take it to production and keep it current.
-
-[CLAUDE.md](CLAUDE.md) walks the agent through every step. It builds the
-facts, pages, and eval questions, deploys, and turns on the autopilot and the
-watchdog. From then on the assistant keeps itself current. The agent asks you
-only for credentials (a hosting login and a Claude key), all at once, and makes
-every other decision itself. `./gt status` shows where you are at any point. By
-hand, it's these commands:
+From your website to a tested assistant:
 
 ```bash
 ./gt init my-assistant --template saas    # or: college, city, clinic, blank
@@ -119,8 +117,9 @@ hand, it's these commands:
    in my-assistant/build/compile-packet.md"*: it reshapes the facts, writes the
    pages, swaps out the template examples, and runs the checks. Have an API key?
    `./gt compile --write` drafts the pages with Claude directly.
-4. **`check` and `eval`** catch facts in prose, broken links, bad YAML, and
-   questions your data can't answer. `./gt check --production` also fails on
+4. **`check` and `eval`** catch values your sources don't back up (or back up
+   for a different row), facts in prose, broken links, bad YAML, and questions
+   your data can't answer. `./gt check --production` also fails on
    leftover template examples: that's the gate the server and Docker use.
 5. **`connect`** prints setup for every common client with your real paths filled
    in. `--install` does it for you: it writes Claude Desktop, Cursor, or Windsurf
@@ -129,13 +128,23 @@ hand, it's these commands:
 Lost? **`./gt status`** shows the road from template to production: what's
 done, what's left, and the exact next command.
 
+**Or hand the whole thing to a coding agent.** Fork this repo, open it in
+Claude Code (or Codex, or Cursor), and say what you want:
+
+> Build an assistant for our organization from https://our-site.example and
+> our policy folder.
+
+[CLAUDE.md](CLAUDE.md) walks the agent through every step above: it captures the
+sources, builds the facts, pages, and eval questions, and runs the gates until
+they pass. It makes the decisions itself.
+
 **How long it takes:** the commands take minutes. The real work is curation:
 deciding what's a fact, writing pages, choosing eval questions. A coding agent
 working from the compile packet does most of it for a small site in an
 afternoon; by hand, budget a day for your first few dozen facts and pages.
 
-Prefer to do it by hand? Every file is plain YAML or markdown. Edit `facts/`
-and `wiki/` directly, and `./gt check` tells you if anything's off.
+Every file is plain YAML or markdown, so you can always edit `facts/` and
+`wiki/` by hand; `./gt check` tells you if anything's off.
 
 ## A fact is a few lines of YAML
 
@@ -157,8 +166,20 @@ rows:
 That file gives the model a `get_plan` tool. Lookups are forgiving ("pro",
 "business plan", "how much is team") and answers are exact, each with a `source`
 (the URL, or the file for local documents) so the assistant can cite it. Edit
-the YAML and the running server picks it up as soon as it passes `./gt check`. `list` tools add filters (`get_hours(branch="main", day="sat")`),
-references between files, and "upcoming only" for dated rows. Full reference:
+the YAML and the running server picks it up as soon as it passes `./gt check`.
+`list` tools add filters (`get_hours(branch="main", day="sat")`), references
+between files, and "upcoming only" for dated rows.
+
+Every value has to be on `pricing.md`, and on the line about its own row. Type
+the Starter price into the Team row and `./gt check` says where each one is:
+
+```
+facts/plans.yaml: row team: price_usd has '9', which sources/pages/pricing.md gives for starter
+("Starter: $9 per user per month. 3 projects, 10 GB storage."), not for this row
+("Team: $29 per user per month. Unlimited projects, 100 GB storage.")
+```
+
+Full reference, including `rules:` and how rows are matched to lines:
 [docs/facts.md](docs/facts.md).
 
 ## A wiki page is markdown with receipts
@@ -231,26 +252,9 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
   fails the checks: `./gt check --production` over HTTP, `./gt check` over stdio
   (what Claude Desktop and other local clients use, so you can still explore a
   template). While it runs, every edit is checked first: one that fails is
-  rejected, the last good version keeps serving, and `/healthz` says so. **`./gt watchdog --url ...`** checks a deployed server end
-  to end, daily via `.github/workflows/watchdog.yml`.
-- **Weekly refresh**: `.github/workflows/refresh.yml` re-ingests your sources,
-  rebuilds, runs the gates, and opens a pull request. A quiet week opens nothing
-  and costs nothing.
-- **Or nobody in the loop at all.** With `host: github-actions`, a scheduled
-  workflow keeps everything current by itself, with no machine to run. It
-  re-captures sources nightly, and the ones your facts cite every two hours.
-  Headless Claude Code (Haiku writes, Sonnet checks, Opus takes what they
-  can't) then:
-  - updates, adds, or retires the facts a changed source affects,
-  - writes pages for new sources and retires pages whose sources are gone,
-  - rewrites stale pages,
-  - fixes what the nightly live eval gets wrong (`./gt repair`).
-
-  A change ships only when every value in it appears in its source, the gates
-  pass, the second model agrees, and the assistant answers the golden questions
-  on the production model no worse than before. Anything it can't handle becomes
-  a line in `ALERTS.md`, and the daily watchdog fails until it's fixed. See
-  [docs/operations.md](docs/operations.md#the-refresh-host-nobody-in-the-loop).
+  rejected, the last good version keeps serving, and `/healthz` says so.
+- **Watched from outside**: `./gt watchdog --url ...` checks a deployed server
+  end to end, daily via `.github/workflows/watchdog.yml`.
 - **A chat page, no client to set up**: with `GT_CHAT=1` and an Anthropic key on
   the server, `/chat` is a web chatbot for your users. It uses the same tools and
   instructions your evals grade, shows its sources, and rate-limits visitors.
@@ -258,6 +262,38 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
   servers started with `GT_DATA_URL` verify and hot-swap new bundles.
 - **`./gt report`**: what people ask, error rates, latency, and the gaps:
   lookups that found nothing, each a ready-made to-do.
+
+Want the agent to do this part too? Ask it to *take it to production*:
+[CLAUDE.md](CLAUDE.md) has the steps, and it asks you once for a hosting login
+and a Claude key.
+
+## Keep it current
+
+Sources change. There are two ways to keep up; start with the first.
+
+- **A weekly pull request**: `.github/workflows/refresh.yml` re-ingests your
+  sources, rebuilds, runs the gates, and opens a pull request for a person to
+  review. You see every change before it lands. A quiet week opens nothing and
+  costs nothing.
+- **The autopilot, nobody in the loop**: with `host: github-actions`, a
+  scheduled workflow keeps everything current by itself, with no machine to run.
+  It re-captures sources nightly, and the ones your facts cite every two hours.
+  Headless Claude Code (Haiku writes, Sonnet checks, Opus takes what they
+  can't) then:
+  - updates, adds, or retires the facts a changed source affects,
+  - writes pages for new sources and retires pages whose sources are gone,
+  - rewrites stale pages,
+  - fixes what the nightly live eval gets wrong (`./gt repair`).
+
+  A change ships only when every value in it checks out against its source,
+  row by row, the gates pass, the second model agrees, and the assistant answers
+  the golden questions on the production model no worse than before. Anything
+  it can't handle becomes a line in `ALERTS.md`, and the daily watchdog fails
+  until it's fixed. See
+  [docs/operations.md](docs/operations.md#the-refresh-host-nobody-in-the-loop).
+
+The autopilot changes your facts without asking, under those checks. Turn it on
+once the weekly pull requests have become routine to approve.
 
 ## Every command
 
@@ -268,7 +304,7 @@ docker build -t my-assistant --build-arg PROJECT=my-assistant . && docker run -p
 | `./gt init NAME -t TEMPLATE` | Start your own assistant (`./gt init --list` for templates) |
 | `./gt ingest URL\|FOLDER` | Pull a site, sitemap, or folder into `sources/pages/` |
 | `./gt compile [--write]` | Draft pages, fact candidates, and a work order for a coding agent (or draft pages with Claude) |
-| `./gt check [--production]` | Facts, source review, wiki structure, no facts in prose, eval wiring (`--production`: no template examples) |
+| `./gt check [--production]` | Facts and their rules, grounding by row, source review, wiki structure, no facts in prose, eval wiring (`--production`: no template examples, and grounding fails instead of warning) |
 | `./gt review [--diff] [--done]` | Sources that changed (or vanished) since your facts and wiki were checked against them |
 | `./gt examples [--remove]` | The template's fictional example content |
 | `./gt eval [--tier live]` | Run the golden set (free tier needs nothing; `--export copilot-studio` to grade the model there) |
